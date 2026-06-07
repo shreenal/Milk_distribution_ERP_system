@@ -7,6 +7,7 @@ import { TraysModule } from './modules/trays/trays.module.js';
 import { CollectionsModule } from './modules/collections/collections.module.js';
 import { WorkflowModule } from './modules/workflow/workflow.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { VehicleCapacityModule } from './modules/vehicle-capacity/vehicle-capacity.module.js';
 
 
 @Module({
@@ -15,7 +16,8 @@ import { AuthModule } from './modules/auth/auth.module.js';
     OrdersModule,
     TraysModule,
     CollectionsModule,
-    AuthModule],
+    VehicleCapacityModule,
+    AuthModule,],
   controllers: [AppController],
   providers: [AppService],
 })

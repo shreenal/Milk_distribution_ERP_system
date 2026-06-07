@@ -7,8 +7,9 @@ import { OrdersBillingBuilder } from './order.billing-builder.js';
 import { OrdersValidationService } from './orders-validation.service.js';
 import { TraysModule } from '../trays/trays.module.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
-import { WorkflowOrchestrator } from '../workflow/workflow-orchestrator.js';
 import { CollectionsModule } from '../collections/collections.module.js';
+import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
+
 
 @Module({
    imports: [TraysModule,CollectionsModule,WorkflowModule],
@@ -22,12 +23,14 @@ import { CollectionsModule } from '../collections/collections.module.js';
     OrdersRepository,
     OrdersBillingBuilder,
     OrdersValidationService,
+    ProductColumnsBuilder
   ],
 
   exports: [
     OrdersService,
     OrdersRepository,
     OrdersValidationService,
+    ProductColumnsBuilder,
   ],
 })
 export class OrdersModule {}
