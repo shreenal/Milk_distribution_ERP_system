@@ -149,9 +149,202 @@ export class VehicleCapacityBuilder {
         };
     }
 
+
+
+    buildVehicleSummary(
+
+        groupSummary: any,
+
+        groupAllocations: any[],
+
+        vehicles: any[],
+    ) {
+
+        const milkDefaults =
+            initializeProductFields(
+                groupSummary
+                    .milkGrid
+                    .columns,
+            );
+
+        const nonMilkDefaults =
+            initializeProductFields(
+                groupSummary
+                    .nonMilkGrid
+                    .columns,
+            );
+
+        const milkVehicleMap =
+            new Map();
+
+        const nonMilkVehicleMap =
+            new Map();
+
+
+
+        for (
+            const vehicle of vehicles
+        ) {
+
+            milkVehicleMap.set(
+                vehicle.id,
+                {
+
+                    vehicleId:
+                        vehicle.id,
+
+                    vehicleName:
+                        vehicle.vehicle_name,
+
+                    ...milkDefaults,
+                },
+            );
+
+            nonMilkVehicleMap.set(
+                vehicle.id,
+                {
+
+                    vehicleId:
+                        vehicle.id,
+
+                    vehicleName:
+                        vehicle.vehicle_name,
+
+                    ...nonMilkDefaults,
+                },
+            );
+        }
+
+        for (
+            const allocation of groupAllocations
+        ) {
+
+            const milkGroupRow =
+                groupSummary
+                    .milkGrid
+                    .rows
+                    .find(
+                        row =>
+                            row.groupId ===
+                            allocation.group_id,
+                    );
+
+            const nonMilkGroupRow =
+                groupSummary
+                    .nonMilkGrid
+                    .rows
+                    .find(
+                        row =>
+                            row.groupId ===
+                            allocation.group_id,
+                    );
+
+            const milkVehicleRow =
+                milkVehicleMap.get(
+                    allocation.vehicle_id,
+                );
+
+            const nonMilkVehicleRow =
+                nonMilkVehicleMap.get(
+                    allocation.vehicle_id,
+                );
+
+            if (
+                milkGroupRow &&
+                milkVehicleRow
+            ) {
+
+                for (
+                    const key of Object.keys(
+                        milkGroupRow,
+                    )
+                ) {
+
+                    if (
+                        key === 'groupId' ||
+                        key === 'groupName'
+                    ) {
+
+                        continue;
+                    }
+
+                    milkVehicleRow[key] =
+                        (
+                            milkVehicleRow[key]
+                            ?? 0
+                        ) +
+                        (
+                            milkGroupRow[key]
+                            ?? 0
+                        );
+                }
+            }
+
+            if (
+                nonMilkGroupRow &&
+                nonMilkVehicleRow
+            ) {
+
+                for (
+                    const key of Object.keys(
+                        nonMilkGroupRow,
+                    )
+                ) {
+
+                    if (
+                        key === 'groupId' ||
+                        key === 'groupName'
+                    ) {
+
+                        continue;
+                    }
+
+                    nonMilkVehicleRow[key] =
+                        (
+                            nonMilkVehicleRow[key]
+                            ?? 0
+                        ) +
+                        (
+                            nonMilkGroupRow[key]
+                            ?? 0
+                        );
+                }
+            }
+        }
+
+        return {
+
+            milkGrid: {
+
+                columns:
+                    groupSummary
+                        .milkGrid
+                        .columns,
+
+                rows:
+                    Array.from(
+                        milkVehicleMap.values(),
+                    ),
+            },
+
+            nonMilkGrid: {
+
+                columns:
+                    groupSummary
+                        .nonMilkGrid
+                        .columns,
+
+                rows:
+                    Array.from(
+                        nonMilkVehicleMap.values(),
+                    ),
+            },
+        };
+    }
+
     private buildVehicleCapacityColumns(
         products: any[],
-        includePackagingType:boolean
+        includePackagingType: boolean
     ) {
         const columns =
             this.productColumnsBuilder
@@ -195,4 +388,46 @@ export class VehicleCapacityBuilder {
 
         return columns;
     }
+
+
+
 }
+
+const initializeProductFields = (
+    columns: any[],
+) => {
+
+    const row: any = {};
+
+    const walk = (
+        nodes: any[],
+    ) => {
+
+        for (
+            const node of nodes
+        ) {
+
+            if (
+                node.field
+            ) {
+
+                row[node.field] = 0;
+            }
+
+            if (
+                node.children
+            ) {
+
+                walk(
+                    node.children,
+                );
+            }
+        }
+    };
+
+    walk(
+        columns,
+    );
+
+    return row;
+};

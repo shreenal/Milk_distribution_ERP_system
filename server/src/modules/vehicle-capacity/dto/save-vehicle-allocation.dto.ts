@@ -1,10 +1,34 @@
+import {
+    IsArray,
+    IsInt,
+    ValidateNested,
+} from 'class-validator';
+
+import {
+    Type,
+} from 'class-transformer';
+
+class VehicleAllocationItemDto {
+
+    @IsInt()
+    groupId: number;
+
+    @IsInt()
+    vehicleId: number;
+}
+
 export class SaveVehicleAllocationDto {
 
-    allocations: {
+    @IsArray()
 
-        groupId: number;
+    @ValidateNested({
+        each: true,
+    })
 
-        vehicleId: number;
+    @Type(
+        () => VehicleAllocationItemDto,
+    )
 
-    }[];
+    allocations:
+        VehicleAllocationItemDto[];
 }
