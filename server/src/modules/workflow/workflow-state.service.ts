@@ -55,6 +55,14 @@ export class WorkflowStateService {
         return ['NIGHT_SUBMITTED','REOPENED'].includes(status);
     }
 
+     canEditNightCollections(status: PaperStatus): boolean {
+        return ['DRAFT'].includes(status);
+    }
+
+    canEditMorningCollections(status: PaperStatus): boolean {
+        return ['NIGHT_SUBMITTED'].includes(status);
+    }
+
     canEditTrays(status: PaperStatus,): boolean {
         return ['NIGHT_SUBMITTED','REOPENED'].includes(status);
     }
@@ -76,6 +84,15 @@ export class WorkflowStateService {
             'REOPENED',
         ].includes(status);
     }
+
+    canEditVehicleAllocations(
+    status: PaperStatus,
+): boolean {
+
+    return [
+        'DRAFT',
+    ].includes(status);
+}
 
     canFinalize(
         status: PaperStatus,

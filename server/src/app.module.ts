@@ -7,7 +7,7 @@ import { TraysModule } from './modules/trays/trays.module.js';
 import { CollectionsModule } from './modules/collections/collections.module.js';
 import { WorkflowModule } from './modules/workflow/workflow.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
-import { VehicleCapacityModule } from './modules/vehicle-capacity/vehicle-capacity.module.js';
+import { VehicleAllocationModule } from './modules/vehicle-allocation/vehicle-allocation.module.js';
 
 
 @Module({
@@ -16,7 +16,7 @@ import { VehicleCapacityModule } from './modules/vehicle-capacity/vehicle-capaci
     OrdersModule,
     TraysModule,
     CollectionsModule,
-    VehicleCapacityModule,
+    VehicleAllocationModule,
     AuthModule,],
   controllers: [AppController],
   providers: [AppService],

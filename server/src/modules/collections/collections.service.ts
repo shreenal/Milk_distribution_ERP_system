@@ -19,7 +19,7 @@ from './dto/save-night-collection.dto.js';
 import { SaveMorningCollectionsDto }
 from './dto/save-morning-collection.dto.js';
 
-import { WorkflowStateService }
+import { PaperStatus, WorkflowStateService }
 from '../workflow/workflow-state.service.js';
 
 @Injectable()
@@ -99,9 +99,9 @@ async saveNightCollections(
     const status =
         sheet.order_paper.status;
 
-    if (status !== 'DRAFT') {
+     if (!this.workflowState.canEditNightCollections(status as PaperStatus)) {
         throw new BadRequestException(
-            'Night collections can only be edited in DRAFT status',
+            'Night collections can only be edited in DRAFT status'
         );
     }
 
@@ -139,11 +139,9 @@ async saveMorningCollections(
     const status =
         sheet.order_paper.status;
 
-    if (
-        status !== 'NIGHT_SUBMITTED'
-    ) {
+      if (!this.workflowState.canEditMorningCollections(status as PaperStatus)) {
         throw new BadRequestException(
-            'Morning collections can only be edited after night submission',
+            'Morning collections can only be edited after night submission'
         );
     }
 

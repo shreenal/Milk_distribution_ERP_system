@@ -187,19 +187,18 @@ model master_driver {
 }
 
 model master_group {
-  id                        Int                        @id @default(autoincrement())
-  name                      String
-  distributor_id            Int
-  vehicle_id                Int?
-  is_active                 Boolean                    @default(true)
-  created_at                DateTime                   @default(now())
-  updated_at                DateTime                   @default(now()) @updatedAt
-  billing_clients           master_client[]            @relation("BillingGroup")
-  delivery_clients          master_client[]            @relation("DeliveryGroup")
-  master_distributor        master_distributor         @relation(fields: [distributor_id], references: [id])
-  order_sheet               order_sheet[]
-  master_vehicle            master_vehicle?            @relation(fields: [vehicle_id], references: [id])
-  vehicle_group_allocations vehicle_group_allocation[]
+  id                 Int                @id @default(autoincrement())
+  name               String
+  distributor_id     Int
+  vehicle_id         Int?
+  is_active          Boolean            @default(true)
+  created_at         DateTime           @default(now())
+  updated_at         DateTime           @default(now()) @updatedAt
+  billing_clients    master_client[]    @relation("BillingGroup")
+  delivery_clients   master_client[]    @relation("DeliveryGroup")
+  master_distributor master_distributor @relation(fields: [distributor_id], references: [id])
+  order_sheet        order_sheet[]
+  master_vehicle     master_vehicle?    @relation(fields: [vehicle_id], references: [id])
 
   @@unique([distributor_id, name])
 }
@@ -265,19 +264,19 @@ model master_product {
   packaging_unit    String
   gst_percentage    Decimal @default(0) @db.Decimal(5, 2)
 
-  is_gst_inclusive            Boolean                       @default(false)
-  is_active                   Boolean                       @default(true)
-  created_at                  DateTime                      @default(now())
-  updated_at                  DateTime                      @default(now()) @updatedAt
-  master_client_rate_product  master_client_rate_product[]
-  master_brand                master_brand                  @relation(fields: [brand_id], references: [id])
-  master_product_type         master_product_type?          @relation(fields: [product_type_id], references: [id])
-  master_packaging_type       master_packaging_type?        @relation(fields: [packaging_type_id], references: [id])
-  master_product_group        master_product_group          @relation(fields: [product_group_id], references: [id])
-  master_rate_product         master_rate_product[]
-  order_sheet_items           order_sheet_items[]
-  vehicle_capacity_allocation vehicle_capacity_allocation[]
-  purchase_entries            purchase_entry[]
+  is_gst_inclusive           Boolean                      @default(false)
+  is_active                  Boolean                      @default(true)
+  created_at                 DateTime                     @default(now())
+  updated_at                 DateTime                     @default(now()) @updatedAt
+  master_client_rate_product master_client_rate_product[]
+  master_brand               master_brand                 @relation(fields: [brand_id], references: [id])
+  master_product_type        master_product_type?         @relation(fields: [product_type_id], references: [id])
+  master_packaging_type      master_packaging_type?       @relation(fields: [packaging_type_id], references: [id])
+  master_product_group       master_product_group         @relation(fields: [product_group_id], references: [id])
+  master_rate_product        master_rate_product[]
+  order_sheet_items          order_sheet_items[]
+  vehicle_allocation         vehicle_allocation[]
+  purchase_entries           purchase_entry[]
 
   @@unique([brand_id, product_group_id, product_type_id, packaging_type_id, packaging_size, packaging_unit])
 }
@@ -323,20 +322,19 @@ model master_tray_type {
 }
 
 model master_vehicle {
-  id                          Int                           @id @default(autoincrement())
-  vehicle_number              String                        @unique
-  vehicle_name                String?
-  capacity                    Int?
-  is_active                   Boolean                       @default(true)
-  created_at                  DateTime                      @default(now())
-  updated_at                  DateTime                      @default(now()) @updatedAt
-  master_driver               master_driver[]
-  master_group                master_group[]
-  vehicle_capacity_allocation vehicle_capacity_allocation[]
-  purchase_entries            purchase_entry[]
-  purchase_gatepasses         purchase_vehicle_gatepass[]
-  tray_summary_rows           tray_summary_row[]
-  vehicle_group_allocations   vehicle_group_allocation[]
+  id                  Int                         @id @default(autoincrement())
+  vehicle_number      String                      @unique
+  vehicle_name        String?
+  capacity            Int?
+  is_active           Boolean                     @default(true)
+  created_at          DateTime                    @default(now())
+  updated_at          DateTime                    @default(now()) @updatedAt
+  master_driver       master_driver[]
+  master_group        master_group[]
+  vehicle_allocation  vehicle_allocation[]
+  purchase_entries    purchase_entry[]
+  purchase_gatepasses purchase_vehicle_gatepass[]
+  tray_summary_rows   tray_summary_row[]
 }
 
 enum OrderPaperStatus {
@@ -348,19 +346,19 @@ enum OrderPaperStatus {
 }
 
 model order_paper {
-  id                         Int                     @id @default(autoincrement())
-  order_date                 DateTime                @unique @db.Date
-  status                     OrderPaperStatus        @default(DRAFT)
+  id                         Int                       @id @default(autoincrement())
+  order_date                 DateTime                  @unique @db.Date
+  status                     OrderPaperStatus          @default(DRAFT)
   night_entry_submitted_at   DateTime?
   morning_entry_submitted_at DateTime?
   finalized_at               DateTime?
   reopened_at                DateTime?
   reopen_reason              String?
-  sale_date                  DateTime                @db.Date
-  created_at                 DateTime                @default(now())
-  updated_at                 DateTime                @default(now()) @updatedAt
+  sale_date                  DateTime                  @db.Date
+  created_at                 DateTime                  @default(now())
+  updated_at                 DateTime                  @default(now()) @updatedAt
   order_sheet                order_sheet[]
-  vehicle_capacity_paper     vehicle_capacity_paper?
+  vehicle_allocation_paper   vehicle_allocation_paper?
   purchase_paper             purchase_paper?
   tray_summary_paper         tray_summary_paper?
 }
@@ -443,7 +441,7 @@ model users {
   role roles @relation(fields: [role_id], references: [id])
 }
 
-model vehicle_capacity_paper {
+model vehicle_allocation_paper {
   id Int @id @default(autoincrement())
 
   order_paper_id Int @unique
@@ -452,39 +450,15 @@ model vehicle_capacity_paper {
 
   updated_at DateTime @updatedAt
 
-  allocations vehicle_capacity_allocation[]
-
-  group_allocations vehicle_group_allocation[]
+  allocations vehicle_allocation[]
 
   order_paper order_paper @relation(fields: [order_paper_id], references: [id])
 }
 
-model vehicle_group_allocation {
+model vehicle_allocation {
   id Int @id @default(autoincrement())
 
-  vehicle_capacity_paper_id Int
-
-  group_id Int
-
-  vehicle_id Int
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  vehicle_capacity_paper vehicle_capacity_paper @relation(fields: [vehicle_capacity_paper_id], references: [id], onDelete: Cascade)
-
-  master_group master_group @relation(fields: [group_id], references: [id])
-
-  master_vehicle master_vehicle @relation(fields: [vehicle_id], references: [id])
-
-  @@unique([vehicle_capacity_paper_id, group_id])
-}
-
-model vehicle_capacity_allocation {
-  id Int @id @default(autoincrement())
-
-  vehicle_capacity_paper_id Int
+  vehicle_allocation_paper_id Int
 
   vehicle_id Int
 
@@ -496,12 +470,12 @@ model vehicle_capacity_allocation {
 
   updated_at DateTime @updatedAt
 
-  vehicle_capacity_paper vehicle_capacity_paper @relation(fields: [vehicle_capacity_paper_id], references: [id], onDelete: Cascade)
-  master_vehicle         master_vehicle         @relation(fields: [vehicle_id], references: [id])
+  vehicle_allocation_paper vehicle_allocation_paper @relation(fields: [vehicle_allocation_paper_id], references: [id], onDelete: Cascade)
+  master_vehicle           master_vehicle           @relation(fields: [vehicle_id], references: [id])
 
   master_product master_product @relation(fields: [product_id], references: [id])
 
-  @@unique([vehicle_capacity_paper_id, vehicle_id, product_id])
+  @@unique([vehicle_allocation_paper_id, vehicle_id, product_id])
 }
 
 model purchase_paper {

@@ -41,6 +41,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 // import { TrayGatepassRepository } from '../tray-gatepass/tray-gatepass.repository.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { CollectionsService } from '../collections/collections.service.js';
+import { VehicleAllocationValidationService } from '../vehicle-allocation/vehicle-allocation-validation.service.js';
 
 @Injectable()
 export class OrdersService {
@@ -74,6 +75,9 @@ export class OrdersService {
 
         private readonly collectionsValidationService:
             CollectionsValidationService,
+        
+        private readonly vehicleAllocationValidationService:
+            VehicleAllocationValidationService,
 
         private readonly workflowState: WorkflowStateService,
 
@@ -987,6 +991,12 @@ export class OrdersService {
 
         const sheets = await this.ordersRepository.getPaperSheets(paperId);
 
+              await this
+    .vehicleAllocationValidationService
+    .validateVehicleAllocationsForNightSubmit(
+        paperId,
+    );
+
         for (const sheet of sheets) {
             const entries = await this.ordersRepository.getSheetItems(sheet.id);
 
@@ -996,7 +1006,6 @@ export class OrdersService {
                     `Please enter at least one order before submitting.`
                 );
             }
-
             const incompleteEntries = entries.filter(item => item.ordered_qty === null);
 
             if (incompleteEntries.length > 0) {
@@ -1004,8 +1013,6 @@ export class OrdersService {
                     `Night entry incomplete for sheet "${sheet.master_group.name}"`
                 );
             }
-
-
 
             const traySheet = await this.traysService.getTraySheetService(sheet.id);
 
@@ -1019,6 +1026,8 @@ export class OrdersService {
                 .validateNightCollections(
                     sheet.id,
                 );
+
+      
         }
 
         return this.ordersRepository.submitNightEntry(paperId);
