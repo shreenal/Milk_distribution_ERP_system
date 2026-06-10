@@ -35,30 +35,6 @@ export const PAPER_STATUS = {
 export type PaperStatus = typeof PAPER_STATUS[keyof typeof PAPER_STATUS];
 
 
-export const STATUS_TRANSITIONS: Record<PaperStatus, PaperStatus[]> = {
-    [PAPER_STATUS.DRAFT]: [
-        PAPER_STATUS.NIGHT_SUBMITTED,
-    ],
-
-    [PAPER_STATUS.NIGHT_SUBMITTED]: [
-        PAPER_STATUS.DRAFT,              // Undo night submission
-        PAPER_STATUS.MORNING_SUBMITTED,  // Proceed to morning
-    ],
-
-    [PAPER_STATUS.MORNING_SUBMITTED]: [
-        PAPER_STATUS.NIGHT_SUBMITTED,    // Go back to re-submit night
-        PAPER_STATUS.FINALIZED,          // Ready to finalize
-    ],
-
-    [PAPER_STATUS.FINALIZED]: [
-        PAPER_STATUS.REOPENED,           // Reopen for corrections
-    ],
-
-    [PAPER_STATUS.REOPENED]: [
-        PAPER_STATUS.MORNING_SUBMITTED,  // After re-editing morning
-        PAPER_STATUS.FINALIZED,          // If only night edits (direct finalize)
-    ],
-} as const;
 
 /**
  * Editable Statuses
@@ -141,6 +117,8 @@ export const ERROR_MESSAGES = {
     PRODUCT_NOT_FOUND: (id: number) => `Product with ID ${id} not found`,
     PRODUCT_INACTIVE: (name: string) =>
         `Product "${name}" is inactive and cannot be ordered`,
+    NO_ORDERS_IN_SHEET: (groupName: string) =>
+        `No orders entered for sheet "${groupName}". Please enter at least one order before submitting.`,
     CLIENT_NOT_FOUND: (id: number) => `Client with ID ${id} not found`,
     CLIENT_INACTIVE: (name: string) =>
         `Client "${name}" is inactive and cannot be ordered`,
@@ -150,17 +128,14 @@ export const ERROR_MESSAGES = {
         `Client ${clientId} does not belong to group ${groupId}`,
 
     // Status/Workflow errors
-    INVALID_STATUS_TRANSITION: (current: PaperStatus, target: PaperStatus) =>
-        `Cannot transition from ${current} to ${target}`,
     CANNOT_EDIT_NIGHT: (status: PaperStatus) =>
         `Cannot edit night entries when paper is ${status}. ` +
         `Allowed statuses: DRAFT, REOPENED`,
     CANNOT_EDIT_MORNING: (status: PaperStatus) =>
         `Cannot edit morning entries when paper is ${status}. ` +
         `Allowed statuses: NIGHT_SUBMITTED, REOPENED`,
-    MUST_RESUBMIT_MORNING: (previousStatus: PaperStatus) =>
-        `After reopening from ${previousStatus}, ` +
-        `you must resubmit morning entry before finalizing`,
+    NIGHT_ENTRY_INCOMPLETE: (groupName: string) =>
+        `Night entry incomplete for sheet "${groupName}"`,
 
     // Quantity/Amount errors
     INVALID_QUANTITY_PRECISION: (qty: number, precision: number) =>
@@ -176,7 +151,7 @@ export const ERROR_MESSAGES = {
         `cannot exceed ordered quantity (${ordered})`,
     NO_ORDERED_QUANTITY: (clientId: number, productId: number) =>
         `No ordered quantity found for Client ${clientId}, Product ${productId}`,
-
+    
     // Duplicate/Conflict errors
     DUPLICATE_ENTRIES: (keys: string[]) =>
         `Duplicate entries found: ${keys.join(', ')}. ` +
@@ -199,14 +174,9 @@ export const ERROR_MESSAGES = {
 
 
 export const SUCCESS_MESSAGES = {
-    PAPER_GENERATED: (date: string) =>
-        `Order paper generated successfully for ${date}`,
     NIGHT_ENTRIES_SAVED: 'Night entries saved successfully',
-    NIGHT_ENTRIES_SUBMITTED: 'Night entries submitted successfully',
     MORNING_ENTRIES_SAVED: 'Morning entries saved successfully',
-    MORNING_ENTRIES_SUBMITTED: 'Morning entries submitted successfully',
-    PAPER_FINALIZED: 'Order paper finalized successfully',
-    PAPER_REOPENED: 'Order paper reopened successfully',
+
     ENTRIES_DEDUPLICATED: (removed: number) =>
         `Saved successfully (${removed} duplicate(s) merged)`,
 } as const;

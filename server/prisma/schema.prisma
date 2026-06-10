@@ -8,27 +8,20 @@ datasource db {
 }
 
 model client_collection {
-  id Int @id @default(autoincrement())
-
-  order_sheet_id Int
-  client_id      Int
-
-  cash_collection     Decimal @default(0) @db.Decimal(12, 2)
-  office_amount_given Decimal @default(0) @db.Decimal(12, 2)
-  cheque_collection   Decimal @default(0) @db.Decimal(12, 2)
-
-  online_collection Decimal @default(0) @db.Decimal(12, 2)
-  bank_deposit      Decimal @default(0) @db.Decimal(12, 2)
-
-  employee_remarks String?
-  admin_remarks    String?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  order_sheet order_sheet @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
-
-  master_client master_client @relation(fields: [client_id], references: [id])
+  id                  Int           @id @default(autoincrement())
+  order_sheet_id      Int
+  client_id           Int
+  cash_collection     Decimal       @default(0) @db.Decimal(12, 2)
+  office_amount_given Decimal       @default(0) @db.Decimal(12, 2)
+  cheque_collection   Decimal       @default(0) @db.Decimal(12, 2)
+  online_collection   Decimal       @default(0) @db.Decimal(12, 2)
+  bank_deposit        Decimal       @default(0) @db.Decimal(12, 2)
+  created_at          DateTime      @default(now())
+  updated_at          DateTime      @updatedAt
+  admin_remarks       String?
+  employee_remarks    String?
+  master_client       master_client @relation(fields: [client_id], references: [id])
+  order_sheet         order_sheet   @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
 
   @@unique([order_sheet_id, client_id])
   @@index([order_sheet_id])
@@ -55,13 +48,13 @@ model client_tray_transaction {
   client_id            Int
   tray_type_id         Int
   opening_balance      Int              @default(0)
-  expected_trays_taken Int?
   trays_taken          Int              @default(0)
   trays_returned       Int              @default(0)
   closing_balance      Int              @default(0)
   remarks              String?
   created_at           DateTime         @default(now())
   updated_at           DateTime         @default(now()) @updatedAt
+  expected_trays_taken Int?
   master_client        master_client    @relation(fields: [client_id], references: [id])
   order_sheet          order_sheet      @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
   master_tray_type     master_tray_type @relation(fields: [tray_type_id], references: [id])
@@ -71,25 +64,20 @@ model client_tray_transaction {
   @@index([order_sheet_id])
 }
 
-enum GatepassDatePolicy {
-  PREVIOUS_DAY
-  SAME_DAY
-}
-
 model master_brand {
   id                   Int                            @id @default(autoincrement())
   name                 String                         @unique
-  dairy_id             Int
-  gatepass_date_policy GatepassDatePolicy             @default(SAME_DAY)
   is_active            Boolean                        @default(true)
   created_at           DateTime                       @default(now())
   updated_at           DateTime                       @default(now()) @updatedAt
-  master_dairy         master_dairy?                  @relation(fields: [dairy_id], references: [id])
-  master_product_type  master_product_type[]
+  dairy_id             Int
+  gatepass_date_policy GatepassDatePolicy             @default(SAME_DAY)
+  procurement_rules    distributor_procurement_rule[]
+  master_dairy         master_dairy                   @relation(fields: [dairy_id], references: [id])
   master_product       master_product[]
+  master_product_type  master_product_type[]
   master_tray_type     master_tray_type[]
   product_tray_rule    product_tray_rule[]
-  procurement_rules    distributor_procurement_rule[]
   tray_summary_rows    tray_summary_row[]
 }
 
@@ -99,20 +87,20 @@ model master_client {
   name                       String
   contact                    String?
   shop_name                  String?
-  billing_group_id           Int
-  delivery_group_id          Int
   is_active                  Boolean                      @default(true)
   created_at                 DateTime                     @default(now())
   updated_at                 DateTime                     @default(now()) @updatedAt
   supply_distributor_id      Int?
   distributor_id             Int
-  master_distributor         master_distributor           @relation("PrimaryDistributor", fields: [distributor_id], references: [id])
-  supply_distributor         master_distributor?          @relation("SupplyDistributor", fields: [supply_distributor_id], references: [id])
+  billing_group_id           Int
+  delivery_group_id          Int
   client_collection          client_collection[]
   client_payment             client_payment[]
   client_tray_transaction    client_tray_transaction[]
   billing_group              master_group                 @relation("BillingGroup", fields: [billing_group_id], references: [id])
   delivery_group             master_group                 @relation("DeliveryGroup", fields: [delivery_group_id], references: [id])
+  master_distributor         master_distributor           @relation("PrimaryDistributor", fields: [distributor_id], references: [id])
+  supply_distributor         master_distributor?          @relation("SupplyDistributor", fields: [supply_distributor_id], references: [id])
   master_client_rate_product master_client_rate_product[]
   order_sheet_items          order_sheet_items[]
 }
@@ -123,8 +111,8 @@ model master_client_rate_product {
   product_id     Int
   selling_rate   Decimal        @db.Decimal(10, 2)
   effective_from DateTime       @default(now())
-  effective_to   DateTime?
   is_active      Boolean        @default(true)
+  effective_to   DateTime?
   master_client  master_client  @relation(fields: [client_id], references: [id])
   master_product master_product @relation(fields: [product_id], references: [id])
 
@@ -141,35 +129,27 @@ model master_dairy {
 }
 
 model master_distributor {
-  id        Int     @id @default(autoincrement())
-  name      String  @unique
-  contact   String?
-  email     String?
-  is_active Boolean @default(true)
-
-  master_group        master_group[]
+  id                  Int                            @id @default(autoincrement())
+  name                String                         @unique
+  contact             String?
+  email               String?
+  is_active           Boolean                        @default(true)
+  procurement_rules   distributor_procurement_rule[]
   clients             master_client[]                @relation("PrimaryDistributor")
   supplied_clients    master_client[]                @relation("SupplyDistributor")
-  procurement_rules   distributor_procurement_rule[]
+  master_group        master_group[]
   purchase_gatepasses purchase_vehicle_gatepass[]
   tray_summary_rows   tray_summary_row[]
 }
 
 model distributor_procurement_rule {
-  id Int @id @default(autoincrement())
-
-  distributor_id Int
-
-  brand_id Int
-
-  product_group_id Int
-
-  is_active Boolean @default(true)
-
-  master_distributor master_distributor @relation(fields: [distributor_id], references: [id])
-
-  master_brand master_brand @relation(fields: [brand_id], references: [id])
-
+  id                   Int                  @id @default(autoincrement())
+  distributor_id       Int
+  brand_id             Int
+  product_group_id     Int
+  is_active            Boolean              @default(true)
+  master_brand         master_brand         @relation(fields: [brand_id], references: [id])
+  master_distributor   master_distributor   @relation(fields: [distributor_id], references: [id])
   master_product_group master_product_group @relation(fields: [product_group_id], references: [id])
 
   @@unique([distributor_id, brand_id, product_group_id])
@@ -197,8 +177,8 @@ model master_group {
   billing_clients    master_client[]    @relation("BillingGroup")
   delivery_clients   master_client[]    @relation("DeliveryGroup")
   master_distributor master_distributor @relation(fields: [distributor_id], references: [id])
-  order_sheet        order_sheet[]
   master_vehicle     master_vehicle?    @relation(fields: [vehicle_id], references: [id])
+  order_sheet        order_sheet[]
 
   @@unique([distributor_id, name])
 }
@@ -208,8 +188,8 @@ model master_product_type {
   brand_id          Int
   name              String
   created_at        DateTime            @default(now())
-  master_brand      master_brand        @relation(fields: [brand_id], references: [id])
   master_product    master_product[]
+  master_brand      master_brand        @relation(fields: [brand_id], references: [id])
   product_tray_rule product_tray_rule[]
 
   @@unique([brand_id, name])
@@ -224,59 +204,46 @@ model master_packaging_type {
 }
 
 model product_tray_rule {
-  id Int @id @default(autoincrement())
-
-  product_group_id Int?
-
-  brand_id Int?
-
-  product_type_id Int?
-
-  packaging_type_id Int?
-
-  tray_type_id Int
-
-  applies_to_packaging Boolean @default(true)
-
-  is_active Boolean @default(true)
-
-  master_product_group master_product_group? @relation(fields: [product_group_id], references: [id])
-
-  master_brand master_brand? @relation(fields: [brand_id], references: [id])
-
-  master_product_type master_product_type? @relation(fields: [product_type_id], references: [id])
-
+  id                    Int                    @id @default(autoincrement())
+  product_group_id      Int?
+  brand_id              Int?
+  product_type_id       Int?
+  packaging_type_id     Int?
+  tray_type_id          Int
+  applies_to_packaging  Boolean                @default(true)
+  is_active             Boolean                @default(true)
+  master_brand          master_brand?          @relation(fields: [brand_id], references: [id])
   master_packaging_type master_packaging_type? @relation(fields: [packaging_type_id], references: [id])
-
-  master_tray_type master_tray_type @relation(fields: [tray_type_id], references: [id])
+  master_product_group  master_product_group?  @relation(fields: [product_group_id], references: [id])
+  master_product_type   master_product_type?   @relation(fields: [product_type_id], references: [id])
+  master_tray_type      master_tray_type       @relation(fields: [tray_type_id], references: [id])
 
   @@index([product_group_id, brand_id, product_type_id, packaging_type_id])
 }
 
 model master_product {
-  id                Int     @id @default(autoincrement())
-  code              String  @unique
-  brand_id          Int
-  product_group_id  Int
-  product_type_id   Int?
-  packaging_type_id Int?
-  packaging_size    Decimal @db.Decimal(10, 2)
-  packaging_unit    String
-  gst_percentage    Decimal @default(0) @db.Decimal(5, 2)
-
-  is_gst_inclusive           Boolean                      @default(false)
+  id                         Int                          @id @default(autoincrement())
+  code                       String                       @unique
+  brand_id                   Int
+  product_group_id           Int
+  product_type_id            Int?
+  packaging_type_id          Int?
+  packaging_size             Decimal                      @db.Decimal(10, 2)
+  packaging_unit             String
   is_active                  Boolean                      @default(true)
   created_at                 DateTime                     @default(now())
   updated_at                 DateTime                     @default(now()) @updatedAt
+  gst_percentage             Decimal                      @default(0) @db.Decimal(5, 2)
+  is_gst_inclusive           Boolean                      @default(false)
   master_client_rate_product master_client_rate_product[]
   master_brand               master_brand                 @relation(fields: [brand_id], references: [id])
-  master_product_type        master_product_type?         @relation(fields: [product_type_id], references: [id])
   master_packaging_type      master_packaging_type?       @relation(fields: [packaging_type_id], references: [id])
   master_product_group       master_product_group         @relation(fields: [product_group_id], references: [id])
+  master_product_type        master_product_type?         @relation(fields: [product_type_id], references: [id])
   master_rate_product        master_rate_product[]
   order_sheet_items          order_sheet_items[]
-  vehicle_allocation         vehicle_allocation[]
   purchase_entries           purchase_entry[]
+  vehicle_allocation         vehicle_allocation[]
 
   @@unique([brand_id, product_group_id, product_type_id, packaging_type_id, packaging_size, packaging_unit])
 }
@@ -285,9 +252,9 @@ model master_product_group {
   id                Int                            @id @default(autoincrement())
   name              String                         @unique
   created_at        DateTime                       @default(now())
+  procurement_rules distributor_procurement_rule[]
   master_product    master_product[]
   product_tray_rule product_tray_rule[]
-  procurement_rules distributor_procurement_rule[]
   tray_summary_rows tray_summary_row[]
 }
 
@@ -297,8 +264,8 @@ model master_rate_product {
   purchase_rate  Decimal        @db.Decimal(10, 2)
   selling_rate   Decimal        @db.Decimal(10, 2)
   effective_from DateTime       @default(now())
-  effective_to   DateTime?
   is_active      Boolean        @default(true)
+  effective_to   DateTime?
   master_product master_product @relation(fields: [product_id], references: [id])
 
   @@unique([product_id, effective_from])
@@ -331,18 +298,10 @@ model master_vehicle {
   updated_at          DateTime                    @default(now()) @updatedAt
   master_driver       master_driver[]
   master_group        master_group[]
-  vehicle_allocation  vehicle_allocation[]
   purchase_entries    purchase_entry[]
   purchase_gatepasses purchase_vehicle_gatepass[]
   tray_summary_rows   tray_summary_row[]
-}
-
-enum OrderPaperStatus {
-  DRAFT
-  NIGHT_SUBMITTED
-  MORNING_SUBMITTED
-  FINALIZED
-  REOPENED
+  vehicle_allocation  vehicle_allocation[]
 }
 
 model order_paper {
@@ -354,13 +313,13 @@ model order_paper {
   finalized_at               DateTime?
   reopened_at                DateTime?
   reopen_reason              String?
-  sale_date                  DateTime                  @db.Date
   created_at                 DateTime                  @default(now())
   updated_at                 DateTime                  @default(now()) @updatedAt
+  sale_date                  DateTime                  @db.Date
   order_sheet                order_sheet[]
-  vehicle_allocation_paper   vehicle_allocation_paper?
   purchase_paper             purchase_paper?
   tray_summary_paper         tray_summary_paper?
+  vehicle_allocation_paper   vehicle_allocation_paper?
 }
 
 model order_sheet {
@@ -379,31 +338,24 @@ model order_sheet {
 }
 
 model order_sheet_items {
-  id             Int      @id @default(autoincrement())
-  order_sheet_id Int
-  client_id      Int
-  product_id     Int
-  ordered_qty    Decimal? @db.Decimal(10, 2)
-  delivered_qty  Decimal? @db.Decimal(10, 2)
-
-  night_selling_rate Decimal? @db.Decimal(10, 2)
-
-  night_bill_amount Decimal? @db.Decimal(12, 2)
-
-  final_selling_rate Decimal? @db.Decimal(10, 2)
-
-  final_gst_percentage Decimal? @db.Decimal(5, 2)
-
-  final_gst_amount Decimal? @db.Decimal(12, 2)
-
-  final_taxable_amount Decimal? @db.Decimal(12, 2)
-
-  final_bill_amount Decimal?       @db.Decimal(12, 2)
-  created_at        DateTime       @default(now())
-  updated_at        DateTime       @default(now()) @updatedAt
-  master_client     master_client  @relation(fields: [client_id], references: [id])
-  order_sheet       order_sheet    @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
-  master_product    master_product @relation(fields: [product_id], references: [id])
+  id                   Int            @id @default(autoincrement())
+  order_sheet_id       Int
+  client_id            Int
+  product_id           Int
+  created_at           DateTime       @default(now())
+  updated_at           DateTime       @default(now()) @updatedAt
+  delivered_qty        Decimal?       @db.Decimal(10, 2)
+  final_bill_amount    Decimal?       @db.Decimal(12, 2)
+  ordered_qty          Decimal?       @db.Decimal(10, 2)
+  final_gst_amount     Decimal?       @db.Decimal(12, 2)
+  final_gst_percentage Decimal?       @db.Decimal(5, 2)
+  final_selling_rate   Decimal?       @db.Decimal(10, 2)
+  final_taxable_amount Decimal?       @db.Decimal(12, 2)
+  night_bill_amount    Decimal?       @db.Decimal(12, 2)
+  night_selling_rate   Decimal?       @db.Decimal(10, 2)
+  master_client        master_client  @relation(fields: [client_id], references: [id])
+  order_sheet          order_sheet    @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
+  master_product       master_product @relation(fields: [product_id], references: [id])
 
   @@unique([order_sheet_id, client_id, product_id])
   @@index([client_id])
@@ -412,230 +364,154 @@ model order_sheet_items {
 }
 
 model roles {
-  id Int @id @default(autoincrement())
-
-  name String @unique
-
+  id    Int     @id @default(autoincrement())
+  name  String  @unique
   users users[]
 }
 
 model users {
-  id Int @id @default(autoincrement())
-
-  role_id Int
-
-  username String @unique
-
-  email String @unique
-
-  password String
-
+  id         Int      @id @default(autoincrement())
+  role_id    Int
+  username   String   @unique
+  email      String   @unique
+  password   String
   first_name String
-
-  last_name String
-
+  last_name  String
   created_at DateTime @default(now())
-
   updated_at DateTime @default(now()) @updatedAt
-
-  role roles @relation(fields: [role_id], references: [id])
+  role       roles    @relation(fields: [role_id], references: [id])
 }
 
 model vehicle_allocation_paper {
-  id Int @id @default(autoincrement())
-
-  order_paper_id Int @unique
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  allocations vehicle_allocation[]
-
-  order_paper order_paper @relation(fields: [order_paper_id], references: [id])
+  id             Int                  @id @default(autoincrement())
+  order_paper_id Int                  @unique
+  created_at     DateTime             @default(now())
+  updated_at     DateTime             @updatedAt
+  allocations    vehicle_allocation[]
+  order_paper    order_paper          @relation(fields: [order_paper_id], references: [id])
 }
 
 model vehicle_allocation {
-  id Int @id @default(autoincrement())
-
+  id                          Int                      @id @default(autoincrement())
   vehicle_allocation_paper_id Int
-
-  vehicle_id Int
-
-  product_id Int
-
-  allocated_qty Decimal @db.Decimal(10, 2)
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  vehicle_allocation_paper vehicle_allocation_paper @relation(fields: [vehicle_allocation_paper_id], references: [id], onDelete: Cascade)
-  master_vehicle           master_vehicle           @relation(fields: [vehicle_id], references: [id])
-
-  master_product master_product @relation(fields: [product_id], references: [id])
+  vehicle_id                  Int
+  product_id                  Int
+  allocated_qty               Decimal                  @db.Decimal(10, 2)
+  created_at                  DateTime                 @default(now())
+  updated_at                  DateTime                 @updatedAt
+  master_product              master_product           @relation(fields: [product_id], references: [id])
+  vehicle_allocation_paper    vehicle_allocation_paper @relation(fields: [vehicle_allocation_paper_id], references: [id], onDelete: Cascade)
+  master_vehicle              master_vehicle           @relation(fields: [vehicle_id], references: [id])
 
   @@unique([vehicle_allocation_paper_id, vehicle_id, product_id])
 }
 
 model purchase_paper {
-  id Int @id @default(autoincrement())
-
-  order_paper_id Int @unique
-
-  sale_date DateTime
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  entries purchase_entry[]
-
-  gatepasses purchase_vehicle_gatepass[]
-
-  order_paper order_paper @relation(fields: [order_paper_id], references: [id])
+  id             Int                         @id @default(autoincrement())
+  order_paper_id Int                         @unique
+  sale_date      DateTime
+  created_at     DateTime                    @default(now())
+  updated_at     DateTime                    @updatedAt
+  entries        purchase_entry[]
+  order_paper    order_paper                 @relation(fields: [order_paper_id], references: [id])
+  gatepasses     purchase_vehicle_gatepass[]
 }
 
 model purchase_vehicle_gatepass {
-  id Int @id @default(autoincrement())
-
-  purchase_paper_id Int
-
-  vehicle_id Int
-
-  distributor_id Int
-
-  dairy_id Int
-
-  gatepass_date DateTime
-
-  serial_number String
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  trays purchase_gatepass_tray[]
-
-  purchase_paper purchase_paper @relation(fields: [purchase_paper_id], references: [id], onDelete: Cascade)
-
-  master_vehicle master_vehicle @relation(fields: [vehicle_id], references: [id])
-
-  master_distributor master_distributor @relation(fields: [distributor_id], references: [id])
-
-  master_dairy master_dairy @relation(fields: [dairy_id], references: [id])
+  id                 Int                      @id @default(autoincrement())
+  purchase_paper_id  Int
+  vehicle_id         Int
+  distributor_id     Int
+  dairy_id           Int
+  gatepass_date      DateTime
+  serial_number      String
+  created_at         DateTime                 @default(now())
+  updated_at         DateTime                 @updatedAt
+  trays              purchase_gatepass_tray[]
+  master_dairy       master_dairy             @relation(fields: [dairy_id], references: [id])
+  master_distributor master_distributor       @relation(fields: [distributor_id], references: [id])
+  purchase_paper     purchase_paper           @relation(fields: [purchase_paper_id], references: [id], onDelete: Cascade)
+  master_vehicle     master_vehicle           @relation(fields: [vehicle_id], references: [id])
 
   @@unique([purchase_paper_id, vehicle_id])
 }
 
 model purchase_entry {
-  id Int @id @default(autoincrement())
-
+  id                Int            @id @default(autoincrement())
   purchase_paper_id Int
-
-  vehicle_id Int
-
-  product_id Int
-
-  purchased_qty Decimal @db.Decimal(10, 2)
-
-  allocated_qty Decimal? @db.Decimal(10, 2)
-
-  purchase_rate Decimal @db.Decimal(10, 2)
-
-  purchase_amount Decimal @db.Decimal(12, 2)
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  purchase_paper purchase_paper @relation(fields: [purchase_paper_id], references: [id], onDelete: Cascade)
-
-  master_product master_product @relation(fields: [product_id], references: [id])
-
-  master_vehicle master_vehicle? @relation(fields: [vehicle_id], references: [id])
+  vehicle_id        Int
+  product_id        Int
+  purchased_qty     Decimal        @db.Decimal(10, 2)
+  created_at        DateTime       @default(now())
+  updated_at        DateTime       @updatedAt
+  purchase_amount   Decimal        @db.Decimal(12, 2)
+  purchase_rate     Decimal        @db.Decimal(10, 2)
+  allocated_qty     Decimal?       @db.Decimal(10, 2)
+  master_product    master_product @relation(fields: [product_id], references: [id])
+  purchase_paper    purchase_paper @relation(fields: [purchase_paper_id], references: [id], onDelete: Cascade)
+  master_vehicle    master_vehicle @relation(fields: [vehicle_id], references: [id])
 
   @@index([purchase_paper_id, vehicle_id])
 }
 
 model purchase_gatepass_tray {
-  id Int @id @default(autoincrement())
-
+  id                           Int                       @id @default(autoincrement())
   purchase_vehicle_gatepass_id Int
-
-  tray_type_id Int
-
-  trays_issued Int
-
-  trays_returned Int @default(0)
-
-  remarks String?
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  purchase_vehicle_gatepass purchase_vehicle_gatepass @relation(fields: [purchase_vehicle_gatepass_id], references: [id], onDelete: Cascade)
-
-  master_tray_type master_tray_type @relation(fields: [tray_type_id], references: [id])
+  tray_type_id                 Int
+  trays_issued                 Int
+  trays_returned               Int                       @default(0)
+  remarks                      String?
+  created_at                   DateTime                  @default(now())
+  updated_at                   DateTime                  @updatedAt
+  purchase_vehicle_gatepass    purchase_vehicle_gatepass @relation(fields: [purchase_vehicle_gatepass_id], references: [id], onDelete: Cascade)
+  master_tray_type             master_tray_type          @relation(fields: [tray_type_id], references: [id])
 
   @@unique([purchase_vehicle_gatepass_id, tray_type_id])
 }
 
 model tray_summary_paper {
-  id Int @id @default(autoincrement())
-
-  order_paper_id Int @unique
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  rows tray_summary_row[]
-
-  order_paper order_paper @relation(fields: [order_paper_id], references: [id])
+  id             Int                @id @default(autoincrement())
+  order_paper_id Int                @unique
+  created_at     DateTime           @default(now())
+  updated_at     DateTime           @updatedAt
+  order_paper    order_paper        @relation(fields: [order_paper_id], references: [id])
+  rows           tray_summary_row[]
 }
 
 model tray_summary_row {
-  id Int @id @default(autoincrement())
-
+  id                    Int                  @id @default(autoincrement())
   tray_summary_paper_id Int
-
-  vehicle_id Int
-
-  distributor_id Int
-
-  brand_id Int
-
-  product_group_id Int
-
-  tray_type_id Int
-
-  opening_balance Int
-
-  expected_trays_taken Int
-
-  trays_taken Int
-
-  trays_returned Int
-
-  closing_balance Int
-
-  created_at DateTime @default(now())
-
-  updated_at DateTime @updatedAt
-
-  tray_summary_paper tray_summary_paper @relation(fields: [tray_summary_paper_id], references: [id], onDelete: Cascade)
-
-  master_vehicle master_vehicle @relation(fields: [vehicle_id], references: [id])
-
-  master_distributor master_distributor @relation(fields: [distributor_id], references: [id])
-
-  master_brand master_brand @relation(fields: [brand_id], references: [id])
-
-  master_product_group master_product_group @relation(fields: [product_group_id], references: [id])
-
-  master_tray_type master_tray_type @relation(fields: [tray_type_id], references: [id])
+  vehicle_id            Int
+  distributor_id        Int
+  brand_id              Int
+  product_group_id      Int
+  tray_type_id          Int
+  opening_balance       Int
+  expected_trays_taken  Int
+  trays_taken           Int
+  trays_returned        Int
+  closing_balance       Int
+  created_at            DateTime             @default(now())
+  updated_at            DateTime             @updatedAt
+  master_brand          master_brand         @relation(fields: [brand_id], references: [id])
+  master_distributor    master_distributor   @relation(fields: [distributor_id], references: [id])
+  master_product_group  master_product_group @relation(fields: [product_group_id], references: [id])
+  tray_summary_paper    tray_summary_paper   @relation(fields: [tray_summary_paper_id], references: [id], onDelete: Cascade)
+  master_tray_type      master_tray_type     @relation(fields: [tray_type_id], references: [id])
+  master_vehicle        master_vehicle       @relation(fields: [vehicle_id], references: [id])
 
   @@unique([tray_summary_paper_id, vehicle_id, distributor_id, brand_id, product_group_id, tray_type_id])
+}
+
+enum GatepassDatePolicy {
+  PREVIOUS_DAY
+  SAME_DAY
+}
+
+enum OrderPaperStatus {
+  DRAFT
+  NIGHT_SUBMITTED
+  MORNING_SUBMITTED
+  FINALIZED
+  REOPENED
 }

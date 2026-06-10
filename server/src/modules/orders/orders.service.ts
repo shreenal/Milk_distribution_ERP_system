@@ -17,19 +17,13 @@ import { OrdersBillingBuilder }
     from './order.billing-builder.js';
 
 
-
-
 import { TraysService } from '../trays/trays.service.js';
 
-
-import { TraysValidationService } from '../trays/trays-validation.service.js';
-
-import { CollectionsValidationService } from '../collections/collections-validation.service.js';
 
 import { OrdersValidationService } from './orders-validation.service.js';
 
 import {
-    TRANSACTION_CONFIG, PAPER_STATUS, DATE_CONFIG, type PaperStatus, STATUS_TRANSITIONS,
+    TRANSACTION_CONFIG, PAPER_STATUS, DATE_CONFIG, type PaperStatus,
 
     ERROR_MESSAGES, EDITABLE_STATUSES,
     QUANTITY_PRECISION,
@@ -38,11 +32,36 @@ import {
     from './orders.constants.js';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
-// import { TrayGatepassRepository } from '../tray-gatepass/tray-gatepass.repository.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { CollectionsService } from '../collections/collections.service.js';
-import { VehicleAllocationValidationService } from '../vehicle-allocation/vehicle-allocation-validation.service.js';
 
+
+
+/**
+ * REFACTORING IN PROGRESS: Paper Module Extraction
+ * 
+ * This service historically contained paper workflow operations.
+ * 
+ * EXTRACTED TO PaperService (see src/paper/paper.service.ts):
+ * - submitNightEntryService()     → PaperService.submitNightEntryService()
+ * - submitMorningEntryService()   → PaperService.submitMorningEntryService()
+ * - finalizePaperService()        → PaperService.finalizePaperService()
+ * - reopenPaperService()          → PaperService.reopenPaperService()
+ * 
+ * This class now focuses on:
+ * - Order entry (saveNightEntriesService, saveMorningEntriesService)
+ * - Sheet retrieval (getSheetService, getSheetItemsService)
+ * - Paper generation (generateOrderPaperService, getTodayPaperService)
+ * 
+ * Paper workflow logic has been moved to a dedicated Paper module
+ * for better separation of concerns and maintainability.
+ * 
+ * Status: Phase 2 (Parallel Implementation) - Paper module is production-ready
+ * Timeline: Methods deleted [DATE], Orders endpoints will be removed in v2.0
+ * 
+ * @deprecated Do not add new paper workflow methods here
+ * @see PaperService
+ */
 @Injectable()
 export class OrdersService {
 
@@ -64,20 +83,11 @@ export class OrdersService {
         private readonly traysService:
             TraysService,
 
-        private readonly trayValidationService:
-            TraysValidationService,
-
         private readonly prisma:
             PrismaService,
 
         private readonly collectionsService:
             CollectionsService,
-
-        private readonly collectionsValidationService:
-            CollectionsValidationService,
-        
-        private readonly vehicleAllocationValidationService:
-            VehicleAllocationValidationService,
 
         private readonly workflowState: WorkflowStateService,
 
@@ -94,224 +104,6 @@ export class OrdersService {
         ).includes(status);
     }
 
-
-
-    async getTodayPaperService() {
-
-        try {
-
-            this.logger.log(
-                'Fetching today or latest paper',
-            );
-
-            const today = new Date();
-
-            today.setHours(
-                0,
-                0,
-                0,
-                0,
-            );
-
-            const tomorrow =
-                new Date(today);
-
-            tomorrow.setDate(
-                tomorrow.getDate() + 1,
-            );
-
-            this.logger.log(today);
-            this.logger.log(tomorrow);
-            const todayPaper =
-                await this.ordersRepository
-                    .findTodayPaper(
-                        today,
-                        tomorrow,
-                    );
-
-            this.logger.log(
-                JSON.stringify(todayPaper),
-            );
-
-            if (todayPaper) {
-
-                return {
-
-                    type: 'TODAY',
-
-                    paper: todayPaper,
-                };
-            }
-
-            const latestPaper =
-                await this.ordersRepository
-                    .findLatestPaper();
-
-            if (!latestPaper) {
-
-                throw new BadRequestException(
-                    'No papers found in system',
-                );
-            }
-
-            return {
-
-                type: 'LATEST',
-
-                paper: latestPaper,
-            };
-
-        } catch (error) {
-
-            this.logger.error(
-                'Failed to fetch today/latest paper',
-                error,
-            );
-
-            throw error;
-        }
-    }
-
-    async generateOrderPaperService(
-        date: string,
-    ) {
-
-        try {
-
-            if (!date) {
-
-                throw new BadRequestException(
-                    ERROR_MESSAGES.MISSING_REQUIRED_FIELD(
-                        'date',
-                    ),
-                );
-            }
-
-            const [
-                year,
-                month,
-                day,
-            ] = date
-                .split('-')
-                .map(Number);
-
-            if (
-                !year ||
-                !month ||
-                !day
-            ) {
-
-                throw new BadRequestException(
-                    ERROR_MESSAGES.INVALID_DATE_FORMAT,
-                );
-            }
-
-            const dateOnly =
-                new Date(
-                    Date.UTC(
-                        year,
-                        month - 1,
-                        day,
-                    ),
-                );
-
-            const today =
-                new Date();
-
-            const todayUtc =
-                new Date(
-                    Date.UTC(
-                        today.getUTCFullYear(),
-                        today.getUTCMonth(),
-                        today.getUTCDate(),
-                    ),
-                );
-
-            if (
-                dateOnly < todayUtc
-            ) {
-
-                throw new BadRequestException(
-                    ERROR_MESSAGES.PAST_DATE_NOT_ALLOWED,
-                );
-            }
-
-            const thirtyDaysAhead =
-                new Date(todayUtc);
-
-            thirtyDaysAhead.setUTCDate(
-                thirtyDaysAhead.getUTCDate() +
-                DATE_CONFIG.MAX_FUTURE_DAYS,
-            );
-
-            if (
-                dateOnly > thirtyDaysAhead
-            ) {
-
-                throw new BadRequestException(
-                    ERROR_MESSAGES.FUTURE_DATE_TOO_FAR(
-                        DATE_CONFIG.MAX_FUTURE_DAYS,
-                    ),
-                );
-            }
-
-            const tomorrow =
-                new Date(dateOnly);
-
-            tomorrow.setUTCDate(
-                tomorrow.getUTCDate() + 1,
-            );
-
-            const existingPaper =
-                await this.ordersRepository
-                    .findOrderPaper(
-                        dateOnly,
-                        tomorrow,
-                    );
-
-            if (existingPaper) {
-
-                return existingPaper;
-            }
-
-            const paper =
-                await this.ordersRepository
-                    .generateOrderPaper(
-                        dateOnly,
-                    );
-
-            const groups =
-                await this.ordersRepository
-                    .getActiveGroups();
-
-            if (
-                !groups ||
-                groups.length === 0
-            ) {
-
-                throw new BadRequestException(
-                    ERROR_MESSAGES.NO_ACTIVE_GROUPS,
-                );
-            }
-
-            await this.ordersRepository
-                .generateOrderSheets(
-                    paper.id,
-                    groups,
-                );
-
-            return paper;
-
-        } catch (error) {
-
-            this.logger.error(
-                'Failed to generate order paper',
-                error,
-            );
-
-            throw error;
-        }
-    }
 
     async getSheetService(
         sheetId: number,
@@ -975,148 +767,5 @@ export class OrdersService {
 
             throw error;
         }
-    }
-
-    async submitNightEntryService(paperId: number) {
-        const paper = await this.ordersRepository.findPaperById(paperId);
-
-        if (!paper) {
-            throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-        }
-
-        this.workflowState.validateTransition(
-            paper.status as PaperStatus,
-            'NIGHT_SUBMITTED',
-        );
-
-        const sheets = await this.ordersRepository.getPaperSheets(paperId);
-
-              await this
-    .vehicleAllocationValidationService
-    .validateVehicleAllocationsForNightSubmit(
-        paperId,
-    );
-
-        for (const sheet of sheets) {
-            const entries = await this.ordersRepository.getSheetItems(sheet.id);
-
-            if (entries.length === 0) {
-                throw new BadRequestException(
-                    `No orders entered for sheet "${sheet.master_group.name}". ` +
-                    `Please enter at least one order before submitting.`
-                );
-            }
-            const incompleteEntries = entries.filter(item => item.ordered_qty === null);
-
-            if (incompleteEntries.length > 0) {
-                throw new BadRequestException(
-                    `Night entry incomplete for sheet "${sheet.master_group.name}"`
-                );
-            }
-
-            const traySheet = await this.traysService.getTraySheetService(sheet.id);
-
-            if (!traySheet.trayBilling || traySheet.trayBilling.rows.length === 0) {
-                throw new BadRequestException(
-                    `Tray calculation failed for sheet "${sheet.master_group.name}"`
-                );
-            }
-
-            await this.collectionsValidationService
-                .validateNightCollections(
-                    sheet.id,
-                );
-
-      
-        }
-
-        return this.ordersRepository.submitNightEntry(paperId);
-    }
-
-    async submitMorningEntryService(paperId: number) {
-        const paper = await this.ordersRepository.findPaperById(paperId);
-        if (!paper) {
-            throw new BadRequestException('Order paper not found');
-        }
-
-        this.workflowState.validateTransition(
-            paper.status as PaperStatus,
-            'MORNING_SUBMITTED',
-        );
-
-        const sheets = await this.ordersRepository.getPaperSheets(paperId);
-
-        for (const sheet of sheets) {
-            // Orders validation
-            try {
-                await this.validationService.validateMorningEntriesComplete(sheet.id);
-                await this.validationService.validateQuantitySanity(sheet.id);
-            } catch (error) {
-                throw new BadRequestException(
-                    error instanceof Error ? error.message : 'Orders validation failed'
-                );
-            }
-
-            // Trays validation
-            try {
-                await this.trayValidationService.validateTrayCompleteness(sheet.id);
-            } catch (error) {
-                throw new BadRequestException(
-                    error instanceof Error ? error.message : 'Trays validation failed'
-                );
-            }
-
-            await this.collectionsValidationService
-                .validateMorningCollections(
-                    sheet.id,
-                );
-        }
-
-
-        return await this.ordersRepository.submitMorningEntry(paperId);
-    }
-
-    async finalizePaperService(paperId: number) {
-        const paper = await this.ordersRepository.findPaperById(paperId);
-
-        if (!paper) {
-            throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-        }
-
-        const sheets =
-            await this.ordersRepository
-                .getPaperSheets(
-                    paperId,
-                );
-
-        for (const sheet of sheets) {
-
-            await this.collectionsValidationService
-                .validateAdminCollections(
-                    sheet.id,
-                );
-        }
-
-        this.workflowState.validateTransition(
-            paper.status as PaperStatus,
-            'FINALIZED',
-        );
-
-        return this.ordersRepository.finalizePaper(paperId);
-    }
-
-    async reopenPaperService(paperId: number, reason: string) {
-        const paper = await this.ordersRepository.findPaperById(paperId);
-
-        if (!paper) {
-            throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-        }
-
-        this.workflowState.validateTransition(
-            paper.status as PaperStatus,
-            'REOPENED',
-        );
-
-        return this.ordersRepository.reopenPaper(paperId, reason);
     }
 }

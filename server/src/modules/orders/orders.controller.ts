@@ -31,28 +31,6 @@ export class OrdersController {
         private readonly ordersService: OrdersService,
     ) { }
 
-    @Get('today-paper')
-    @Roles('EMPLOYEE')
-
-    async getTodayPaper() {
-
-        return this.ordersService
-            .getTodayPaperService();
-    }
-
-
-    @Post('generate-order-paper')
-    @Roles('EMPLOYEE')
-async generateOrderPaper(
-    @Body('date')
-    date: string,
-) {
-
-    return this.ordersService
-        .generateOrderPaperService(
-            date,
-        );
-}
 
     @Get('sheet/:sheetId')
     @Roles('EMPLOYEE')
@@ -119,72 +97,6 @@ async generateOrderPaper(
                 Number(sheetId),
 
                 entries,
-            );
-    }
-
-
-    @Post('paper/:paperId/night-submit')
-    @Roles('EMPLOYEE')
-    async submitNightEntry(
-        @Param('paperId')
-        paperId: string,
-    ) {
-
-        return this.ordersService
-            .submitNightEntryService(
-                Number(paperId),
-            );
-    }
-
-
-    @Post('paper/:paperId/morning-submit')
-    @Roles('EMPLOYEE')
-    async submitMorningEntry(
-
-        @Param('paperId')
-        paperId: string,
-    ) {
-
-        return this.ordersService
-            .submitMorningEntryService(
-
-                Number(paperId),
-            );
-    }
-
-
-    @Post('paper/:paperId/finalize')
-    @Roles('ADMIN')
-    async finalizePaper(
-
-        @Param('paperId')
-        paperId: string,
-    ) {
-
-        return this.ordersService
-            .finalizePaperService(
-
-                Number(paperId),
-            );
-    }
-
-
-
-    @Post('paper/:paperId/reopen')
-    @Roles('ADMIN')
-    async reopenPaper(
-
-        @Param('paperId')
-        paperId: string,
-        @Body('reason')
-        reason: string,
-    ) {
-
-        return this.ordersService
-            .reopenPaperService(
-
-                Number(paperId),
-                String(reason),
             );
     }
 }

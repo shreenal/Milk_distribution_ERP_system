@@ -51,4 +51,26 @@ export class TraysValidationService {
             }
         }
     }
+
+
+    async validateTrayCalculationExists(
+    sheetId: number,
+): Promise<void> {
+
+    const traySheet =
+        await this.traysService
+            .getTraySheetService(
+                sheetId,
+            );
+
+    if (
+        !traySheet.trayBilling ||
+        traySheet.trayBilling.rows.length === 0
+    ) {
+
+        throw new BadRequestException(
+            'Tray calculation failed',
+        );
+    }
+}
 }
