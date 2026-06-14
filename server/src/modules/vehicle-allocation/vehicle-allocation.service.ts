@@ -1,230 +1,184 @@
-import { Injectable, BadRequestException } from "@nestjs/common";
-import { VehicleAllocationBuilder } from "./vehicle-allocation.builder.js";
-import { VehicleAllocationRepository } from "./vehicle-allocation.repository.js";
-import { SaveVehicleAllocationDto }
-    from './dto/save-vehicle-allocation.dto.js';
-import { WorkflowStateService }
-    from '../workflow/workflow-state.service.js';
-import { VehicleAllocationValidationService } from "./vehicle-allocation-validation.service.js";
-
-
+import { Injectable, BadRequestException } from '@nestjs/common';
+import { VehicleAllocationBuilder } from './vehicle-allocation.builder.js';
+import { VehicleAllocationRepository } from './vehicle-allocation.repository.js';
+import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import { VehicleAllocationValidationService } from './vehicle-allocation-validation.service.js';
 
 @Injectable()
 export class VehicleAllocationService {
+  constructor(
+    private readonly vehicleAllocationRepository: VehicleAllocationRepository,
 
-    constructor(
+    private readonly vehicleAllocationBuilder: VehicleAllocationBuilder,
 
-        private readonly vehicleAllocationRepository:
-            VehicleAllocationRepository,
+    private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
 
-        private readonly vehicleAllocationBuilder:
-            VehicleAllocationBuilder,
+    private readonly workflowState: WorkflowStateService,
+  ) {}
 
-        private readonly vehicleAllocationValidationService:
-            VehicleAllocationValidationService,
+  async getGroupSummary(paperId: number) {
+    const paper =
+      await this.vehicleAllocationRepository.findOrderPaperById(paperId);
 
-        private readonly workflowState:
-            WorkflowStateService,
-    ) { }
-
-    async getGroupSummary(
-        paperId: number,
-    ) {
-
-        const paper =
-            await this
-                .vehicleAllocationRepository
-                .findOrderPaperById(
-                    paperId,
-                );
-
-        if (!paper) {
-
-            throw new BadRequestException(
-                'Order paper not found',
-            );
-        }
-
-        const sheets =
-            await this
-                .vehicleAllocationRepository
-                .findOrderSheetsByPaperId(
-                    paperId,
-                );
-
-        const sheetItems =
-            await this
-                .vehicleAllocationRepository
-                .findSheetItemsByPaperId(
-                    paperId,
-                );
-
-        const products =
-            await this
-                .vehicleAllocationRepository
-                .findProducts();
-
-        return this
-            .vehicleAllocationBuilder
-            .buildGroupSummary(
-
-                sheets,
-
-                sheetItems,
-
-                products,
-            );
+    if (!paper) {
+      throw new BadRequestException('Order paper not found');
     }
 
+    const sheets =
+      await this.vehicleAllocationRepository.findOrderSheetsByPaperId(paperId);
 
-    async getVehicleAllocations(
-        paperId: number,
-    ) {
+    const sheetItems =
+      await this.vehicleAllocationRepository.findSheetItemsByPaperId(paperId);
 
-        const groupSummary =
-            await this.getGroupSummary(
-                paperId,
-            );
+    const products = await this.vehicleAllocationRepository.findProducts();
 
-        const vehicles =
-            await this
-                .vehicleAllocationRepository
-                .findVehicles();
+    return this.vehicleAllocationBuilder.buildGroupSummary(
+      sheets,
 
-        const allocationGrids =
-            this
-                .vehicleAllocationBuilder
-                .buildVehicleAllocationGrids(
+      sheetItems,
 
-                    groupSummary
-                        .summaries,
+      products,
+    );
+  }
 
-                    vehicles,
-                );
+  async getVehicleAllocations(paperId: number) {
+    const groupSummary = await this.getGroupSummary(paperId);
 
-        const vehicleAllocationPaper =
-            await this
-                .vehicleAllocationRepository
-                .findVehicleAllocationPaperByOrderPaperId(
-                    paperId,
-                );
+    const vehicles = await this.vehicleAllocationRepository.findVehicles();
 
-        if (
-            !vehicleAllocationPaper
-        ) {
+    const distributors =
+      await this.vehicleAllocationRepository.findDistributors();
 
-            return allocationGrids;
-        }
+    const assignmentGrid =
+      this.vehicleAllocationBuilder.buildVehicleAssignmentGrid(
+        vehicles,
 
-        const savedAllocations =
-            await this
-                .vehicleAllocationRepository
-                .findVehicleAllocations(
-                    vehicleAllocationPaper.id,
-                );
+        distributors,
+      );
 
-        return this
-            .vehicleAllocationBuilder
-            .applyVehicleAllocations(
+    const allocationGrids =
+      this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
+        groupSummary.summaries,
 
-                allocationGrids,
+        vehicles,
+      );
 
-                savedAllocations,
-            );
+    const vehicleAllocationPaper =
+      await this.vehicleAllocationRepository.findVehicleAllocationPaperByOrderPaperId(
+        paperId,
+      );
+
+    if (!vehicleAllocationPaper) {
+      return {
+        ...allocationGrids,
+
+        vehicleAssignments: assignmentGrid,
+      };
     }
 
-    async saveVehicleAllocations(
-        paperId: number,
-        dto: SaveVehicleAllocationDto,
-    ) {
+    const savedAllocations =
+      await this.vehicleAllocationRepository.findVehicleAllocations(
+        vehicleAllocationPaper.id,
+      );
 
-        const paper =
-            await this
-                .vehicleAllocationRepository
-                .findOrderPaperById(
-                    paperId,
-                );
+    const savedAssignments =
+      await this.vehicleAllocationRepository.findVehicleAssignments(
+        vehicleAllocationPaper.id,
+      );
 
-        if (!paper) {
+    const allocationResult =
+      this.vehicleAllocationBuilder.applyVehicleAllocations(
+        allocationGrids,
 
-            throw new BadRequestException(
-                'Order paper not found',
-            );
-        }
+        savedAllocations,
+      );
 
-        const status =paper.status;
+    const assignmentResult =
+      this.vehicleAllocationBuilder.applyVehicleAssignments(
+        assignmentGrid,
 
-        if (
-            !this.workflowState
-                .canEditVehicleAllocations(
-                    status as any,
-                )
-        ) {
+        savedAssignments,
+      );
 
-            throw new BadRequestException(
-                'Vehicle allocations cannot be edited in current workflow state',
-            );
-        }
-        await this.vehicleAllocationValidationService.validateVehicleAllocations(
-            paperId,
-            dto,
-        );
+    return {
+      ...allocationResult,
 
+      vehicleAssignments: assignmentResult,
+    };
+  }
 
+  async saveVehicleAllocations(paperId: number, dto: SaveVehicleAllocationDto) {
+    const paper =
+      await this.vehicleAllocationRepository.findOrderPaperById(paperId);
 
-        let vehicleAllocationPaper =
-            await this
-                .vehicleAllocationRepository
-                .findVehicleAllocationPaperByOrderPaperId(
-                    paperId,
-                );
+    if (!paper) {
+      throw new BadRequestException('Order paper not found');
+    }
 
-        if (!vehicleAllocationPaper) {
+    const status = paper.status;
 
-            vehicleAllocationPaper =
-                await this
-                    .vehicleAllocationRepository
-                    .createVehicleAllocationPaper(
-                        paperId,
-                    );
-        }
+    if (!this.workflowState.canEditVehicleAllocations(status as any)) {
+      throw new BadRequestException(
+        'Vehicle allocations cannot be edited in current workflow state',
+      );
+    }
+    await this.vehicleAllocationValidationService.validateVehicleAllocations(
+      paperId,
+      dto,
+    );
 
-        const allocations =
-            dto.allocations.filter(
-                allocation =>
-                    allocation.allocatedQty > 0,
-            );
+    await this.vehicleAllocationValidationService.validateVehicleAssignments(
+      paperId,
+      dto,
+    );
 
-        await this
-            .vehicleAllocationRepository
-            .replaceVehicleAllocations(
+    let vehicleAllocationPaper =
+      await this.vehicleAllocationRepository.findVehicleAllocationPaperByOrderPaperId(
+        paperId,
+      );
 
-                vehicleAllocationPaper.id,
-
-                allocations.map(
-                    allocation => ({
-
-                        vehicle_allocation_paper_id:
-                            vehicleAllocationPaper.id,
-
-                        vehicle_id:
-                            allocation.vehicleId,
-
-                        product_id:
-                            allocation.productId,
-
-                        allocated_qty:
-                            allocation.allocatedQty,
-                    }),
-                )
-            );
-
-        return this.getVehicleAllocations(
-            paperId,
+    if (!vehicleAllocationPaper) {
+      vehicleAllocationPaper =
+        await this.vehicleAllocationRepository.createVehicleAllocationPaper(
+          paperId,
         );
     }
 
+    const allocations = dto.allocations.filter(
+      (allocation) => allocation.allocatedQty > 0,
+    );
 
-    
+    await this.vehicleAllocationRepository.replaceVehicleAllocations(
+      vehicleAllocationPaper.id,
+
+      allocations.map((allocation) => ({
+        vehicle_allocation_paper_id: vehicleAllocationPaper.id,
+
+        vehicle_id: allocation.vehicleId,
+
+        product_id: allocation.productId,
+
+        allocated_qty: allocation.allocatedQty,
+      })),
+    );
+
+    const assignments = dto.assignments.filter(
+      (assignment) => assignment.distributorId,
+    );
+
+    await this.vehicleAllocationRepository.replaceVehicleAssignments(
+      vehicleAllocationPaper.id,
+
+      assignments.map((assignment) => ({
+        vehicle_allocation_paper_id: vehicleAllocationPaper.id,
+
+        vehicle_id: assignment.vehicleId,
+
+        distributor_id: assignment.distributorId,
+      })),
+    );
+
+    return this.getVehicleAllocations(paperId);
+  }
 }
-

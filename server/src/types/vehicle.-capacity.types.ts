@@ -1,83 +1,78 @@
 // src/types/vehicle-capacity.types.ts
 
 export interface VehicleCapacityColumn {
-    productId: number;
-    brandId: number;
-    brandName: string;
+  productId: number;
+  brandId: number;
+  brandName: string;
 
-    productGroupId: number;
-    productGroupName: string;
+  productGroupId: number;
+  productGroupName: string;
 
-    productTypeId: number;
-    productTypeName: string;
+  productTypeId: number;
+  productTypeName: string;
 
-    packagingTypeId: number;
-    packagingTypeName: string;
+  packagingTypeId: number;
+  packagingTypeName: string;
 
-    packagingSize: number;
-    packagingUnit: string;
+  packagingSize: number;
+  packagingUnit: string;
 
-    columnKey: string;
+  columnKey: string;
 }
 
 export interface VehicleCapacitySection {
-    brandId: number;
-    brandName: string;
+  brandId: number;
+  brandName: string;
 
-    productGroupId: number;
-    productGroupName: string;
+  productGroupId: number;
+  productGroupName: string;
 
-    columns: VehicleCapacityColumn[];
+  columns: VehicleCapacityColumn[];
 
-    rows: VehicleCapacityRow[];
+  rows: VehicleCapacityRow[];
 
-    totals: Record<string, number>;
+  totals: Record<string, number>;
 }
 
 export interface VehicleCapacityRow {
-    groupId: number;
-    groupName: string;
+  groupId: number;
+  groupName: string;
 
-    values: Record<string, number>;
+  values: Record<string, number>;
 }
 
 export interface VehicleCapacityResponse {
-    paperId: number;
+  paperId: number;
 
-    sections: VehicleCapacitySection[];
+  sections: VehicleCapacitySection[];
 }
 
-
-
 export interface VehicleAllocationRow {
+  vehicleId: number;
 
-    vehicleId: number;
+  vehicleNumber: string;
 
-    vehicleNumber: string;
-
-    values: Record<string, number>;
+  values: Record<string, number>;
 }
 
 export interface VehicleAllocationSection {
+  brandId: number;
 
-    brandId: number;
+  brandName: string;
 
-    brandName: string;
+  productGroupId: number;
 
-    productGroupId: number;
+  productGroupName: string;
 
-    productGroupName: string;
+  columns: VehicleCapacityColumn[];
 
-    columns: VehicleCapacityColumn[];
+  requiredTotals: Record<string, number>;
 
-    requiredTotals: Record<string, number>;
-
-    rows: VehicleAllocationRow[];
+  rows: VehicleAllocationRow[];
 }
 
 export interface VehicleAllocationResponse {
+  paperId: number;
 
-    paperId: number;
-
-    sections: VehicleAllocationSection[];
+  sections: VehicleAllocationSection[];
 }

@@ -1,63 +1,48 @@
 export interface DeliverySummaryColumn {
+  productId: number;
 
-    productId: number;
+  brandId: number;
+  brandName: string;
 
-    brandId: number;
-    brandName: string;
+  productGroupId: number;
+  productGroupName: string;
 
-    productGroupId: number;
-    productGroupName: string;
+  productTypeId: number | null;
+  productTypeName: string;
 
-    productTypeId: number | null;
-    productTypeName: string;
+  packagingTypeId: number | null;
+  packagingTypeName: string;
 
-    packagingTypeId: number | null;
-    packagingTypeName: string;
+  packagingSize: number;
+  packagingUnit: string;
 
-    packagingSize: number;
-    packagingUnit: string;
-
-    columnKey: string;
+  columnKey: string;
 }
 
 export interface DeliverySummaryRow {
+  groupId: number;
 
-    groupId: number;
+  groupName: string;
 
-    groupName: string;
-
-    values: Record<
-        string,
-        number
-    >;
+  values: Record<string, number>;
 }
 
 export interface DeliverySummarySection {
+  brandId: number;
+  brandName: string;
 
-    brandId: number;
-    brandName: string;
+  productGroupId: number;
+  productGroupName: string;
 
-    productGroupId: number;
-    productGroupName: string;
+  columns: DeliverySummaryColumn[];
 
-    columns:
-        DeliverySummaryColumn[];
+  rows: DeliverySummaryRow[];
 
-    rows:
-        DeliverySummaryRow[];
-
-    totals:
-        Record<
-            string,
-            number
-        >;
+  totals: Record<string, number>;
 }
 
 export interface DeliverySummaryResponse {
+  paperId: number;
 
-    paperId: number;
-
-    sections:
-        DeliverySummarySection[];
+  sections: DeliverySummarySection[];
 }
-

@@ -7,26 +7,23 @@ import { TrayBillingBuilder } from './tray.billing-builder.js';
 import { TraysValidationService } from './trays-validation.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 
-
 @Module({
-  imports:[WorkflowModule],
+  imports: [WorkflowModule],
 
-  controllers: [
-    TraysController,
-  ],
+  controllers: [TraysController],
 
   providers: [
     TraysService,
     TraysRepository,
     TrayBillingBuilder,
-    TraysValidationService
+    TraysValidationService,
   ],
 
   exports: [
     TraysService,
     TraysRepository,
     TrayBillingBuilder,
-    TraysValidationService
+    TraysValidationService,
   ],
 })
 export class TraysModule {}

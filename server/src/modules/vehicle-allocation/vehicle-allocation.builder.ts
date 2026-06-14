@@ -4,414 +4,244 @@ import { ProductColumnsBuilder } from '../../common/builders/product-columns.bui
 
 @Injectable()
 export class VehicleAllocationBuilder {
+  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
 
-    constructor(
+  buildGroupSummary(
+    sheets: any[],
 
-        private readonly productColumnsBuilder:
-            ProductColumnsBuilder,
-    ) { }
+    sheetItems: any[],
 
-    buildGroupSummary(
+    products: any[],
+  ) {
+    const summariesMap = new Map();
 
-        sheets: any[],
+    for (const product of products) {
+      const key = `${product.master_brand.id}_${product.master_product_group.id}`;
 
-        sheetItems: any[],
+      if (!summariesMap.has(key)) {
+        summariesMap.set(key, {
+          summaryKey: key,
 
-        products: any[],
-    ) {
+          brandId: product.master_brand.id,
 
-        const summariesMap =
-            new Map();
+          brandName: product.master_brand.name,
 
-        for (
-            const product of products
-        ) {
+          productGroupId: product.master_product_group.id,
 
-            const key =
-                `${product.master_brand.id}_${product.master_product_group.id}`;
+          productGroupName: product.master_product_group.name,
 
-            if (
-                !summariesMap.has(
-                    key,
-                )
-            ) {
+          products: [],
 
-                summariesMap.set(
-                    key,
-                    {
+          rows: [],
+        });
+      }
 
-                        summaryKey:
-                            key,
-
-                        brandId:
-                            product.master_brand.id,
-
-                        brandName:
-                            product.master_brand.name,
-
-                        productGroupId:
-                            product.master_product_group.id,
-
-                        productGroupName:
-                            product.master_product_group.name,
-
-                        products: [],
-
-                        rows: [],
-                    },
-                );
-            }
-
-            summariesMap
-                .get(key)
-                .products
-                .push(
-                    product,
-                );
-        }
-
-        for (
-            const sheet of sheets
-        ) {
-
-            const summaryRowsMap =
-                new Map();
-
-            for (
-                const [key]
-                of summariesMap
-            ) {
-
-                summaryRowsMap.set(
-                    key,
-                    {
-
-                        groupId:
-                            sheet.group_id,
-
-                        groupName:
-                            sheet.master_group.name,
-                    },
-                );
-            }
-
-            const currentSheetItems =
-                sheetItems.filter(
-
-                    item =>
-                        item.order_sheet_id ===
-                        sheet.id,
-                );
-
-            for (
-                const item of currentSheetItems
-            ) {
-
-                const key =
-                    `${item.master_product.master_brand.id}_${item.master_product.master_product_group.id}`;
-
-                const row =
-                    summaryRowsMap.get(
-                        key,
-                    );
-
-                const field =
-                    `product_${item.product_id}`;
-
-                row[field] =
-                    (
-                        row[field]
-                        ?? 0
-                    )
-                    +
-                    Number(
-                        item.ordered_qty
-                        ?? 0,
-                    );
-            }
-
-            for (
-                const [key, row]
-                of summaryRowsMap
-            ) {
-
-                summariesMap
-                    .get(key)
-                    .rows
-                    .push(
-                        row,
-                    );
-            }
-        }
-
-        const summaries: any[] = [];
-
-        for (
-            const summary
-            of summariesMap.values()
-        ) {
-
-            summary.columns =
-                this
-                    .buildVehicleCapacityColumns(
-
-                        summary.products,
-
-                        summary
-                            .productGroupName
-                        !== 'Milk',
-                    );
-
-            delete summary.products;
-
-            summaries.push(
-                summary,
-            );
-        }
-
-        return {
-
-            summaries,
-        };
+      summariesMap.get(key).products.push(product);
     }
 
+    for (const sheet of sheets) {
+      const summaryRowsMap = new Map();
 
+      for (const [key] of summariesMap) {
+        summaryRowsMap.set(key, {
+          groupId: sheet.group_id,
 
+          groupName: sheet.master_group.name,
+        });
+      }
 
-    private buildVehicleCapacityColumns(
-        products: any[],
-        includePackagingType: boolean
-    ) {
-        const columns =
-            this.productColumnsBuilder
-                .buildGroupedColumns(
-                    products,
-                    'night',
-                    includePackagingType
-                );
+      const currentSheetItems = sheetItems.filter(
+        (item) => item.order_sheet_id === sheet.id,
+      );
 
-        const updateFields = (
-            nodes: any[],
-        ) => {
+      for (const item of currentSheetItems) {
+        const key = `${item.master_product.master_brand.id}_${item.master_product.master_product_group.id}`;
 
-            for (
-                const node of nodes
-            ) {
+        const row = summaryRowsMap.get(key);
 
-                if (
-                    node.field &&
-                    node.productId
-                ) {
+        const field = `product_${item.product_id}`;
 
-                    node.field =
-                        `product_${node.productId}`;
-                }
+        row[field] = (row[field] ?? 0) + Number(item.ordered_qty ?? 0);
+      }
 
-                if (
-                    node.children
-                ) {
-
-                    updateFields(
-                        node.children,
-                    );
-                }
-            }
-        };
-
-        updateFields(
-            columns,
-        );
-
-        return columns;
+      for (const [key, row] of summaryRowsMap) {
+        summariesMap.get(key).rows.push(row);
+      }
     }
 
+    const summaries: any[] = [];
 
-    buildVehicleAllocationGrids(
-        summaries: any[],
-        vehicles: any[],
-    ) {
+    for (const summary of summariesMap.values()) {
+      summary.columns = this.buildVehicleCapacityColumns(
+        summary.products,
 
-        const allocations: any[] = [];
+        summary.productGroupName !== 'Milk',
+      );
 
-        for (
-            const summary of summaries
-        ) {
+      delete summary.products;
 
-            const rows: any[] = [];
-
-            const productFields =
-                initializeProductFields(
-                    summary.columns,
-                );
-
-            for (
-                const vehicle of vehicles
-            ) {
-
-                rows.push({
-
-                    vehicleId:
-                        vehicle.id,
-
-                    vehicleName:
-                        vehicle.vehicle_name,
-
-                    ...structuredClone(
-                        productFields,
-                    ),
-                });
-            }
-
-            const summaryTotal: any = {};
-
-            for (
-                const row of summary.rows
-            ) {
-
-                for (
-                    const [key, value]
-                    of Object.entries(
-                        row,
-                    )
-                ) {
-
-                    if (
-                        key === 'groupId' ||
-                        key === 'groupName'
-                    ) {
-
-                        continue;
-                    }
-
-                    summaryTotal[key] =
-                        (
-                            summaryTotal[key]
-                            ?? 0
-                        )
-                        +
-                        Number(
-                            value ?? 0,
-                        );
-                }
-            }
-
-            allocations.push({
-
-                summaryKey:
-                    summary.summaryKey,
-
-                brandId:
-                    summary.brandId,
-
-                brandName:
-                    summary.brandName,
-
-                productGroupId:
-                    summary.productGroupId,
-
-                productGroupName:
-                    summary.productGroupName,
-
-                summaryTotal,
-
-                columns:
-                    summary.columns,
-
-                rows,
-            });
-        }
-
-
-
-        return {
-
-            allocations,
-        };
+      summaries.push(summary);
     }
 
-    applyVehicleAllocations(
-        allocationGrids: any,
-        savedAllocations: any[],
-    ) {
-
-        const result =
-            structuredClone(
-                allocationGrids,
-            );
-
-        for (
-            const allocation of savedAllocations
-        ) {
-
-            const field =
-                `product_${allocation.product_id}`;
-
-            for (
-                const grid of result.allocations
-            ) {
-
-                const row =
-                    grid.rows.find(
-                        vehicle =>
-                            vehicle.vehicleId ===
-                            allocation.vehicle_id,
-                    );
-
-                if (
-                    row &&
-                    field in row
-                ) {
-
-                    row[field] =
-                        Number(
-                            allocation.allocated_qty,
-                        );
-
-                    break;
-                }
-            }
-        }
-
-        return result;
-    }
-}
-
-const initializeProductFields = (
-    columns: any[],
-) => {
-
-    const row: any = {};
-
-    const walk = (
-        nodes: any[],
-    ) => {
-
-        for (
-            const node of nodes
-        ) {
-
-            if (
-                node.field
-            ) {
-
-                row[node.field] = 0;
-            }
-
-            if (
-                node.children
-            ) {
-
-                walk(
-                    node.children,
-                );
-            }
-        }
+    return {
+      summaries,
     };
+  }
 
-    walk(
-        columns,
+  private buildVehicleCapacityColumns(
+    products: any[],
+    includePackagingType: boolean,
+  ) {
+    const columns = this.productColumnsBuilder.buildGroupedColumns(
+      products,
+      'night',
+      includePackagingType,
     );
 
-    return row;
-};
+    const updateFields = (nodes: any[]) => {
+      for (const node of nodes) {
+        if (node.field && node.productId) {
+          node.field = `product_${node.productId}`;
+        }
 
+        if (node.children) {
+          updateFields(node.children);
+        }
+      }
+    };
+
+    updateFields(columns);
+
+    return columns;
+  }
+
+  buildVehicleAllocationGrids(summaries: any[], vehicles: any[]) {
+    const allocations: any[] = [];
+
+    for (const summary of summaries) {
+      const rows: any[] = [];
+
+      const productFields = initializeProductFields(summary.columns);
+
+      for (const vehicle of vehicles) {
+        rows.push({
+          vehicleId: vehicle.id,
+
+          vehicleName: vehicle.vehicle_name,
+
+          ...structuredClone(productFields),
+        });
+      }
+
+      const summaryTotal: any = {};
+
+      for (const row of summary.rows) {
+        for (const [key, value] of Object.entries(row)) {
+          if (key === 'groupId' || key === 'groupName') {
+            continue;
+          }
+
+          summaryTotal[key] = (summaryTotal[key] ?? 0) + Number(value ?? 0);
+        }
+      }
+
+      allocations.push({
+        summaryKey: summary.summaryKey,
+
+        brandId: summary.brandId,
+
+        brandName: summary.brandName,
+
+        productGroupId: summary.productGroupId,
+
+        productGroupName: summary.productGroupName,
+
+        summaryTotal,
+
+        columns: summary.columns,
+
+        rows,
+      });
+    }
+
+    return {
+      allocations,
+    };
+  }
+
+  applyVehicleAllocations(allocationGrids: any, savedAllocations: any[]) {
+    const result = structuredClone(allocationGrids);
+
+    for (const allocation of savedAllocations) {
+      const field = `product_${allocation.product_id}`;
+
+      for (const grid of result.allocations) {
+        const row = grid.rows.find(
+          (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
+        );
+
+        if (row && field in row) {
+          row[field] = Number(allocation.allocated_qty);
+
+          break;
+        }
+      }
+    }
+
+    return result;
+  }
+
+  buildVehicleAssignmentGrid(vehicles: any[], distributors: any[]) {
+    return {
+      assignments: vehicles.map((vehicle) => ({
+        vehicleId: vehicle.id,
+
+        vehicleName: vehicle.vehicle_name,
+
+        distributorId: null,
+      })),
+
+      distributors: distributors.map((distributor) => ({
+        id: distributor.id,
+
+        name: distributor.name,
+      })),
+    };
+  }
+
+  applyVehicleAssignments(assignmentGrid: any, savedAssignments: any[]) {
+    const result = structuredClone(assignmentGrid);
+
+    for (const assignment of savedAssignments) {
+      const row = result.assignments.find(
+        (vehicle: any) => vehicle.vehicleId === assignment.vehicle_id,
+      );
+
+      if (row) {
+        row.distributorId = assignment.distributor_id;
+      }
+    }
+
+    return result;
+  }
+}
+
+const initializeProductFields = (columns: any[]) => {
+  const row: any = {};
+
+  const walk = (nodes: any[]) => {
+    for (const node of nodes) {
+      if (node.field) {
+        row[node.field] = 0;
+      }
+
+      if (node.children) {
+        walk(node.children);
+      }
+    }
+  };
+
+  walk(columns);
+
+  return row;
+};

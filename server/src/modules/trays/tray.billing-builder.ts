@@ -2,526 +2,291 @@ import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class TrayBillingBuilder {
+  async buildTrayBilling(data: {
+    clients: any[];
 
-    async buildTrayBilling(
-        data: {
+    trayTypes: any[];
 
-            clients: any[];
+    sheetItems: any[];
 
-            trayTypes: any[];
+    trayRules: any[];
 
-            sheetItems: any[];
+    trayTransactions: any[];
 
-            trayRules: any[];
+    openingBalanceMap: Map<string, number>;
+  }) {
+    const {
+      clients,
 
-            trayTransactions: any[];
+      trayTypes,
 
-            openingBalanceMap: Map<string, number>;
-        },
-    ) {
+      sheetItems,
 
-        const {
+      trayRules,
 
-            clients,
+      trayTransactions,
 
-            trayTypes,
+      openingBalanceMap,
+    } = data;
 
-            sheetItems,
+    // =========================
+    // COLUMNS
+    // =========================
 
-            trayRules,
+    const columns = this.buildTrayColumns(trayTypes);
 
-            trayTransactions,
+    // =========================
+    // ROWS
+    // =========================
 
-            openingBalanceMap,
-        } = data;
+    const rows = clients.map((client) => {
+      const row: any = {
+        clientId: client.id,
 
-        // =========================
-        // COLUMNS
-        // =========================
+        clientName: client.name,
+      };
 
-        const columns =
-            this.buildTrayColumns(
-                trayTypes,
-            );
+      // =========================
+      // AUTO CALCULATE TRAYS TAKEN
+      // =========================
 
-        // =========================
-        // ROWS
-        // =========================
+      const clientItems = sheetItems.filter(
+        (item) => item.client_id === client.id,
+      );
 
-        const rows =
-            clients.map(client => {
+      const expectedTrayMap = new Map<number, number>();
 
-                const row: any = {
+      const trayTakenMap = new Map<number, number>();
 
-                    clientId:
-                        client.id,
+      for (const item of clientItems) {
+        const matchingRules = trayRules.filter((rule) => {
+          return (
+            (rule.brand_id === null ||
+              rule.brand_id === item.master_product.brand_id) &&
+            (rule.product_group_id === null ||
+              rule.product_group_id === item.master_product.product_group_id) &&
+            (rule.product_type_id === null ||
+              rule.product_type_id === item.master_product.product_type_id) &&
+            (rule.packaging_type_id === null ||
+              rule.packaging_type_id === item.master_product.packaging_type_id)
+          );
+        });
 
-                    clientName:
-                        client.name,
-                };
-
-                // =========================
-                // AUTO CALCULATE TRAYS TAKEN
-                // =========================
-
-                const clientItems =
-                    sheetItems.filter(
-
-                        item =>
-                            item.client_id === client.id,
-                    );
-
-                const expectedTrayMap =
-                    new Map<number, number>();
-
-                const trayTakenMap =
-                    new Map<number, number>();
-
-
-
-                for (const item of clientItems) {
-
-                    const matchingRules =
-                        trayRules.filter(rule => {
-
-                            return (
-
-                                (
-                                    rule.brand_id === null
-                                    ||
-
-                                    rule.brand_id ===
-                                    item.master_product.brand_id
-                                )
-
-                                &&
-
-                                (
-                                    rule.product_group_id === null
-                                    ||
-
-                                    rule.product_group_id ===
-                                    item.master_product.product_group_id
-                                )
-
-                                &&
-
-                                (
-                                    rule.product_type_id === null
-                                    ||
-
-                                    rule.product_type_id ===
-                                    item.master_product.product_type_id
-                                )
-
-                                &&
-
-                                (
-                                    rule.packaging_type_id === null
-                                    ||
-
-                                    rule.packaging_type_id ===
-                                    item.master_product.packaging_type_id
-                                )
-                            );
-                        });
-
-                    if (matchingRules.length === 0) {
-                        continue;
-                    }
-
-                    // =========================
-                    // MOST SPECIFIC RULE WINS
-                    // =========================
-
-                    matchingRules.sort((a, b) => {
-
-                        const aSpecificity =
-
-                            Number(a.brand_id !== null)
-
-                            +
-
-                            Number(a.product_group_id !== null)
-
-                            +
-
-                            Number(a.product_type_id !== null)
-
-                            +
-
-                            Number(a.packaging_type_id !== null);
-
-                        const bSpecificity =
-
-                            Number(b.brand_id !== null)
-
-                            +
-
-                            Number(b.product_group_id !== null)
-
-                            +
-
-                            Number(b.product_type_id !== null)
-
-                            +
-
-                            Number(b.packaging_type_id !== null);
-
-                        return bSpecificity - aSpecificity;
-                    });
-
-                    const rule =
-                        matchingRules[0];
-
-                    const trayTypeId =
-                        rule.tray_type_id;
-                    const orderedQty =
-                        Number(
-                            item.ordered_qty ?? 0,
-                        );
-
-                    const deliveredQty =
-                        Number(
-                            item.delivered_qty ?? 0,
-                        );
-
-                    // ========================= // TRAY CALCULATION // ========================= // ordered_qty already represents // tray shorthand count
-                    const expectedTraysTaken = orderedQty; // delivered_qty may contain // fractional tray shorthand // because of leakage
-                    const traysTaken = Math.round(deliveredQty,);
-
-                    const existingExpected =
-                        expectedTrayMap.get(
-                            trayTypeId,
-                        ) ?? 0;
-
-                    expectedTrayMap.set(
-
-                        trayTypeId,
-
-                        existingExpected +
-                        expectedTraysTaken,
-                    );
-
-                    const existingActual =
-                        trayTakenMap.get(
-                            trayTypeId,
-                        ) ?? 0;
-
-                    trayTakenMap.set(
-
-                        trayTypeId,
-
-                        existingActual +
-                        traysTaken,
-                    );
-                }
-
-                // =========================
-                // BUILD TRAY COLUMNS
-                // =========================
-
-                for (const trayType of trayTypes) {
-
-                    const trayTypeId =
-                        trayType.id;
-
-                    const savedTransaction =
-                        trayTransactions.find(
-
-                            transaction =>
-
-                                transaction.client_id ===
-                                client.id
-
-                                &&
-
-                                transaction.tray_type_id ===
-                                trayTypeId,
-                        );
-
-                    const opening =
-                        Number(
-
-                            openingBalanceMap.get(
-
-                                `${client.id}_${trayTypeId}`,
-                            ) ?? 0,
-                        );
-
-
-                    const expected =
-
-                        Number(
-                            expectedTrayMap.get(
-                                trayTypeId,
-                            ) ?? 0,
-                        );
-
-                    const taken =
-                        Number(
-                            trayTakenMap.get(
-                                trayTypeId,
-                            ) ?? 0,
-                        );
-
-                    const returned =
-                        Number(
-                            savedTransaction
-                                ?.trays_returned ?? 0,
-                        );
-
-                    const closing =
-                        opening +
-                        taken -
-                        returned;
-
-                    row[
-                        `tray_${trayTypeId}_opening`
-                    ] = opening;
-
-                    row[
-                        `tray_${trayTypeId}_expected`
-                    ] = expected;
-
-                    row[
-                        `tray_${trayTypeId}_taken`
-                    ] = taken;
-
-                    row[
-                        `tray_${trayTypeId}_returned`
-                    ] = returned;
-
-                    row[
-                        `tray_${trayTypeId}_closing`
-                    ] = closing;
-                }
-
-                return row;
-            });
-
-        
-
-        // =========================
-        // TOTALS
-        // =========================
-
-        const totals: any = {
-
-            totalClients:
-                clients.length,
-        };
-
-        for (const trayType of trayTypes) {
-
-            const trayTypeId =
-                trayType.id;
-
-            totals[
-                `tray_${trayTypeId}`
-            ] = {
-
-                opening:
-
-                    rows.reduce(
-
-                        (sum, row) =>
-
-                            sum +
-
-                            Number(
-                                row[
-                                `tray_${trayTypeId}_opening`
-                                ] ?? 0,
-                            ),
-
-                        0,
-                    ),
-
-                taken:
-
-
-                    rows.reduce(
-
-                        (sum, row) =>
-
-                            sum +
-
-                            Number(
-                                row[
-                                `tray_${trayTypeId}_taken`
-                                ] ?? 0,
-                            ),
-
-                        0,
-                    ),
-
-                returned:
-
-                    rows.reduce(
-
-                        (sum, row) =>
-
-                            sum +
-
-                            Number(
-                                row[
-                                `tray_${trayTypeId}_returned`
-                                ] ?? 0,
-                            ),
-
-                        0,
-                    ),
-
-                closing:
-
-                    rows.reduce(
-
-                        (sum, row) =>
-
-                            sum +
-
-                            Number(
-                                row[
-                                `tray_${trayTypeId}_closing`
-                                ] ?? 0,
-                            ),
-
-                        0,
-                    ),
-            };
+        if (matchingRules.length === 0) {
+          continue;
         }
 
-        return {
+        // =========================
+        // MOST SPECIFIC RULE WINS
+        // =========================
 
-            columns,
+        matchingRules.sort((a, b) => {
+          const aSpecificity =
+            Number(a.brand_id !== null) +
+            Number(a.product_group_id !== null) +
+            Number(a.product_type_id !== null) +
+            Number(a.packaging_type_id !== null);
 
-            rows,
+          const bSpecificity =
+            Number(b.brand_id !== null) +
+            Number(b.product_group_id !== null) +
+            Number(b.product_type_id !== null) +
+            Number(b.packaging_type_id !== null);
 
-            totals,
-        };
+          return bSpecificity - aSpecificity;
+        });
+
+        const rule = matchingRules[0];
+
+        const trayTypeId = rule.tray_type_id;
+        const orderedQty = Number(item.ordered_qty ?? 0);
+
+        const deliveredQty = Number(item.delivered_qty ?? 0);
+
+        // ========================= // TRAY CALCULATION // ========================= // ordered_qty already represents // tray shorthand count
+        const expectedTraysTaken = orderedQty; // delivered_qty may contain // fractional tray shorthand // because of leakage
+        const traysTaken = Math.round(deliveredQty);
+
+        const existingExpected = expectedTrayMap.get(trayTypeId) ?? 0;
+
+        expectedTrayMap.set(
+          trayTypeId,
+
+          existingExpected + expectedTraysTaken,
+        );
+
+        const existingActual = trayTakenMap.get(trayTypeId) ?? 0;
+
+        trayTakenMap.set(
+          trayTypeId,
+
+          existingActual + traysTaken,
+        );
+      }
+
+      // =========================
+      // BUILD TRAY COLUMNS
+      // =========================
+
+      for (const trayType of trayTypes) {
+        const trayTypeId = trayType.id;
+
+        const savedTransaction = trayTransactions.find(
+          (transaction) =>
+            transaction.client_id === client.id &&
+            transaction.tray_type_id === trayTypeId,
+        );
+
+        const opening = Number(
+          openingBalanceMap.get(`${client.id}_${trayTypeId}`) ?? 0,
+        );
+
+        const expected = Number(expectedTrayMap.get(trayTypeId) ?? 0);
+
+        const taken = Number(trayTakenMap.get(trayTypeId) ?? 0);
+
+        const returned = Number(savedTransaction?.trays_returned ?? 0);
+
+        const closing = opening + taken - returned;
+
+        row[`tray_${trayTypeId}_opening`] = opening;
+
+        row[`tray_${trayTypeId}_expected`] = expected;
+
+        row[`tray_${trayTypeId}_taken`] = taken;
+
+        row[`tray_${trayTypeId}_returned`] = returned;
+
+        row[`tray_${trayTypeId}_closing`] = closing;
+      }
+
+      return row;
+    });
+
+    // =========================
+    // TOTALS
+    // =========================
+
+    const totals: any = {
+      totalClients: clients.length,
+    };
+
+    for (const trayType of trayTypes) {
+      const trayTypeId = trayType.id;
+
+      totals[`tray_${trayTypeId}`] = {
+        opening: rows.reduce(
+          (sum, row) => sum + Number(row[`tray_${trayTypeId}_opening`] ?? 0),
+
+          0,
+        ),
+
+        taken: rows.reduce(
+          (sum, row) => sum + Number(row[`tray_${trayTypeId}_taken`] ?? 0),
+
+          0,
+        ),
+
+        returned: rows.reduce(
+          (sum, row) => sum + Number(row[`tray_${trayTypeId}_returned`] ?? 0),
+
+          0,
+        ),
+
+        closing: rows.reduce(
+          (sum, row) => sum + Number(row[`tray_${trayTypeId}_closing`] ?? 0),
+
+          0,
+        ),
+      };
     }
 
-    private buildTrayColumns(
-        trayTypes: any[],
-    ) {
+    return {
+      columns,
 
-        const brandMap = new Map();
+      rows,
 
-        for (const trayType of trayTypes) {
+      totals,
+    };
+  }
 
-            const brandName =
-                trayType.master_brand.name;
+  private buildTrayColumns(trayTypes: any[]) {
+    const brandMap = new Map();
 
-            if (!brandMap.has(brandName)) {
+    for (const trayType of trayTypes) {
+      const brandName = trayType.master_brand.name;
 
-                brandMap.set(
+      if (!brandMap.has(brandName)) {
+        brandMap.set(
+          brandName,
 
-                    brandName,
+          {
+            headerName: `${brandName} Tray`,
 
-                    {
+            children: [],
+          },
+        );
+      }
 
-                        headerName:
-                            `${brandName} Tray`,
+      const brandGroup = brandMap.get(brandName);
 
-                        children: [],
-                    },
-                );
-            }
+      brandGroup.children.push({
+        headerName: `${trayType.color} Tray`,
 
-            const brandGroup =
-                brandMap.get(
-                    brandName,
-                );
+        children: [
+          {
+            headerName: 'Opening',
 
-            brandGroup.children.push({
+            field: `tray_${trayType.id}_opening`,
 
-                headerName:
-                    `${trayType.color} Tray`,
+            editable: false,
+          },
 
-                children: [
+          {
+            headerName: 'Expected',
 
-                    {
+            field: `tray_${trayType.id}_expected`,
 
-                        headerName:
-                            'Opening',
+            editable: false,
+          },
 
-                        field:
-                            `tray_${trayType.id}_opening`,
+          {
+            headerName: 'Taken',
 
-                        editable:
-                            false,
-                    },
+            field: `tray_${trayType.id}_taken`,
 
+            editable: false,
+          },
 
-                    {
+          {
+            headerName: 'Returned',
 
-                        headerName:
-                            'Expected',
+            field: `tray_${trayType.id}_returned`,
 
-                        field:
-                            `tray_${trayType.id}_expected`,
+            editable: true,
+          },
 
-                        editable:
-                            false,
-                    },
+          {
+            headerName: 'Closing',
 
-                    {
+            field: `tray_${trayType.id}_closing`,
 
-                        headerName:
-                            'Taken',
-
-                        field:
-                            `tray_${trayType.id}_taken`,
-
-                        editable:
-                            false,
-                    },
-
-                    {
-
-                        headerName:
-                            'Returned',
-
-                        field:
-                            `tray_${trayType.id}_returned`,
-
-                        editable:
-                            true,
-                    },
-
-                    {
-
-                        headerName:
-                            'Closing',
-
-                        field:
-                            `tray_${trayType.id}_closing`,
-
-                        editable:
-                            false,
-                    },
-                ],
-            });
-        }
-
-        return [
-
-            {
-
-                headerName:
-                    'Client',
-
-                field:
-                    'clientName',
-
-                pinned:
-                    'left',
-            },
-
-            ...Array.from(
-                brandMap.values(),
-            ),
-        ];
+            editable: false,
+          },
+        ],
+      });
     }
+
+    return [
+      {
+        headerName: 'Client',
+
+        field: 'clientName',
+
+        pinned: 'left',
+      },
+
+      ...Array.from(brandMap.values()),
+    ];
+  }
 }

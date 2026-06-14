@@ -11,20 +11,22 @@ import { CollectionsModule } from '../collections/collections.module.js';
 import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
 import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocation.module.js';
 
-
 @Module({
-   imports: [TraysModule,CollectionsModule,WorkflowModule,VehicleAllocationModule],
-
-  controllers: [
-    OrdersController,
+  imports: [
+    TraysModule,
+    CollectionsModule,
+    WorkflowModule,
+    VehicleAllocationModule,
   ],
+
+  controllers: [OrdersController],
 
   providers: [
     OrdersService,
     OrdersRepository,
     OrdersBillingBuilder,
     OrdersValidationService,
-    ProductColumnsBuilder
+    ProductColumnsBuilder,
   ],
 
   exports: [

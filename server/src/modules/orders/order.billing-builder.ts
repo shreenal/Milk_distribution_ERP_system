@@ -1,302 +1,165 @@
-import {
-    Injectable,
-    Logger,
-    BadRequestException,
-} from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 
-import type { Prisma }
-    from '../../generated/prisma/client.js';
+import type { Prisma } from '../../generated/prisma/client.js';
 
-import { OrdersRepository }
-    from './orders.repository.js';
+import { OrdersRepository } from './orders.repository.js';
 import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
 
 @Injectable()
 export class OrdersBillingBuilder {
+  private readonly logger = new Logger(OrdersBillingBuilder.name);
 
-    private readonly logger =
-        new Logger(
-            OrdersBillingBuilder.name,
-        );
+  constructor(
+    private readonly ordersRepository: OrdersRepository,
 
-    constructor(
+    private readonly productColumnsBuilder: ProductColumnsBuilder,
+  ) {}
 
-        private readonly ordersRepository:
-            OrdersRepository,
+  async buildOrderBillingSection(
+    sheet: Prisma.order_sheetGetPayload<{
+      include: {
+        master_group: true;
+        order_paper: true;
+      };
+    }>,
+  ) {
+    const milkProducts = await this.ordersRepository.getProductsByGroup('Milk');
 
-        private readonly productColumnsBuilder:
-            ProductColumnsBuilder,
-    ) { }
+    const nonMilkProducts =
+      await this.ordersRepository.getProductsByGroup('Non-Milk');
 
-    async buildOrderBillingSection(
-        sheet: Prisma.order_sheetGetPayload<{
-            include: {
-                master_group: true;
-                order_paper: true;
-            };
-        }>,
-    ) {
+    const milkColumns = this.productColumnsBuilder.buildGroupedColumns(
+      milkProducts,
+      'night',
+      false,
+    );
 
-        const milkProducts =
-            await this.ordersRepository
-                .getProductsByGroup(
-                    'Milk',
-                );
+    const nonMilkColumns = this.productColumnsBuilder.buildGroupedColumns(
+      nonMilkProducts,
+      'night',
+      true,
+    );
 
-        const nonMilkProducts =
-            await this.ordersRepository
-                .getProductsByGroup(
-                    'Non-Milk',
-                );
+    const clients = await this.ordersRepository.getClientsByGroupId(
+      sheet.group_id,
+    );
 
-        const milkColumns =
-            this.productColumnsBuilder
-                .buildGroupedColumns(
-                    milkProducts,
-                    'night',
-                    false,
-                );
+    const savedItems = await this.ordersRepository.getSheetItems(sheet.id);
 
-        const nonMilkColumns =
-            this.productColumnsBuilder
-                .buildGroupedColumns(
-                    nonMilkProducts,
-                    'night',
-                    true,
-                );
+    const milkProductIds = new Set(milkProducts.map((p) => p.id));
 
-        const clients =
-            await this.ordersRepository
-                .getClientsByGroupId(
-                    sheet.group_id,
-                );
+    const nonMilkProductIds = new Set(nonMilkProducts.map((p) => p.id));
 
-        const savedItems =
-            await this.ordersRepository
-                .getSheetItems(
-                    sheet.id,
-                );
+    const milkRows: any[] = [];
 
-        const milkProductIds =
-            new Set(
-                milkProducts.map(
-                    p => p.id,
-                ),
-            );
+    const nonMilkRows: any[] = [];
 
-        const nonMilkProductIds =
-            new Set(
-                nonMilkProducts.map(
-                    p => p.id,
-                ),
-            );
+    let milkTotalNightBillAmount = 0;
 
-        const milkRows: any[] = [];
+    let milkTotalFinalBillAmount = 0;
 
-        const nonMilkRows: any[] = [];
+    let nonMilkTotalNightBillAmount = 0;
 
-        let milkTotalNightBillAmount = 0;
+    let nonMilkTotalFinalBillAmount = 0;
 
-        let milkTotalFinalBillAmount = 0;
+    for (const client of clients) {
+      const milkRow: any = {
+        clientId: client.id,
 
-        let nonMilkTotalNightBillAmount = 0;
+        clientName: client.name,
+      };
 
-        let nonMilkTotalFinalBillAmount = 0;
+      const nonMilkRow: any = {
+        clientId: client.id,
 
-        for (const client of clients) {
+        clientName: client.name,
+      };
 
-            const milkRow: any = {
+      const clientItems = savedItems.filter(
+        (item) => item.client_id === client.id,
+      );
+      let milkNightBillAmount = 0;
 
-                clientId:
-                    client.id,
+      let milkFinalBillAmount = 0;
 
-                clientName:
-                    client.name,
-            };
+      let nonMilkNightBillAmount = 0;
 
-            const nonMilkRow: any = {
+      let nonMilkFinalBillAmount = 0;
 
-                clientId:
-                    client.id,
+      for (const item of clientItems) {
+        const orderedQty = Number(item.ordered_qty ?? 0);
 
-                clientName:
-                    client.name,
-            };
+        const deliveredQty =
+          item.delivered_qty !== null ? Number(item.delivered_qty) : null;
 
-            const clientItems =
-                savedItems.filter(
-                    item =>
-                        item.client_id ===
-                        client.id,
-                );
-            let milkNightBillAmount = 0;
+        if (milkProductIds.has(item.product_id)) {
+          milkRow[`product_${item.product_id}_ordered`] = orderedQty;
 
-            let milkFinalBillAmount = 0;
+          milkRow[`product_${item.product_id}_delivered`] = deliveredQty;
 
-            let nonMilkNightBillAmount = 0;
+          milkNightBillAmount += Number(item.night_bill_amount ?? 0);
 
-            let nonMilkFinalBillAmount = 0;
-
-            for (const item of clientItems) {
-
-                const orderedQty =
-                    Number(
-                        item.ordered_qty ?? 0,
-                    );
-
-                const deliveredQty =
-                    item.delivered_qty !== null
-                        ? Number(
-                            item.delivered_qty,
-                        )
-                        : null;
-
-                if (
-                    milkProductIds.has(
-                        item.product_id,
-                    )
-                ) {
-
-                    milkRow[
-                        `product_${item.product_id}_ordered`
-                    ] = orderedQty;
-
-                    milkRow[
-                        `product_${item.product_id}_delivered`
-                    ] = deliveredQty;
-
-                    milkNightBillAmount +=
-                        Number(
-                            item.night_bill_amount ?? 0,
-                        );
-
-                    milkFinalBillAmount +=
-                        Number(
-                            item.final_bill_amount ?? 0,
-                        );
-                }
-
-                if (
-                    nonMilkProductIds.has(
-                        item.product_id,
-                    )
-                ) {
-
-                    nonMilkRow[
-                        `product_${item.product_id}_ordered`
-                    ] = orderedQty;
-
-                    nonMilkRow[
-                        `product_${item.product_id}_delivered`
-                    ] = deliveredQty;
-
-                    nonMilkNightBillAmount +=
-                        Number(
-                            item.night_bill_amount ?? 0,
-                        );
-
-                    nonMilkFinalBillAmount +=
-                        Number(
-                            item.final_bill_amount ?? 0,
-                        );
-                }
-
-            }
-
-            milkRow.nightBillAmount =
-                Number(
-                    milkNightBillAmount.toFixed(2),
-                );
-
-            milkRow.finalBillAmount =
-                Number(
-                    milkFinalBillAmount.toFixed(2),
-                );
-
-            nonMilkRow.nightBillAmount =
-                Number(
-                    nonMilkNightBillAmount.toFixed(2),
-                );
-
-            nonMilkRow.finalBillAmount =
-                Number(
-                    nonMilkFinalBillAmount.toFixed(2),
-                );
-            milkRows.push(
-                milkRow,
-            );
-
-            nonMilkRows.push(
-                nonMilkRow,
-            );
-            milkTotalNightBillAmount +=
-                milkNightBillAmount;
-
-            milkTotalFinalBillAmount +=
-                milkFinalBillAmount;
-
-            nonMilkTotalNightBillAmount +=
-                nonMilkNightBillAmount;
-
-            nonMilkTotalFinalBillAmount +=
-                nonMilkFinalBillAmount;
+          milkFinalBillAmount += Number(item.final_bill_amount ?? 0);
         }
 
-        return {
+        if (nonMilkProductIds.has(item.product_id)) {
+          nonMilkRow[`product_${item.product_id}_ordered`] = orderedQty;
 
-            milkGrid: {
+          nonMilkRow[`product_${item.product_id}_delivered`] = deliveredQty;
 
-                columns:
-                    milkColumns,
+          nonMilkNightBillAmount += Number(item.night_bill_amount ?? 0);
 
-                rows:
-                    milkRows,
+          nonMilkFinalBillAmount += Number(item.final_bill_amount ?? 0);
+        }
+      }
 
-                totals: {
+      milkRow.nightBillAmount = Number(milkNightBillAmount.toFixed(2));
 
-                    totalClients:
-                        clients.length,
+      milkRow.finalBillAmount = Number(milkFinalBillAmount.toFixed(2));
 
-                    totalNightBillAmount:
-                        Number(
-                            milkTotalNightBillAmount
-                                .toFixed(2),
-                        ),
+      nonMilkRow.nightBillAmount = Number(nonMilkNightBillAmount.toFixed(2));
 
-                    totalFinalBillAmount:
-                        Number(
-                            milkTotalFinalBillAmount
-                                .toFixed(2),
-                        ),
-                },
-            },
+      nonMilkRow.finalBillAmount = Number(nonMilkFinalBillAmount.toFixed(2));
+      milkRows.push(milkRow);
 
-            nonMilkGrid: {
+      nonMilkRows.push(nonMilkRow);
+      milkTotalNightBillAmount += milkNightBillAmount;
 
-                columns:
-                    nonMilkColumns,
+      milkTotalFinalBillAmount += milkFinalBillAmount;
 
-                rows:
-                    nonMilkRows,
+      nonMilkTotalNightBillAmount += nonMilkNightBillAmount;
 
-                totals: {
-
-                    totalClients:
-                        clients.length,
-
-                    totalNightBillAmount:
-                        Number(
-                            nonMilkTotalNightBillAmount
-                                .toFixed(2),
-                        ),
-
-                    totalFinalBillAmount:
-                        Number(
-                            nonMilkTotalFinalBillAmount
-                                .toFixed(2),
-                        ),
-                },
-            },
-        };
+      nonMilkTotalFinalBillAmount += nonMilkFinalBillAmount;
     }
+
+    return {
+      milkGrid: {
+        columns: milkColumns,
+
+        rows: milkRows,
+
+        totals: {
+          totalClients: clients.length,
+
+          totalNightBillAmount: Number(milkTotalNightBillAmount.toFixed(2)),
+
+          totalFinalBillAmount: Number(milkTotalFinalBillAmount.toFixed(2)),
+        },
+      },
+
+      nonMilkGrid: {
+        columns: nonMilkColumns,
+
+        rows: nonMilkRows,
+
+        totals: {
+          totalClients: clients.length,
+
+          totalNightBillAmount: Number(nonMilkTotalNightBillAmount.toFixed(2)),
+
+          totalFinalBillAmount: Number(nonMilkTotalFinalBillAmount.toFixed(2)),
+        },
+      },
+    };
+  }
 }

@@ -1,85 +1,23 @@
-// src/types/purchase.types.ts
+export interface VehicleAssignment {
+  vehicle_id: number;
+  distributor_id: number;
 
-export interface PurchaseColumn {
+  master_vehicle: {
+    id: number;
+    vehicle_name: string | null;
+  };
 
-    productId: number;
-
-    brandId: number;
-
-    brandName: string;
-
-    productGroupId: number;
-
-    productGroupName: string;
-
-    productTypeId: number | null;
-
-    productTypeName: string | null;
-
-    packagingTypeId: number | null;
-
-    packagingTypeName: string | null;
-
-    packagingSize: number;
-
-    packagingUnit: string;
-
-    purchaseRate: number;
-
-    columnKey: string;
+  master_distributor: {
+    id: number;
+    name: string;
+  };
 }
 
-export interface PurchaseRow {
-
-    vehicleId: number;
-
-    vehicleNumber: string;
-
-    serialNumber: string | null;
-
-    dairyId: number | null;
-
-    gatepassDate: string | null;
-
-    values: Record<string, number>;
-
-    rowTotal: number;
-}
-
-export interface PurchaseSection {
-
-    distributorId: number;
-
-    distributorName: string;
-
-    brandId: number;
-
-    brandName: string;
-
-    productGroupId: number;
-
-    productGroupName: string;
-
-    gatepassDate: string;
-
-    saleDate: string;
-
-    columns: PurchaseColumn[];
-
-    rows: PurchaseRow[];
-
-    totals: Record<string, number>;
-
-    grandTotal: number;
-}
-
-export interface PurchaseResponse {
-
-    purchasePaperId: number;
-
-    orderPaperId: number;
-
-    saleDate: string;
-
-    sections: PurchaseSection[];
+export interface ProcurementRule {
+  distributor_id: number;
+  brand_id: number;
+  product_group_id: number;
+  master_distributor: { name: string };
+  master_brand: { name: string };
+  master_product_group: { name: string };
 }

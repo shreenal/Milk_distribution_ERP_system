@@ -9,18 +9,21 @@ import { WorkflowModule } from './modules/workflow/workflow.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { VehicleAllocationModule } from './modules/vehicle-allocation/vehicle-allocation.module.js';
 import { PaperModule } from './modules/paper/paper.module.js';
-
+import { PurchaseModule } from './modules/purchase/purchase.module.js';
 
 @Module({
-  imports: [PrismaModule,
+  imports: [
+    PrismaModule,
     WorkflowModule,
     OrdersModule,
     TraysModule,
     CollectionsModule,
     VehicleAllocationModule,
     AuthModule,
-    PaperModule],
+    PaperModule,
+    PurchaseModule,
+  ],
   controllers: [AppController],
   providers: [AppService],
 })
-export class AppModule { }
+export class AppModule {}

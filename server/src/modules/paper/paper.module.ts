@@ -13,22 +13,21 @@ import { CollectionsModule } from '../collections/collections.module.js';
 import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocation.module.js';
 import { OrdersModule } from '../orders/orders.module.js';
 import { PaperRepository } from './paper.repository.js';
+import { PurchaseModule } from '../purchase/purchase.module.js';
 
 @Module({
-    imports: [WorkflowModule,OrdersModule,TraysModule,CollectionsModule,VehicleAllocationModule],
-    controllers: [
-        PaperController,
-    ],
+  imports: [
+    WorkflowModule,
+    OrdersModule,
+    TraysModule,
+    CollectionsModule,
+    VehicleAllocationModule,
+    PurchaseModule,
+  ],
+  controllers: [PaperController],
 
-    providers: [
-        PaperService,
-        PaperValidationService,
-        PaperRepository,
-    ],
+  providers: [PaperService, PaperValidationService, PaperRepository],
 
-    exports: [
-        PaperService,
-        PaperValidationService,
-    ],
+  exports: [PaperService, PaperValidationService],
 })
 export class PaperModule {}

@@ -1,201 +1,141 @@
 import { Injectable } from '@nestjs/common';
 
-import { PrismaService }
-    from '../../prisma/prisma.service.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
-import { NightCollectionEntryDto }
-from './dto/save-night-collection.dto.js';
+import { NightCollectionEntryDto } from './dto/save-night-collection.dto.js';
 
-import { MorningCollectionEntryDto }
-from './dto/save-morning-collection.dto.js';
+import { MorningCollectionEntryDto } from './dto/save-morning-collection.dto.js';
 
-import { AdminCollectionEntryDto }
-from './dto/save-admin-collection.dto.js';
+import { AdminCollectionEntryDto } from './dto/save-admin-collection.dto.js';
 
 @Injectable()
 export class CollectionsRepository {
+  constructor(private readonly prisma: PrismaService) {}
 
-    constructor(
-        private readonly prisma:
-            PrismaService,
-    ) { }
+  async getOrderSheetById(sheetId: number) {
+    return this.prisma.order_sheet.findUnique({
+      where: {
+        id: sheetId,
+      },
 
-    async getOrderSheetById(
-        sheetId: number,
-    ) {
+      include: {
+        master_group: true,
 
-        return this.prisma
-            .order_sheet
-            .findUnique({
+        order_paper: true,
+      },
+    });
+  }
 
-                where: {
-                    id: sheetId,
-                },
+  async getClientsByGroupId(groupId: number) {
+    return this.prisma.master_client.findMany({
+      where: {
+        delivery_group_id: groupId,
 
-                include: {
+        is_active: true,
+      },
 
-                    master_group: true,
+      orderBy: {
+        code: 'asc',
+      },
+    });
+  }
 
-                    order_paper: true,
-                },
-            });
-    }
+  async getCollectionEntries(sheetId: number) {
+    return this.prisma.client_collection.findMany({
+      where: {
+        order_sheet_id: sheetId,
+      },
+    });
+  }
 
-    async getClientsByGroupId(
-        groupId: number,
-    ) {
-
-        return this.prisma
-            .master_client
-            .findMany({
-
-                where: {
-
-                    delivery_group_id:
-                        groupId,
-
-                    is_active: true,
-                },
-
-                orderBy: {
-
-                    code: 'asc',
-                },
-            });
-    }
-
-    async getCollectionEntries(
-        sheetId: number,
-    ) {
-
-        return this.prisma
-            .client_collection
-            .findMany({
-
-                where: {
-
-                    order_sheet_id:
-                        sheetId,
-                },
-            });
-    }
-
-async upsertNightCollectionEntry(
+  async upsertNightCollectionEntry(
     sheetId: number,
     entry: NightCollectionEntryDto,
-) {
+  ) {
+    return this.prisma.client_collection.upsert({
+      where: {
+        order_sheet_id_client_id: {
+          order_sheet_id: sheetId,
+          client_id: entry.clientId,
+        },
+      },
 
-    return this.prisma
-        .client_collection
-        .upsert({
+      create: {
+        order_sheet_id: sheetId,
+        client_id: entry.clientId,
 
-            where: {
-                order_sheet_id_client_id: {
-                    order_sheet_id: sheetId,
-                    client_id: entry.clientId,
-                },
-            },
+        office_amount_given: entry.officeAmountGiven,
+      },
 
-            create: {
-                order_sheet_id: sheetId,
-                client_id: entry.clientId,
+      update: {
+        office_amount_given: entry.officeAmountGiven,
+      },
+    });
+  }
 
-                office_amount_given:
-                    entry.officeAmountGiven,
-            },
-
-            update: {
-                office_amount_given:
-                    entry.officeAmountGiven,
-            },
-        });
-}
-
-
-async upsertMorningCollectionEntry(
+  async upsertMorningCollectionEntry(
     sheetId: number,
     entry: MorningCollectionEntryDto,
-) {
+  ) {
+    return this.prisma.client_collection.upsert({
+      where: {
+        order_sheet_id_client_id: {
+          order_sheet_id: sheetId,
+          client_id: entry.clientId,
+        },
+      },
 
-    return this.prisma
-        .client_collection
-        .upsert({
+      create: {
+        order_sheet_id: sheetId,
+        client_id: entry.clientId,
 
-            where: {
-                order_sheet_id_client_id: {
-                    order_sheet_id: sheetId,
-                    client_id: entry.clientId,
-                },
-            },
+        cash_collection: entry.cashCollection,
 
-            create: {
-                order_sheet_id: sheetId,
-                client_id: entry.clientId,
+        cheque_collection: entry.chequeCollection,
 
-                cash_collection:
-                    entry.cashCollection,
+        employee_remarks: entry.employeeRemarks,
+      },
 
-                cheque_collection:
-                    entry.chequeCollection,
+      update: {
+        cash_collection: entry.cashCollection,
 
-                employee_remarks:
-                    entry.employeeRemarks,
-            },
+        cheque_collection: entry.chequeCollection,
 
-            update: {
-                cash_collection:
-                    entry.cashCollection,
+        employee_remarks: entry.employeeRemarks,
+      },
+    });
+  }
 
-                cheque_collection:
-                    entry.chequeCollection,
-
-                employee_remarks:
-                    entry.employeeRemarks,
-            },
-        });
-}
-
-async upsertAdminCollectionEntry(
+  async upsertAdminCollectionEntry(
     sheetId: number,
     entry: AdminCollectionEntryDto,
-) {
+  ) {
+    return this.prisma.client_collection.upsert({
+      where: {
+        order_sheet_id_client_id: {
+          order_sheet_id: sheetId,
+          client_id: entry.clientId,
+        },
+      },
 
-    return this.prisma
-        .client_collection
-        .upsert({
+      create: {
+        order_sheet_id: sheetId,
+        client_id: entry.clientId,
 
-            where: {
-                order_sheet_id_client_id: {
-                    order_sheet_id: sheetId,
-                    client_id: entry.clientId,
-                },
-            },
+        online_collection: entry.onlineCollection,
 
-            create: {
-                order_sheet_id: sheetId,
-                client_id: entry.clientId,
+        bank_deposit: entry.bankDeposit,
 
-                online_collection:
-                    entry.onlineCollection,
+        admin_remarks: entry.adminRemarks,
+      },
 
-                bank_deposit:
-                    entry.bankDeposit,
+      update: {
+        online_collection: entry.onlineCollection,
 
-                admin_remarks:
-                    entry.adminRemarks,
-            },
+        bank_deposit: entry.bankDeposit,
 
-            update: {
-                online_collection:
-                    entry.onlineCollection,
-
-                bank_deposit:
-                    entry.bankDeposit,
-
-                admin_remarks:
-                    entry.adminRemarks,
-            },
-        });
-}
-
+        admin_remarks: entry.adminRemarks,
+      },
+    });
+  }
 }

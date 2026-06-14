@@ -1,65 +1,61 @@
 export interface CollectionRow {
-    collectionId,
+  collectionId;
 
-    clientId,
+  clientId;
 
-    clientCode,
+  clientCode;
 
-    clientName,
+  clientName;
 
-    cashCollection,
+  cashCollection;
 
-    officeAmountGiven,
+  officeAmountGiven;
 
-    chequeCollection,
+  chequeCollection;
 
-    onlineCollection,
+  onlineCollection;
 
-    bankDeposit,
+  bankDeposit;
 
-    employeeRemarks,
+  employeeRemarks;
 
-    adminRemarks,
+  adminRemarks;
 
-    employeeTotal,
+  employeeTotal;
 
-    adminTotal,
+  adminTotal;
 
-    grandTotal,
+  grandTotal;
 }
-
 
 export interface CollectionTotals {
+  cashCollection: number;
 
-    cashCollection: number;
+  officeAmountGiven: number;
 
-    officeAmountGiven: number;
+  chequeCollection: number;
 
-    chequeCollection: number;
+  onlineCollection: number;
 
-    onlineCollection: number;
+  bankDeposit: number;
 
-    bankDeposit: number;
+  employeeTotal: number;
 
-    employeeTotal: number;
+  adminTotal: number;
 
-    adminTotal: number;
-
-    grandTotal: number;
+  grandTotal: number;
 }
 
-
 export interface CollectionGrid {
+  orderSheetId: number;
 
-    orderSheetId: number;
+  groupId: number;
 
-    groupId: number;
+  groupName: string;
 
-    groupName: string;
+  paperStatus: string;
 
-    paperStatus: string;
+  rows: CollectionRow[];
 
-    rows: CollectionRow[];
-
-    totals: CollectionTotals;
+  totals: CollectionTotals;
 }

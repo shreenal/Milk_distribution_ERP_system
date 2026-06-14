@@ -8,13 +8,9 @@ import { ProductColumnsBuilder } from '../../common/builders/product-columns.bui
 import { VehicleAllocationValidationService } from './vehicle-allocation-validation.service.js';
 
 @Module({
-  imports: [
-    WorkflowModule,
-  ],  
+  imports: [WorkflowModule],
 
-  controllers: [
-    VehicleAllocationController,
-  ],
+  controllers: [VehicleAllocationController],
 
   providers: [
     VehicleAllocationBuilder,

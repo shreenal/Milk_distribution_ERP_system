@@ -5,138 +5,94 @@ import { TraysValidationService } from '../trays/trays-validation.service.js';
 import { CollectionsValidationService } from '../collections/collections-validation.service.js';
 import { OrdersValidationService } from '../orders/orders-validation.service.js';
 import { PaperRepository } from './paper.repository.js';
-
-
+import { PurchaseValidationService } from '../purchase/purchase-validation.service.js';
 
 @Injectable()
 export class PaperValidationService {
+  constructor(
+    private readonly paperRepository: PaperRepository,
+    private readonly ordersValidationService: OrdersValidationService,
+    private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
+    private readonly traysValidationService: TraysValidationService,
+    private readonly collectionsValidationService: CollectionsValidationService,
+    private readonly purchaseValidationService: PurchaseValidationService,
+  ) {}
 
-    constructor(
-        private readonly paperRepository: PaperRepository,
-        private readonly ordersValidationService: OrdersValidationService,
-        private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
-        private readonly traysValidationService: TraysValidationService,
-        private readonly collectionsValidationService: CollectionsValidationService
-    ) { }
+  async validateNightSubmitReadiness(paperId: number) {
+    const paper = await this.paperRepository.findPaperById(paperId);
 
-    async validateNightSubmitReadiness(
-        paperId: number,
-    ) {
-        const paper = await this.paperRepository.findPaperById(paperId);
-
-        if (!paper) {
-            throw new BadRequestException(
-                ERROR_MESSAGES.PAPER_NOT_FOUND,
-            );
-        }
-
-        const sheets =
-            await this.paperRepository
-                .getPaperSheets(
-                    paperId,
-                );
-
-        await this
-            .vehicleAllocationValidationService
-            .validateVehicleAllocationsForNightSubmit(
-                paperId,
-            );
-
-        for (const sheet of sheets) {
-
-            await this.ordersValidationService
-                .validateNightEntriesComplete(
-                    sheet.id,
-                    sheet.master_group.name,
-                );
-
-            await this.traysValidationService
-                .validateTrayCalculationExists(
-                    sheet.id,
-                );
-
-            await this.collectionsValidationService
-                .validateNightCollections(
-                    sheet.id,
-                );
-        }
-
-        return paper;
+    if (!paper) {
+      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
     }
 
-    async validateMorningSubmitReadiness(
-        paperId: number,
-    ) {
-        const paper = await this.paperRepository.findPaperById(paperId);
+    const sheets = await this.paperRepository.getPaperSheets(paperId);
 
-        if (!paper) {
-            throw new BadRequestException(
-                ERROR_MESSAGES.PAPER_NOT_FOUND,
-            );
-        }
+    await this.vehicleAllocationValidationService.validateVehicleAllocationsForNightSubmit(
+      paperId,
+    );
 
-        const sheets =
-            await this.paperRepository
-                .getPaperSheets(
-                    paperId,
-                );
+    await this.vehicleAllocationValidationService.validateVehicleAssignmentsForNightSubmit(
+      paperId,
+    );
 
-        for (const sheet of sheets) {
+    for (const sheet of sheets) {
+      await this.ordersValidationService.validateNightEntriesComplete(
+        sheet.id,
+        sheet.master_group.name,
+      );
 
-            await this.ordersValidationService
-                .validateMorningEntriesComplete(
-                    sheet.id,
-                );
+      await this.traysValidationService.validateTrayCalculationExists(sheet.id);
 
-            await this.ordersValidationService
-                .validateQuantitySanity(
-                    sheet.id,
-                );
-
-            await this.traysValidationService
-                .validateTrayCompleteness(
-                    sheet.id,
-                );
-
-            await this.collectionsValidationService
-                .validateMorningCollections(
-                    sheet.id,
-                );
-        }
-
-        return paper;
+      await this.collectionsValidationService.validateNightCollections(
+        sheet.id,
+      );
     }
 
-    async validateFinalizeReadiness(
-        paperId: number,
-    ) {
-        const paper =
-            await this.paperRepository
-                .findPaperById(
-                    paperId,
-                );
+    return paper;
+  }
 
-        if (!paper) {
+  async validateMorningSubmitReadiness(paperId: number) {
+    const paper = await this.paperRepository.findPaperById(paperId);
 
-            throw new BadRequestException(
-                ERROR_MESSAGES.PAPER_NOT_FOUND,
-            );
-        }
-
-        const sheets =
-            await this.paperRepository
-                .getPaperSheets(
-                    paperId,
-                );
-
-        for (const sheet of sheets) {
-
-            await this.collectionsValidationService
-                .validateAdminCollections(
-                    sheet.id,
-                );
-        }
-
-        return paper;
+    if (!paper) {
+      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
     }
+
+    const sheets = await this.paperRepository.getPaperSheets(paperId);
+
+    for (const sheet of sheets) {
+      await this.ordersValidationService.validateMorningEntriesComplete(
+        sheet.id,
+      );
+
+      await this.ordersValidationService.validateQuantitySanity(sheet.id);
+
+      await this.traysValidationService.validateTrayCompleteness(sheet.id);
+
+      await this.collectionsValidationService.validateMorningCollections(
+        sheet.id,
+      );
+    }
+    await this.purchaseValidationService.validatePurchasesComplete(paperId);
+
+    return paper;
+  }
+
+  async validateFinalizeReadiness(paperId: number) {
+    const paper = await this.paperRepository.findPaperById(paperId);
+
+    if (!paper) {
+      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    }
+
+    const sheets = await this.paperRepository.getPaperSheets(paperId);
+
+    for (const sheet of sheets) {
+      await this.collectionsValidationService.validateAdminCollections(
+        sheet.id,
+      );
+    }
+
+    return paper;
+  }
 }

@@ -1,431 +1,269 @@
-import {
-    Injectable,
-    Logger,
-} from '@nestjs/common';
-
-
+import { Injectable, Logger } from '@nestjs/common';
 
 @Injectable()
 export class CollectionBuilder {
+  private readonly logger = new Logger(CollectionBuilder.name);
+
+  buildCollectionGrid(sheet: any, clients: any[], savedCollections: any[]) {
+    this.logger.debug(`Building collection grid for sheet ${sheet.id}`);
 
-    private readonly logger =
-        new Logger(
-            CollectionBuilder.name,
-        );
-
-    buildCollectionGrid(
-        sheet: any,
-        clients: any[],
-        savedCollections: any[],
-    ) {
-
-        this.logger.debug(
-            `Building collection grid for sheet ${sheet.id}`,
-        );
-
-        const columns = [
-
-            {
-                field: 'clientCode',
-                headerName: 'Client Code',
-                editable: false,
-            },
-
-            {
-                field: 'clientName',
-                headerName: 'Client Name',
-                editable: false,
-            },
-
-            {
-                headerName: 'Night Entry',
-
-                children: [
-                    {
-                        field: 'officeAmountGiven',
-                        headerName: 'Office Amount Given',
-                    },
-                ],
-            },
-
-            {
-                headerName: 'Morning Entry',
-
-                children: [
-                    {
-                        field: 'cashCollection',
-                        headerName: 'Cash Collection',
-                    },
-
-                    {
-                        field: 'chequeCollection',
-                        headerName: 'Cheque Collection',
-                    },
-
-                    {
-                        field: 'employeeRemarks',
-                        headerName: 'Employee Remarks',
-                    },
-                ],
-            },
-
-            {
-                field:
-                    'employeeTotal',
-
-                headerName:
-                    'Total (Employee)',
-
-                editable:
-                    false,
-            },
-
-            {
-                headerName: 'Admin Entry',
-
-                children: [
-                    {
-                        field: 'onlineCollection',
-                        headerName: 'Online Collection (UPI)',
-                    },
-
-                    {
-                        field: 'bankDeposit',
-                        headerName: 'Bank Deposit',
-                    },
-
-                    {
-                        field: 'adminRemarks',
-                        headerName: 'Admin Remarks',
-                    },
-                ],
-            },
-
-            {
-                field:
-                    'adminTotal',
-
-                headerName:
-                    'Total (Admin)',
+    const columns = [
+      {
+        field: 'clientCode',
+        headerName: 'Client Code',
+        editable: false,
+      },
 
-                editable:
-                    false,
-            },
+      {
+        field: 'clientName',
+        headerName: 'Client Name',
+        editable: false,
+      },
 
-            {
-                field:
-                    'grandTotal',
+      {
+        headerName: 'Night Entry',
 
-                headerName:
-                    'Grand Total',
+        children: [
+          {
+            field: 'officeAmountGiven',
+            headerName: 'Office Amount Given',
+          },
+        ],
+      },
 
-                editable:
-                    false,
-            },
-        ];
+      {
+        headerName: 'Morning Entry',
 
-        const status =
-            sheet.order_paper?.status;
+        children: [
+          {
+            field: 'cashCollection',
+            headerName: 'Cash Collection',
+          },
 
-        const permissions = {
+          {
+            field: 'chequeCollection',
+            headerName: 'Cheque Collection',
+          },
 
-            canEditNightCollections:
-                status === 'DRAFT',
+          {
+            field: 'employeeRemarks',
+            headerName: 'Employee Remarks',
+          },
+        ],
+      },
 
-            canEditMorningCollections:
-                status === 'NIGHT_SUBMITTED',
+      {
+        field: 'employeeTotal',
 
-            canEditAdminCollections:
-                status === 'MORNING_SUBMITTED' ||
-                status === 'REOPENED',
+        headerName: 'Total (Employee)',
 
-            canFinalize:
-                status === 'MORNING_SUBMITTED' ||
-                status === 'REOPENED',
-        };
+        editable: false,
+      },
 
-        const rows =
-            clients.map(
-                client => {
+      {
+        headerName: 'Admin Entry',
 
-                    const saved =
-                        savedCollections.find(
-                            collection =>
+        children: [
+          {
+            field: 'onlineCollection',
+            headerName: 'Online Collection (UPI)',
+          },
 
-                                collection.client_id ===
-                                client.id,
-                        );
+          {
+            field: 'bankDeposit',
+            headerName: 'Bank Deposit',
+          },
 
-                    const cashCollection =
-                        Number(
-                            saved?.cash_collection ??
-                            0,
-                        );
+          {
+            field: 'adminRemarks',
+            headerName: 'Admin Remarks',
+          },
+        ],
+      },
 
-                    const officeAmountGiven =
-                        Number(
-                            saved?.office_amount_given ??
-                            0,
-                        );
+      {
+        field: 'adminTotal',
 
-                    const chequeCollection =
-                        Number(
-                            saved?.cheque_collection ??
-                            0,
-                        );
+        headerName: 'Total (Admin)',
 
-                    const onlineCollection =
-                        Number(
-                            saved?.online_collection ??
-                            0,
-                        );
+        editable: false,
+      },
 
-                    const bankDeposit =
-                        Number(
-                            saved?.bank_deposit ??
-                            0,
-                        );
+      {
+        field: 'grandTotal',
 
-                    const employeeTotal =
+        headerName: 'Grand Total',
 
-                        cashCollection +
+        editable: false,
+      },
+    ];
 
-                        officeAmountGiven +
+    const status = sheet.order_paper?.status;
 
-                        chequeCollection;
+    const permissions = {
+      canEditNightCollections: status === 'DRAFT',
 
-                    const adminTotal =
+      canEditMorningCollections: status === 'NIGHT_SUBMITTED',
 
-                        onlineCollection +
+      canEditAdminCollections:
+        status === 'MORNING_SUBMITTED' || status === 'REOPENED',
 
-                        bankDeposit;
+      canFinalize: status === 'MORNING_SUBMITTED' || status === 'REOPENED',
+    };
 
-                    const grandTotal =
+    const rows = clients.map((client) => {
+      const saved = savedCollections.find(
+        (collection) => collection.client_id === client.id,
+      );
 
-                        employeeTotal +
+      const cashCollection = Number(saved?.cash_collection ?? 0);
 
-                        adminTotal;
+      const officeAmountGiven = Number(saved?.office_amount_given ?? 0);
 
-                    return {
+      const chequeCollection = Number(saved?.cheque_collection ?? 0);
 
-                        collectionId:
-                            saved?.id ?? null,
+      const onlineCollection = Number(saved?.online_collection ?? 0);
 
-                        clientId:
-                            client.id,
+      const bankDeposit = Number(saved?.bank_deposit ?? 0);
 
-                        clientCode:
-                            client.code,
+      const employeeTotal =
+        cashCollection + officeAmountGiven + chequeCollection;
 
-                        clientName:
-                            client.name,
+      const adminTotal = onlineCollection + bankDeposit;
 
-                        cashCollection,
+      const grandTotal = employeeTotal + adminTotal;
 
-                        officeAmountGiven,
+      return {
+        collectionId: saved?.id ?? null,
 
-                        chequeCollection,
+        clientId: client.id,
 
-                        onlineCollection,
+        clientCode: client.code,
 
-                        bankDeposit,
+        clientName: client.name,
 
-                        employeeRemarks:
-                            saved?.employee_remarks ??
-                            null,
+        cashCollection,
 
-                        adminRemarks:
-                            saved?.admin_remarks ??
-                            null,
+        officeAmountGiven,
 
-                        employeeTotal:
-                            Number(
-                                employeeTotal.toFixed(2),
-                            ),
+        chequeCollection,
 
-                        adminTotal:
-                            Number(
-                                adminTotal.toFixed(2),
-                            ),
+        onlineCollection,
 
-                        grandTotal:
-                            Number(
-                                grandTotal.toFixed(2),
-                            ),
-                    };
-                },
-            );
+        bankDeposit,
 
-        const totals = {
+        employeeRemarks: saved?.employee_remarks ?? null,
 
-            totalClients:
-                rows.length,
+        adminRemarks: saved?.admin_remarks ?? null,
 
-            cashCollection:
-                Number(
-                    rows
-                        .reduce(
+        employeeTotal: Number(employeeTotal.toFixed(2)),
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+        adminTotal: Number(adminTotal.toFixed(2)),
 
-                                sum +
-                                row.cashCollection,
+        grandTotal: Number(grandTotal.toFixed(2)),
+      };
+    });
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
+    const totals = {
+      totalClients: rows.length,
 
-            officeAmountGiven:
-                Number(
-                    rows
-                        .reduce(
+      cashCollection: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.cashCollection,
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+            0,
+          )
+          .toFixed(2),
+      ),
 
-                                sum +
-                                row.officeAmountGiven,
+      officeAmountGiven: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.officeAmountGiven,
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
+            0,
+          )
+          .toFixed(2),
+      ),
 
-            chequeCollection:
-                Number(
-                    rows
-                        .reduce(
+      chequeCollection: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.chequeCollection,
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+            0,
+          )
+          .toFixed(2),
+      ),
 
-                                sum +
-                                row.chequeCollection,
+      onlineCollection: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.onlineCollection,
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
+            0,
+          )
+          .toFixed(2),
+      ),
 
-            onlineCollection:
-                Number(
-                    rows
-                        .reduce(
+      bankDeposit: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.bankDeposit,
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+            0,
+          )
+          .toFixed(2),
+      ),
 
-                                sum +
-                                row.onlineCollection,
+      employeeTotal: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.employeeTotal,
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
+            0,
+          )
+          .toFixed(2),
+      ),
 
-            bankDeposit:
-                Number(
-                    rows
-                        .reduce(
+      adminTotal: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.adminTotal,
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+            0,
+          )
+          .toFixed(2),
+      ),
 
-                                sum +
-                                row.bankDeposit,
+      grandTotal: Number(
+        rows
+          .reduce(
+            (sum, row) => sum + row.grandTotal,
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
+            0,
+          )
+          .toFixed(2),
+      ),
+    };
 
-            employeeTotal:
-                Number(
-                    rows
-                        .reduce(
+    return {
+      orderSheetId: sheet.id,
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+      groupId: sheet.group_id,
 
-                                sum +
-                                row.employeeTotal,
+      groupName: sheet.master_group?.name,
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
+      paperStatus: sheet.order_paper?.status,
 
-            adminTotal:
-                Number(
-                    rows
-                        .reduce(
+      permissions,
 
-                            (
-                                sum,
-                                row,
-                            ) =>
+      columns,
 
-                                sum +
-                                row.adminTotal,
+      rows,
 
-                            0,
-                        )
-                        .toFixed(2),
-                ),
-
-            grandTotal:
-                Number(
-                    rows
-                        .reduce(
-
-                            (
-                                sum,
-                                row,
-                            ) =>
-
-                                sum +
-                                row.grandTotal,
-
-                            0,
-                        )
-                        .toFixed(2),
-                ),
-        };
-
-        return {
-            orderSheetId:
-                sheet.id,
-
-            groupId:
-                sheet.group_id,
-
-            groupName:
-                sheet.master_group?.name,
-
-            paperStatus:
-                sheet.order_paper?.status,
-
-            permissions,
-
-            columns,
-
-            rows,
-
-            totals,
-        };
-    }
+      totals,
+    };
+  }
 }

@@ -12,5 +12,5 @@ export class SaveTrayReturnDto {
 
   @IsInt()
   @Min(0)
-  returned!: number;     // ✓ ONLY operator-entered field
+  returned!: number; // ✓ ONLY operator-entered field
 }
