@@ -9,6 +9,8 @@ import {
   ProcurementRule,
 } from '../../types/purchase.types.js';
 
+import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
+
 @Injectable()
 export class PurchaseValidationService {
   constructor(private readonly purchaseRepository: PurchaseRepository) {}
@@ -48,6 +50,11 @@ export class PurchaseValidationService {
     const allocationMap = new Map<string, number>();
 
     for (const allocation of allocations) {
+      if (allocation.vehicle_id == null || allocation.product_id == null) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.INVALID_ALLOCATION_IDENTIFIERS,
+        );
+      }
       allocationMap.set(
         `${allocation.vehicle_id}_${allocation.product_id}`,
 
@@ -81,7 +88,9 @@ export class PurchaseValidationService {
 
     for (const entry of dto.entries) {
       if (entry.purchasedQty < 0) {
-        throw new BadRequestException('Purchased quantity cannot be negative');
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.NEGATIVE_PURCHASE_QTY,
+        );
       }
 
       if (entry.purchasedQty === 0) {
@@ -89,16 +98,20 @@ export class PurchaseValidationService {
       }
 
       if (!validProductIds.has(entry.productId)) {
-        throw new BadRequestException(`Invalid product ${entry.productId}`);
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.INVALID_PRODUCT(entry.productId),
+        );
       }
 
       if (!validVehicles.has(entry.vehicleId)) {
-        throw new BadRequestException(`Invalid vehicle ${entry.vehicleId}`);
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.INVALID_VEHICLE(entry.vehicleId),
+        );
       }
 
       if (!validDistributors.has(entry.distributorId)) {
         throw new BadRequestException(
-          `Invalid distributor ${entry.distributorId}`,
+          PURCHASE_ERROR_MESSAGES.INVALID_DISTRIBUTOR(entry.distributorId),
         );
       }
 
@@ -106,7 +119,10 @@ export class PurchaseValidationService {
 
       if (assignedDistributor !== entry.distributorId) {
         throw new BadRequestException(
-          `Vehicle ${entry.vehicleId} is not assigned to distributor ${entry.distributorId}`,
+          PURCHASE_ERROR_MESSAGES.VEHICLE_DISTRIBUTOR_MISMATCH(
+            entry.vehicleId,
+            entry.distributorId,
+          ),
         );
       }
 
@@ -114,7 +130,10 @@ export class PurchaseValidationService {
         !validProcurementRules.has(`${entry.distributorId}_${entry.productId}`)
       ) {
         throw new BadRequestException(
-          `Distributor ${entry.distributorId} cannot procure product ${entry.productId}`,
+          PURCHASE_ERROR_MESSAGES.PROCUREMENT_RULE_MISSING(
+            entry.distributorId,
+            entry.productId,
+          ),
         );
       }
 
@@ -124,13 +143,16 @@ export class PurchaseValidationService {
 
       if (allocatedQty === undefined) {
         throw new BadRequestException(
-          `Allocation not found for vehicle ${entry.vehicleId} product ${entry.productId}`,
+          PURCHASE_ERROR_MESSAGES.ALLOCATION_NOT_FOUND(
+            entry.vehicleId,
+            entry.productId,
+          ),
         );
       }
 
       if (entry.purchasedQty > allocatedQty) {
         throw new BadRequestException(
-          `Purchased quantity exceeds allocated quantity`,
+          PURCHASE_ERROR_MESSAGES.PURCHASE_EXCEEDS_ALLOCATION,
         );
       }
     }
@@ -141,7 +163,9 @@ export class PurchaseValidationService {
       await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
 
     if (!purchasePaper) {
-      throw new BadRequestException('Purchases have not been completed');
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.PURCHASES_NOT_COMPLETED,
+      );
     }
 
     const allocations =
@@ -155,16 +179,21 @@ export class PurchaseValidationService {
       purchaseEntries.map((entry) => `${entry.vehicle_id}_${entry.product_id}`),
     );
 
-    for (const allocation of allocations) {
-      if (allocations.length === 0) {
-        throw new BadRequestException('No vehicle allocations found');
-      }
+    if (allocations.length === 0) {
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.NO_VEHICLE_ALLOCATIONS,
+      );
+    }
 
+    for (const allocation of allocations) {
       const key = `${allocation.vehicle_id}_${allocation.product_id}`;
 
       if (!purchaseKeys.has(key)) {
         throw new BadRequestException(
-          `Purchase missing for vehicle ${allocation.vehicle_id} product ${allocation.product_id}`,
+          PURCHASE_ERROR_MESSAGES.PURCHASE_MISSING(
+            allocation.vehicle_id,
+            allocation.product_id,
+          ),
         );
       }
     }

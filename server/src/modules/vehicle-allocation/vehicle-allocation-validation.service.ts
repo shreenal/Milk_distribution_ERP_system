@@ -1,13 +1,12 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service.js';
 import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { VehicleAllocationRepository } from './vehicle-allocation.repository.js';
 import { VehicleAllocationBuilder } from './vehicle-allocation.builder.js';
+import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
 
 @Injectable()
 export class VehicleAllocationValidationService {
   constructor(
-    private readonly prisma: PrismaService,
     private readonly vehicleAllocationRepository: VehicleAllocationRepository,
     private readonly vehicleAllocationBuilder: VehicleAllocationBuilder,
   ) {}
@@ -30,7 +29,15 @@ export class VehicleAllocationValidationService {
 
     for (const allocation of allocationGrids.allocations) {
       for (const [field, qty] of Object.entries(allocation.summaryTotal)) {
+        if (!field.startsWith('product_')) {
+          continue;
+        }
+
         const productId = Number(field.replace('product_', ''));
+
+        if (Number.isNaN(productId)) {
+          throw new BadRequestException(`Invalid product field ${field}`);
+        }
 
         requiredTotals.set(productId, Number(qty));
       }
@@ -52,7 +59,11 @@ export class VehicleAllocationValidationService {
 
       if (allocatedQty !== requiredQty) {
         throw new BadRequestException(
-          `Product ${productId} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.ALLOCATION_MISMATCH(
+            productId,
+            requiredQty,
+            allocatedQty,
+          ),
         );
       }
     }
@@ -148,23 +159,82 @@ export class VehicleAllocationValidationService {
 
     const assignedVehicles = new Set<number>();
 
+    const allocationsByVehicle = new Map<number, number[]>();
+
+    for (const allocation of dto.allocations) {
+      if (Number(allocation.allocatedQty) <= 0) {
+        continue;
+      }
+
+      const products = allocationsByVehicle.get(allocation.vehicleId) ?? [];
+
+      products.push(allocation.productId);
+
+      allocationsByVehicle.set(allocation.vehicleId, products);
+    }
+
+    const procurementRules =
+      await this.vehicleAllocationRepository.findDistributorProcurementRules();
+
+    const products = await this.vehicleAllocationRepository.findProducts();
+
+    const productsByBrandAndGroup = new Map<string, typeof products>();
+
+    for (const product of products) {
+      const key = `${product.brand_id}_${product.product_group_id}`;
+
+      const existing = productsByBrandAndGroup.get(key) ?? [];
+
+      existing.push(product);
+
+      productsByBrandAndGroup.set(key, existing);
+    }
+    const validProcurementRules = new Set<string>();
+
+    for (const rule of procurementRules) {
+      const matchingProducts =
+        productsByBrandAndGroup.get(
+          `${rule.brand_id}_${rule.product_group_id}`,
+        ) ?? [];
+
+      for (const product of matchingProducts) {
+        validProcurementRules.add(`${rule.distributor_id}_${product.id}`);
+      }
+    }
+
     for (const assignment of dto.assignments) {
       if (!validVehicleIds.has(assignment.vehicleId)) {
         throw new BadRequestException(
-          `Vehicle ${assignment.vehicleId} does not exist`,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_NOT_FOUND,
         );
       }
 
       if (!validDistributorIds.has(assignment.distributorId)) {
         throw new BadRequestException(
-          `Distributor ${assignment.distributorId} does not exist`,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_NOT_FOUND,
         );
       }
 
       if (assignedVehicles.has(assignment.vehicleId)) {
         throw new BadRequestException(
-          `Vehicle ${assignment.vehicleId} assigned multiple times`,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.DUPLICATE_VEHICLE_ASSIGNMENT,
         );
+      }
+
+      const vehicleProducts =
+        allocationsByVehicle.get(assignment.vehicleId) ?? [];
+
+      for (const productId of vehicleProducts) {
+        const ruleKey = `${assignment.distributorId}_${productId}`;
+
+        if (!validProcurementRules.has(ruleKey)) {
+          throw new BadRequestException(
+            VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_CANNOT_PROCURE_PRODUCT(
+              assignment.distributorId,
+              productId,
+            ),
+          );
+        }
       }
 
       assignedVehicles.add(assignment.vehicleId);
@@ -180,7 +250,9 @@ export class VehicleAllocationValidationService {
       );
 
     if (!vehicleAllocationPaper) {
-      throw new BadRequestException('Vehicle allocations not found');
+      throw new BadRequestException(
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_ALLOCATIONS_NOT_FOUND,
+      );
     }
 
     const assignments =
@@ -219,7 +291,7 @@ export class VehicleAllocationValidationService {
     for (const vehicleId of vehiclesWithAllocations) {
       if (!assignedVehicleIds.has(vehicleId)) {
         throw new BadRequestException(
-          `Vehicle ${vehicleId} has allocations but no distributor assignment`,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_WITHOUT_DISTRIBUTOR,
         );
       }
     }

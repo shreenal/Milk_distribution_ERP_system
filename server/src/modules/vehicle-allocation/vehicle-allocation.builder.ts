@@ -1,19 +1,112 @@
 import { Injectable } from '@nestjs/common';
+import {
+  ProductColumnsBuilder,
+  ProductColumnNode,
+} from '../../common/builders/product-columns.builder.js';
+import { Prisma } from '../../generated/prisma/client.js';
 
-import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
+type OrderSheet = Prisma.order_sheetGetPayload<{
+  include: {
+    master_group: true;
+  };
+}>;
+
+type SheetItem = Prisma.order_sheet_itemsGetPayload<{
+  include: {
+    master_product: {
+      include: {
+        master_brand: true;
+        master_product_group: true;
+        master_product_type: true;
+        master_packaging_type: true;
+      };
+    };
+  };
+}>;
+
+type Product = Prisma.master_productGetPayload<{
+  include: {
+    master_brand: true;
+    master_product_group: true;
+    master_product_type: true;
+    master_packaging_type: true;
+  };
+}>;
+
+type Vehicle = Prisma.master_vehicleGetPayload<{}>;
+
+type Distributor = Prisma.master_distributorGetPayload<{}>;
+
+type VehicleAssignment = Prisma.vehicle_distribution_assignmentGetPayload<{}>;
+
+type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{}>;
+
+type DynamicProductFields = Record<string, number>;
+
+type VehicleAllocationRow = {
+  vehicleId: number;
+  vehicleName: string | null;
+  [key: string]: string | number | null;
+};
+
+type VehicleAssignmentRow = {
+  vehicleId: number;
+  vehicleName: string | null;
+  distributorId: number | null;
+};
+
+type VehicleAssignmentGrid = {
+  assignments: VehicleAssignmentRow[];
+  distributors: {
+    id: number;
+    name: string;
+  }[];
+};
+
+type AllocationGrid = {
+  summaryKey: string;
+  brandId: number;
+  brandName: string;
+  productGroupId: number;
+  productGroupName: string;
+  summaryTotal: DynamicProductFields;
+  columns: ProductColumnNode[];
+  rows: VehicleAllocationRow[];
+};
+
+type AllocationGridResult = {
+  allocations: AllocationGrid[];
+};
+
+type SummaryRow = {
+  groupId: number;
+  groupName: string;
+  [key: string]: string | number;
+};
+
+type Summary = {
+  summaryKey: string;
+  brandId: number;
+  brandName: string;
+  productGroupId: number;
+  productGroupName: string;
+  columns: ProductColumnNode[];
+  rows: SummaryRow[];
+};
 
 @Injectable()
 export class VehicleAllocationBuilder {
   constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
 
   buildGroupSummary(
-    sheets: any[],
-
-    sheetItems: any[],
-
-    products: any[],
+    sheets: OrderSheet[],
+    sheetItems: SheetItem[],
+    products: Product[],
   ) {
-    const summariesMap = new Map();
+    type SummaryBuilder = Summary & {
+      products: Product[];
+    };
+    const summariesMap = new Map<string, SummaryBuilder>();
 
     for (const product of products) {
       const key = `${product.master_brand.id}_${product.master_product_group.id}`;
@@ -21,31 +114,29 @@ export class VehicleAllocationBuilder {
       if (!summariesMap.has(key)) {
         summariesMap.set(key, {
           summaryKey: key,
-
           brandId: product.master_brand.id,
-
           brandName: product.master_brand.name,
-
           productGroupId: product.master_product_group.id,
-
           productGroupName: product.master_product_group.name,
-
           products: [],
-
           rows: [],
+          columns: [],
         });
       }
 
-      summariesMap.get(key).products.push(product);
+      const summary = summariesMap.get(key);
+      if (!summary) {
+        continue;
+      }
+      summary.products.push(product);
     }
 
     for (const sheet of sheets) {
-      const summaryRowsMap = new Map();
+      const summaryRowsMap = new Map<string, SummaryRow>();
 
       for (const [key] of summariesMap) {
         summaryRowsMap.set(key, {
           groupId: sheet.group_id,
-
           groupName: sheet.master_group.name,
         });
       }
@@ -59,28 +150,43 @@ export class VehicleAllocationBuilder {
 
         const row = summaryRowsMap.get(key);
 
+        if (!row) {
+          continue;
+        }
+
         const field = `product_${item.product_id}`;
 
-        row[field] = (row[field] ?? 0) + Number(item.ordered_qty ?? 0);
+        const currentValue = typeof row[field] === 'number' ? row[field] : 0;
+
+        row[field] = currentValue + Number(item.ordered_qty ?? 0);
       }
 
       for (const [key, row] of summaryRowsMap) {
-        summariesMap.get(key).rows.push(row);
+        const summary = summariesMap.get(key);
+
+        if (!summary) {
+          continue;
+        }
+
+        summary.rows.push(row);
       }
     }
 
-    const summaries: any[] = [];
+    const summaries: Summary[] = [];
 
     for (const summary of summariesMap.values()) {
-      summary.columns = this.buildVehicleCapacityColumns(
-        summary.products,
-
-        summary.productGroupName !== 'Milk',
-      );
-
-      delete summary.products;
-
-      summaries.push(summary);
+      summaries.push({
+        summaryKey: summary.summaryKey,
+        brandId: summary.brandId,
+        brandName: summary.brandName,
+        productGroupId: summary.productGroupId,
+        productGroupName: summary.productGroupName,
+        columns: this.buildVehicleCapacityColumns(
+          summary.products,
+          summary.productGroupName !== 'Milk',
+        ),
+        rows: summary.rows,
+      });
     }
 
     return {
@@ -89,16 +195,16 @@ export class VehicleAllocationBuilder {
   }
 
   private buildVehicleCapacityColumns(
-    products: any[],
+    products: Product[],
     includePackagingType: boolean,
-  ) {
+  ): ProductColumnNode[] {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
       'night',
       includePackagingType,
     );
 
-    const updateFields = (nodes: any[]) => {
+    const updateFields = (nodes: ProductColumnNode[]) => {
       for (const node of nodes) {
         if (node.field && node.productId) {
           node.field = `product_${node.productId}`;
@@ -115,11 +221,14 @@ export class VehicleAllocationBuilder {
     return columns;
   }
 
-  buildVehicleAllocationGrids(summaries: any[], vehicles: any[]) {
-    const allocations: any[] = [];
+  buildVehicleAllocationGrids(
+    summaries: Summary[],
+    vehicles: Vehicle[],
+  ): AllocationGridResult {
+    const allocations: AllocationGrid[] = [];
 
     for (const summary of summaries) {
-      const rows: any[] = [];
+      const rows: VehicleAllocationRow[] = [];
 
       const productFields = initializeProductFields(summary.columns);
 
@@ -133,7 +242,7 @@ export class VehicleAllocationBuilder {
         });
       }
 
-      const summaryTotal: any = {};
+      const summaryTotal: DynamicProductFields = {};
 
       for (const row of summary.rows) {
         for (const [key, value] of Object.entries(row)) {
@@ -169,7 +278,10 @@ export class VehicleAllocationBuilder {
     };
   }
 
-  applyVehicleAllocations(allocationGrids: any, savedAllocations: any[]) {
+  applyVehicleAllocations(
+    allocationGrids: AllocationGridResult,
+    savedAllocations: VehicleAllocation[],
+  ) {
     const result = structuredClone(allocationGrids);
 
     for (const allocation of savedAllocations) {
@@ -191,7 +303,10 @@ export class VehicleAllocationBuilder {
     return result;
   }
 
-  buildVehicleAssignmentGrid(vehicles: any[], distributors: any[]) {
+  buildVehicleAssignmentGrid(
+    vehicles: Vehicle[],
+    distributors: Distributor[],
+  ): VehicleAssignmentGrid {
     return {
       assignments: vehicles.map((vehicle) => ({
         vehicleId: vehicle.id,
@@ -209,12 +324,16 @@ export class VehicleAllocationBuilder {
     };
   }
 
-  applyVehicleAssignments(assignmentGrid: any, savedAssignments: any[]) {
+  applyVehicleAssignments(
+    assignmentGrid: VehicleAssignmentGrid,
+    savedAssignments: VehicleAssignment[],
+  ) {
     const result = structuredClone(assignmentGrid);
 
     for (const assignment of savedAssignments) {
       const row = result.assignments.find(
-        (vehicle: any) => vehicle.vehicleId === assignment.vehicle_id,
+        (vehicle: VehicleAssignmentRow) =>
+          vehicle.vehicleId === assignment.vehicle_id,
       );
 
       if (row) {
@@ -226,10 +345,12 @@ export class VehicleAllocationBuilder {
   }
 }
 
-const initializeProductFields = (columns: any[]) => {
-  const row: any = {};
+const initializeProductFields = (
+  columns: ProductColumnNode[],
+): Record<string, number> => {
+  const row: Record<string, number> = {};
 
-  const walk = (nodes: any[]) => {
+  const walk = (nodes: ProductColumnNode[]) => {
     for (const node of nodes) {
       if (node.field) {
         row[node.field] = 0;

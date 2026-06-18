@@ -1,28 +1,23 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 
-export type PaperStatus =
-  | 'DRAFT'
-  | 'NIGHT_SUBMITTED'
-  | 'MORNING_SUBMITTED'
-  | 'FINALIZED'
-  | 'REOPENED';
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class WorkflowStateService {
   validateTransition(
-    currentStatus: PaperStatus,
-    targetStatus: PaperStatus,
+    currentStatus: OrderPaperStatus,
+    targetStatus: OrderPaperStatus,
   ): void {
-    const transitions: Record<PaperStatus, PaperStatus[]> = {
-      DRAFT: ['NIGHT_SUBMITTED'],
+    const transitions: Record<OrderPaperStatus, OrderPaperStatus[]> = {
+      [OrderPaperStatus.DRAFT]: [OrderPaperStatus.NIGHT_SUBMITTED],
 
-      NIGHT_SUBMITTED: ['MORNING_SUBMITTED'],
+      [OrderPaperStatus.NIGHT_SUBMITTED]: [OrderPaperStatus.MORNING_SUBMITTED],
 
-      MORNING_SUBMITTED: ['FINALIZED'],
+      [OrderPaperStatus.MORNING_SUBMITTED]: [OrderPaperStatus.FINALIZED],
 
-      FINALIZED: ['REOPENED'],
+      [OrderPaperStatus.FINALIZED]: [OrderPaperStatus.REOPENED],
 
-      REOPENED: ['FINALIZED'],
+      [OrderPaperStatus.REOPENED]: [OrderPaperStatus.FINALIZED],
     };
 
     const allowed = transitions[currentStatus];
@@ -34,43 +29,68 @@ export class WorkflowStateService {
     }
   }
 
-  canEditNightEntries(status: PaperStatus): boolean {
-    return ['DRAFT'].includes(status);
+  canEditNightEntries(status: OrderPaperStatus): boolean {
+    return status === OrderPaperStatus.DRAFT;
   }
 
-  canEditMorningEntries(status: PaperStatus): boolean {
-    return ['NIGHT_SUBMITTED', 'REOPENED'].includes(status);
+  canEditMorningEntries(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
-  canEditNightCollections(status: PaperStatus): boolean {
-    return ['DRAFT'].includes(status);
+  canEditNightCollections(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.DRAFT ||
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
-  canEditMorningCollections(status: PaperStatus): boolean {
-    return ['NIGHT_SUBMITTED'].includes(status);
+  canEditMorningCollections(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
-  canEditTrays(status: PaperStatus): boolean {
-    return ['NIGHT_SUBMITTED', 'REOPENED'].includes(status);
+  canEditTrays(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
-  canEmployeeEditCollections(status: PaperStatus): boolean {
-    return ['DRAFT', 'NIGHT_SUBMITTED'].includes(status);
+  canEmployeeEditCollections(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.DRAFT ||
+      status === OrderPaperStatus.NIGHT_SUBMITTED
+    );
   }
 
-  canAdminEditCollections(status: PaperStatus): boolean {
-    return ['MORNING_SUBMITTED', 'REOPENED'].includes(status);
+  canAdminEditCollections(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.MORNING_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
-  canEditVehicleAllocations(status: PaperStatus): boolean {
-    return ['DRAFT'].includes(status);
+  canEditVehicleAllocations(status: OrderPaperStatus): boolean {
+    return status === OrderPaperStatus.DRAFT;
   }
 
-  canEditPurchases(status: PaperStatus): boolean {
-    return ['NIGHT_SUBMITTED', 'REOPENED'].includes(status);
+  canEditPurchases(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
-  canFinalize(status: PaperStatus): boolean {
-    return ['MORNING_SUBMITTED', 'REOPENED'].includes(status);
+  canFinalize(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.MORNING_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 }

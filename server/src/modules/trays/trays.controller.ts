@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
+import { SaveTrayReturnDto } from './dto/save-trays-entries.dto.js';
 
 @Controller('trays')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -28,7 +29,7 @@ export class TraysController {
     sheetId: string,
 
     @Body()
-    entries: any[],
+    entries: SaveTrayReturnDto[],
   ) {
     return this.traysService.saveTrayEntriesService(
       Number(sheetId),

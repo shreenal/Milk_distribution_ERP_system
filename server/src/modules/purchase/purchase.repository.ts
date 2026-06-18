@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseRepository {
@@ -71,7 +72,10 @@ export class PurchaseRepository {
     });
   }
 
-  async replacePurchaseEntries(purchasePaperId: number, data: any[]) {
+  async replacePurchaseEntries(
+    purchasePaperId: number,
+    data: Prisma.purchase_entryCreateManyInput[],
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.purchase_entry.deleteMany({
         where: {
@@ -169,19 +173,36 @@ export class PurchaseRepository {
     });
   }
 
-  async findDistributorProductRates() {
+  async findDistributorProductRates(effectiveDate: Date) {
     return this.prisma.distributor_product_rate.findMany({
       where: {
         is_active: true,
+
+        effective_from: {
+          lte: effectiveDate,
+        },
+
+        OR: [
+          {
+            effective_to: null,
+          },
+          {
+            effective_to: {
+              gte: effectiveDate,
+            },
+          },
+        ],
       },
 
       orderBy: [
         {
           distributor_id: 'asc',
         },
-
         {
           product_id: 'asc',
+        },
+        {
+          effective_from: 'desc',
         },
       ],
     });

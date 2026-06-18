@@ -7,8 +7,15 @@ import { LoginDto } from './dto/login.dto.js';
 import { UseGuards, Req, Get } from '@nestjs/common';
 
 import { JwtAuthGuard } from './auth.guard.js';
-import { Roles } from './roles.decorator.js';
-import { RolesGuard } from './roles.guard.js';
+import { Request } from 'express';
+
+type AuthRequest = Request & {
+  user: {
+    id: number;
+    username: string;
+    role: string;
+  };
+};
 
 @Controller('auth')
 export class AuthController {
@@ -24,7 +31,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getMe(@Req() req: any) {
+  getMe(@Req() req: AuthRequest) {
     return req.user;
   }
 }

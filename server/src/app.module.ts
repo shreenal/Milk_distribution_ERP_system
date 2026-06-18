@@ -10,6 +10,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { VehicleAllocationModule } from './modules/vehicle-allocation/vehicle-allocation.module.js';
 import { PaperModule } from './modules/paper/paper.module.js';
 import { PurchaseModule } from './modules/purchase/purchase.module.js';
+import { DeliverySummaryModule } from './modules/delivery-summary/delivery-summary.module.js';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { PurchaseModule } from './modules/purchase/purchase.module.js';
     AuthModule,
     PaperModule,
     PurchaseModule,
+    DeliverySummaryModule,
   ],
   controllers: [AppController],
   providers: [AppService],

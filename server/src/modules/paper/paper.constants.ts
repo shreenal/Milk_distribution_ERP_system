@@ -1,44 +1,4 @@
-export const PAPER_STATUS = {
-  DRAFT: 'DRAFT' as const,
-  NIGHT_SUBMITTED: 'NIGHT_SUBMITTED' as const,
-  MORNING_SUBMITTED: 'MORNING_SUBMITTED' as const,
-  FINALIZED: 'FINALIZED' as const,
-  REOPENED: 'REOPENED' as const,
-} as const;
-
-export type PaperStatus = (typeof PAPER_STATUS)[keyof typeof PAPER_STATUS];
-
-export const STATUS_TRANSITIONS: Record<PaperStatus, PaperStatus[]> = {
-  [PAPER_STATUS.DRAFT]: [PAPER_STATUS.NIGHT_SUBMITTED],
-
-  [PAPER_STATUS.NIGHT_SUBMITTED]: [
-    PAPER_STATUS.DRAFT,
-    PAPER_STATUS.MORNING_SUBMITTED,
-  ],
-
-  [PAPER_STATUS.MORNING_SUBMITTED]: [
-    PAPER_STATUS.NIGHT_SUBMITTED,
-    PAPER_STATUS.FINALIZED,
-  ],
-
-  [PAPER_STATUS.FINALIZED]: [PAPER_STATUS.REOPENED],
-
-  [PAPER_STATUS.REOPENED]: [
-    PAPER_STATUS.MORNING_SUBMITTED,
-    PAPER_STATUS.FINALIZED,
-  ],
-} as const;
-
-export const EDITABLE_STATUSES = {
-  NIGHT_EDITABLE: [PAPER_STATUS.DRAFT, PAPER_STATUS.REOPENED] as const,
-
-  MORNING_EDITABLE: [
-    PAPER_STATUS.NIGHT_SUBMITTED,
-    PAPER_STATUS.REOPENED,
-  ] as const,
-
-  FINALIZABLE: [PAPER_STATUS.MORNING_SUBMITTED, PAPER_STATUS.REOPENED] as const,
-};
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 export const DATE_CONFIG = {
   MAX_FUTURE_DAYS: 30,
@@ -49,17 +9,17 @@ export const DATE_CONFIG = {
 } as const;
 
 export const ERROR_MESSAGES = {
-  // Sheet/Paper errors
   INVALID_PAPER_ID: 'Invalid paper ID provided',
   PAPER_NOT_FOUND: 'Order paper not found',
 
-  // Status/Workflow errors
   NO_PAPERS_FOUND: 'No papers found in system',
 
   NO_ACTIVE_GROUPS: 'No active groups found to generate sheets',
-  INVALID_STATUS_TRANSITION: (current: PaperStatus, target: PaperStatus) =>
-    `Cannot transition from ${current} to ${target}`,
-  MUST_RESUBMIT_MORNING: (previousStatus: PaperStatus) =>
+  INVALID_STATUS_TRANSITION: (
+    current: OrderPaperStatus,
+    target: OrderPaperStatus,
+  ) => `Cannot transition from ${current} to ${target}`,
+  MUST_RESUBMIT_MORNING: (previousStatus: OrderPaperStatus) =>
     `After reopening from ${previousStatus}, ` +
     `you must resubmit morning entry before finalizing`,
 

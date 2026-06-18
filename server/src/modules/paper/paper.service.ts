@@ -1,13 +1,9 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import {
-  DATE_CONFIG,
-  ERROR_MESSAGES,
-  PAPER_STATUS,
-  PaperStatus,
-} from './paper.constants.js';
+import { DATE_CONFIG, ERROR_MESSAGES } from './paper.constants.js';
 import { PaperValidationService } from './paper-validation.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { PaperRepository } from './paper.repository.js';
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PaperService {
@@ -139,8 +135,8 @@ export class PaperService {
       await this.paperValidationService.validateNightSubmitReadiness(paperId);
 
     this.workflowState.validateTransition(
-      paper.status as PaperStatus,
-      PAPER_STATUS.NIGHT_SUBMITTED,
+      paper.status,
+      OrderPaperStatus.NIGHT_SUBMITTED,
     );
 
     return this.paperRepository.submitNightEntry(paperId);
@@ -151,8 +147,8 @@ export class PaperService {
       await this.paperValidationService.validateMorningSubmitReadiness(paperId);
 
     this.workflowState.validateTransition(
-      paper.status as PaperStatus,
-      PAPER_STATUS.MORNING_SUBMITTED,
+      paper.status,
+      OrderPaperStatus.MORNING_SUBMITTED,
     );
 
     return this.paperRepository.submitMorningEntry(paperId);
@@ -163,8 +159,8 @@ export class PaperService {
       await this.paperValidationService.validateFinalizeReadiness(paperId);
 
     this.workflowState.validateTransition(
-      paper.status as PaperStatus,
-      PAPER_STATUS.FINALIZED,
+      paper.status,
+      OrderPaperStatus.FINALIZED,
     );
 
     return this.paperRepository.finalizePaper(paperId);
@@ -178,8 +174,8 @@ export class PaperService {
     }
 
     this.workflowState.validateTransition(
-      paper.status as PaperStatus,
-      PAPER_STATUS.REOPENED,
+      paper.status,
+      OrderPaperStatus.REOPENED,
     );
 
     return this.paperRepository.reopenPaper(paperId, reason);

@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 
 import { PaperService } from './paper.service.js';
-import { PAPER_STATUS, DATE_CONFIG } from './paper.constants.js';
+import { DATE_CONFIG } from './paper.constants.js';
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 describe('PaperService', () => {
   let service: PaperService;
@@ -186,14 +187,14 @@ describe('PaperService', () => {
 
   describe('submitNightEntryService', () => {
     it('should submit night entry after validation', async () => {
-      const paper = { id: 1, status: PAPER_STATUS.DRAFT };
+      const paper = { id: 1, status: OrderPaperStatus.DRAFT };
 
       paperValidationService.validateNightSubmitReadiness.mockResolvedValue(
         paper,
       );
       paperRepository.submitNightEntry.mockResolvedValue({
         id: 1,
-        status: PAPER_STATUS.NIGHT_SUBMITTED,
+        status: OrderPaperStatus.NIGHT_SUBMITTED,
       });
 
       const result = await service.submitNightEntryService(1);
@@ -203,13 +204,13 @@ describe('PaperService', () => {
       ).toHaveBeenCalledWith(1);
 
       expect(workflowState.validateTransition).toHaveBeenCalledWith(
-        PAPER_STATUS.DRAFT,
-        PAPER_STATUS.NIGHT_SUBMITTED,
+        OrderPaperStatus.DRAFT,
+        OrderPaperStatus.NIGHT_SUBMITTED,
       );
 
       expect(paperRepository.submitNightEntry).toHaveBeenCalledWith(1);
 
-      expect(result.status).toBe(PAPER_STATUS.NIGHT_SUBMITTED);
+      expect(result.status).toBe(OrderPaperStatus.NIGHT_SUBMITTED);
     });
 
     it('should throw if validation fails', async () => {
@@ -225,14 +226,14 @@ describe('PaperService', () => {
 
   describe('submitMorningEntryService', () => {
     it('should submit morning entry after validation', async () => {
-      const paper = { id: 1, status: PAPER_STATUS.NIGHT_SUBMITTED };
+      const paper = { id: 1, status: OrderPaperStatus.NIGHT_SUBMITTED };
 
       paperValidationService.validateMorningSubmitReadiness.mockResolvedValue(
         paper,
       );
       paperRepository.submitMorningEntry.mockResolvedValue({
         id: 1,
-        status: PAPER_STATUS.MORNING_SUBMITTED,
+        status: OrderPaperStatus.MORNING_SUBMITTED,
       });
 
       const result = await service.submitMorningEntryService(1);
@@ -242,11 +243,11 @@ describe('PaperService', () => {
       ).toHaveBeenCalledWith(1);
 
       expect(workflowState.validateTransition).toHaveBeenCalledWith(
-        PAPER_STATUS.NIGHT_SUBMITTED,
-        PAPER_STATUS.MORNING_SUBMITTED,
+        OrderPaperStatus.NIGHT_SUBMITTED,
+        OrderPaperStatus.MORNING_SUBMITTED,
       );
 
-      expect(result.status).toBe(PAPER_STATUS.MORNING_SUBMITTED);
+      expect(result.status).toBe(OrderPaperStatus.MORNING_SUBMITTED);
     });
 
     it('should throw if validation fails', async () => {
@@ -262,12 +263,12 @@ describe('PaperService', () => {
 
   describe('finalizePaperService', () => {
     it('should finalize paper after validation', async () => {
-      const paper = { id: 1, status: PAPER_STATUS.MORNING_SUBMITTED };
+      const paper = { id: 1, status: OrderPaperStatus.MORNING_SUBMITTED };
 
       paperValidationService.validateFinalizeReadiness.mockResolvedValue(paper);
       paperRepository.finalizePaper.mockResolvedValue({
         id: 1,
-        status: PAPER_STATUS.FINALIZED,
+        status: OrderPaperStatus.FINALIZED,
       });
 
       const result = await service.finalizePaperService(1);
@@ -277,11 +278,11 @@ describe('PaperService', () => {
       ).toHaveBeenCalledWith(1);
 
       expect(workflowState.validateTransition).toHaveBeenCalledWith(
-        PAPER_STATUS.MORNING_SUBMITTED,
-        PAPER_STATUS.FINALIZED,
+        OrderPaperStatus.MORNING_SUBMITTED,
+        OrderPaperStatus.FINALIZED,
       );
 
-      expect(result.status).toBe(PAPER_STATUS.FINALIZED);
+      expect(result.status).toBe(OrderPaperStatus.FINALIZED);
     });
 
     it('should throw if validation fails', async () => {
@@ -305,20 +306,20 @@ describe('PaperService', () => {
     });
 
     it('should reopen paper with reason', async () => {
-      const paper = { id: 1, status: PAPER_STATUS.FINALIZED };
+      const paper = { id: 1, status: OrderPaperStatus.FINALIZED };
 
       paperRepository.findPaperById.mockResolvedValue(paper);
       paperRepository.reopenPaper.mockResolvedValue({
         id: 1,
-        status: PAPER_STATUS.REOPENED,
+        status: OrderPaperStatus.REOPENED,
         reopen_reason: 'Correction required',
       });
 
       const result = await service.reopenPaperService(1, 'Correction required');
 
       expect(workflowState.validateTransition).toHaveBeenCalledWith(
-        PAPER_STATUS.FINALIZED,
-        PAPER_STATUS.REOPENED,
+        OrderPaperStatus.FINALIZED,
+        OrderPaperStatus.REOPENED,
       );
 
       expect(paperRepository.reopenPaper).toHaveBeenCalledWith(
@@ -326,12 +327,12 @@ describe('PaperService', () => {
         'Correction required',
       );
 
-      expect(result.status).toBe(PAPER_STATUS.REOPENED);
+      expect(result.status).toBe(OrderPaperStatus.REOPENED);
       expect(result.reopen_reason).toBe('Correction required');
     });
 
     it('should throw for invalid status transition', async () => {
-      const paper = { id: 1, status: PAPER_STATUS.DRAFT };
+      const paper = { id: 1, status: OrderPaperStatus.DRAFT };
 
       paperRepository.findPaperById.mockResolvedValue(paper);
       workflowState.validateTransition.mockImplementation(() => {

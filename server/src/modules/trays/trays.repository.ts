@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { TrayTransactionEntry } from '../../types/transaction.types.js';
 
 @Injectable()
 export class TraysRepository {
@@ -21,7 +22,11 @@ export class TraysRepository {
       },
     });
 
-    return sheet?.order_paper?.status;
+    if (!sheet?.order_paper?.status) {
+      throw new NotFoundException('Paper status not found');
+    }
+
+    return sheet.order_paper.status;
   }
 
   async findSheetById(sheetId: number) {
@@ -142,110 +147,62 @@ export class TraysRepository {
     });
   }
 
-  async getPreviousClosingBalance(data: {
-    currentSheetId: number;
-
-    groupId: number;
-
-    clientId: number;
-
-    trayTypeId: number;
-
-    paperDate: Date;
-  }) {
-    const previousSheet = await this.prisma.order_sheet.findFirst({
+  async getPreviousSheet(groupId: number, paperDate: Date) {
+    return this.prisma.order_sheet.findFirst({
       where: {
-        group_id: data.groupId,
-
+        group_id: groupId,
         order_paper: {
           order_date: {
-            lt: data.paperDate,
+            lt: paperDate,
           },
         },
       },
-
-      include: {
-        order_paper: true,
-      },
-
       orderBy: {
         order_paper: {
           order_date: 'desc',
         },
       },
     });
-
-    if (!previousSheet) {
-      return 0;
-    }
-
-    const previousTransaction =
-      await this.prisma.client_tray_transaction.findUnique({
-        where: {
-          order_sheet_id_client_id_tray_type_id: {
-            order_sheet_id: previousSheet.id,
-
-            client_id: data.clientId,
-
-            tray_type_id: data.trayTypeId,
-          },
-        },
-      });
-
-    return Number(previousTransaction?.closing_balance ?? 0);
   }
 
-  async upsertTrayTransaction(data: {
-    order_sheet_id: number;
-
-    client_id: number;
-
-    tray_type_id: number;
-
-    opening_balance: number;
-
-    trays_taken: number;
-
-    trays_returned: number;
-
-    closing_balance: number;
-  }) {
-    return this.prisma.client_tray_transaction.upsert({
+  async getPreviousTrayBalances(orderSheetId: number) {
+    return this.prisma.client_tray_transaction.findMany({
       where: {
-        order_sheet_id_client_id_tray_type_id: {
-          order_sheet_id: data.order_sheet_id,
-
-          client_id: data.client_id,
-
-          tray_type_id: data.tray_type_id,
-        },
+        order_sheet_id: orderSheetId,
       },
+    });
+  }
 
-      update: {
-        opening_balance: data.opening_balance,
+  async replaceTrayTransactions(entries: TrayTransactionEntry[]) {
+    await this.prisma.$transaction(async (tx) => {
+      for (const entry of entries) {
+        await tx.client_tray_transaction.upsert({
+          where: {
+            order_sheet_id_client_id_tray_type_id: {
+              order_sheet_id: entry.order_sheet_id,
+              client_id: entry.client_id,
+              tray_type_id: entry.tray_type_id,
+            },
+          },
 
-        trays_taken: data.trays_taken,
+          update: {
+            opening_balance: entry.opening_balance,
+            trays_taken: entry.trays_taken,
+            trays_returned: entry.trays_returned,
+            closing_balance: entry.closing_balance,
+          },
 
-        trays_returned: data.trays_returned,
-
-        closing_balance: data.closing_balance,
-      },
-
-      create: {
-        order_sheet_id: data.order_sheet_id,
-
-        client_id: data.client_id,
-
-        tray_type_id: data.tray_type_id,
-
-        opening_balance: data.opening_balance,
-
-        trays_taken: data.trays_taken,
-
-        trays_returned: data.trays_returned,
-
-        closing_balance: data.closing_balance,
-      },
+          create: {
+            order_sheet_id: entry.order_sheet_id,
+            client_id: entry.client_id,
+            tray_type_id: entry.tray_type_id,
+            opening_balance: entry.opening_balance,
+            trays_taken: entry.trays_taken,
+            trays_returned: entry.trays_returned,
+            closing_balance: entry.closing_balance,
+          },
+        });
+      }
     });
   }
 }

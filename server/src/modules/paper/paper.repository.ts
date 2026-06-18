@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PaperRepository {
@@ -114,7 +115,7 @@ export class PaperRepository {
 
         sale_date: saleDate,
 
-        status: 'DRAFT',
+        status: OrderPaperStatus.DRAFT,
       },
     });
   }
@@ -137,7 +138,7 @@ export class PaperRepository {
       },
 
       data: {
-        status: 'NIGHT_SUBMITTED',
+        status: OrderPaperStatus.NIGHT_SUBMITTED,
 
         night_entry_submitted_at: new Date(),
       },
@@ -151,7 +152,7 @@ export class PaperRepository {
       },
 
       data: {
-        status: 'MORNING_SUBMITTED',
+        status: OrderPaperStatus.MORNING_SUBMITTED,
 
         morning_entry_submitted_at: new Date(),
       },
@@ -165,7 +166,7 @@ export class PaperRepository {
       },
 
       data: {
-        status: 'FINALIZED',
+        status: OrderPaperStatus.FINALIZED,
 
         finalized_at: new Date(),
       },
@@ -179,7 +180,7 @@ export class PaperRepository {
       },
 
       data: {
-        status: 'REOPENED',
+        status: OrderPaperStatus.REOPENED,
 
         reopened_at: new Date(),
 

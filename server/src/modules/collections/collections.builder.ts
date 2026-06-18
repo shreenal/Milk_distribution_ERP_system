@@ -1,10 +1,29 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
+type CollectionSheet = Prisma.order_sheetGetPayload<{
+  include: {
+    master_group: true;
+    order_paper: true;
+  };
+}>;
+
+type CollectionClient = Prisma.master_clientGetPayload<{}>;
+
+type SavedCollection = Prisma.client_collectionGetPayload<{}>;
 @Injectable()
 export class CollectionBuilder {
   private readonly logger = new Logger(CollectionBuilder.name);
 
-  buildCollectionGrid(sheet: any, clients: any[], savedCollections: any[]) {
+  constructor(private readonly workflowState: WorkflowStateService) {}
+
+  buildCollectionGrid(
+    sheet: CollectionSheet,
+    clients: CollectionClient[],
+    savedCollections: SavedCollection[],
+  ) {
     this.logger.debug(`Building collection grid for sheet ${sheet.id}`);
 
     const columns = [
@@ -101,14 +120,16 @@ export class CollectionBuilder {
     const status = sheet.order_paper?.status;
 
     const permissions = {
-      canEditNightCollections: status === 'DRAFT',
+      canEditNightCollections:
+        this.workflowState.canEditNightCollections(status),
 
-      canEditMorningCollections: status === 'NIGHT_SUBMITTED',
+      canEditMorningCollections:
+        this.workflowState.canEditMorningCollections(status),
 
       canEditAdminCollections:
-        status === 'MORNING_SUBMITTED' || status === 'REOPENED',
+        this.workflowState.canAdminEditCollections(status),
 
-      canFinalize: status === 'MORNING_SUBMITTED' || status === 'REOPENED',
+      canFinalize: this.workflowState.canFinalize(status),
     };
 
     const rows = clients.map((client) => {

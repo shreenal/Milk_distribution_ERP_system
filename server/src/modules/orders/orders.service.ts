@@ -14,8 +14,6 @@ import { OrdersValidationService } from './orders-validation.service.js';
 
 import {
   TRANSACTION_CONFIG,
-  PAPER_STATUS,
-  type PaperStatus,
   ERROR_MESSAGES,
   QUANTITY_PRECISION,
   SUCCESS_MESSAGES,
@@ -70,14 +68,6 @@ export class OrdersService {
     private readonly workflowState: WorkflowStateService,
   ) {}
 
-  private isMorningEditable(status: PaperStatus) {
-    return this.workflowState.canEditMorningEntries(status);
-  }
-
-  private isNightEditable(status: PaperStatus) {
-    return this.workflowState.canEditNightEntries(status);
-  }
-
   async getSheetService(sheetId: number) {
     try {
       if (!sheetId || sheetId <= 0) {
@@ -104,12 +94,12 @@ export class OrdersService {
         workflow: {
           status: sheet.order_paper.status,
 
-          isNightEditable: this.isNightEditable(
-            sheet.order_paper.status as PaperStatus,
+          isNightEditable: this.workflowState.canEditNightEntries(
+            sheet.order_paper.status,
           ),
 
-          isMorningEditable: this.isMorningEditable(
-            sheet.order_paper.status as PaperStatus,
+          isMorningEditable: this.workflowState.canEditMorningEntries(
+            sheet.order_paper.status,
           ),
         },
 
@@ -157,7 +147,7 @@ export class OrdersService {
         throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
       }
 
-      if (!this.isNightEditable(sheet.order_paper.status as PaperStatus)) {
+      if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
         throw new BadRequestException(
           ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
         );
@@ -190,10 +180,6 @@ export class OrdersService {
               entry.clientId,
               entry.productId,
               sheet.order_paper.order_date, // ← FIXED
-            );
-
-            console.log(
-              `[DEBUG] Client ${entry.clientId}, Product ${entry.productId}, Rate: ${sellingRate}`,
             );
 
             if (sellingRate === null || sellingRate === undefined) {
@@ -261,27 +247,9 @@ export class OrdersService {
         throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
       }
 
-      console.log('[DEBUG] PAPER STATUS:', sheet.order_paper.status);
+      const status = sheet.order_paper.status;
 
-      const status = sheet.order_paper.status as PaperStatus;
-
-      if (status === PAPER_STATUS.DRAFT) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
-        );
-      }
-
-      if (status === PAPER_STATUS.MORNING_SUBMITTED) {
-        throw new BadRequestException('Morning entry already submitted');
-      }
-
-      if (status === PAPER_STATUS.FINALIZED) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
-        );
-      }
-
-      if (!this.isMorningEditable(status)) {
+      if (!this.workflowState.canEditMorningEntries(status)) {
         throw new BadRequestException(
           ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
         );
@@ -289,8 +257,6 @@ export class OrdersService {
 
       this.validationService.validateNoDuplicates(entries);
 
-      // CRITICAL FIX: Wrap all operations in a transaction
-      // All morning entry operations must be atomic
       await this.prisma.$transaction(
         async (tx) => {
           for (const entry of entries) {
@@ -390,7 +356,6 @@ export class OrdersService {
 
             finalBillAmount = Number(finalBillAmount.toFixed(2));
 
-            // Use tx instead of this.ordersRepository
             await tx.order_sheet_items.update({
               where: {
                 order_sheet_id_client_id_product_id: {

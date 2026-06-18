@@ -1,13 +1,31 @@
 import { Injectable } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
+
+type Product = Prisma.master_productGetPayload<{
+  include: {
+    master_brand: true;
+    master_product_group: true;
+    master_product_type: true;
+    master_packaging_type: true;
+  };
+}>;
+
+export type ProductColumnNode = {
+  headerName: string;
+  field?: string;
+  productId?: number;
+  editable?: boolean;
+  children: ProductColumnNode[];
+};
 
 @Injectable()
 export class ProductColumnsBuilder {
   buildGroupedColumns(
-    products: any[],
+    products: Product[],
     mode: 'night' | 'morning',
     includePackagingType = true,
   ) {
-    const brandMap = new Map();
+    const brandMap = new Map<string, ProductColumnNode>();
 
     for (const product of products) {
       const brandName = product.master_brand?.name ?? 'Unknown Brand';
@@ -31,6 +49,10 @@ export class ProductColumnsBuilder {
       }
 
       const brandGroup = brandMap.get(brandName);
+
+      if (!brandGroup) {
+        continue;
+      }
 
       let productGroupNode = brandGroup.children.find(
         (child) => child.headerName === productGroupName,
@@ -83,6 +105,7 @@ export class ProductColumnsBuilder {
           productId: product.id,
 
           editable: true,
+          children: [],
         });
       } else {
         productTypeNode.children.push({
@@ -96,6 +119,7 @@ export class ProductColumnsBuilder {
           productId: product.id,
 
           editable: true,
+          children: [],
         });
       }
     }

@@ -14,6 +14,14 @@ export class VehicleAllocationRepository {
     });
   }
 
+  async findDistributorProcurementRules() {
+    return this.prisma.distributor_procurement_rule.findMany({
+      where: {
+        is_active: true,
+      },
+    });
+  }
+
   async findOrderSheetsByPaperId(paperId: number) {
     return this.prisma.order_sheet.findMany({
       where: {

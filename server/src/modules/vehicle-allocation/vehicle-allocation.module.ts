@@ -1,4 +1,4 @@
-import { forwardRef, Module } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { VehicleAllocationController } from './vehicle-allocation.controller.js';
 import { VehicleAllocationBuilder } from './vehicle-allocation.builder.js';
 import { VehicleAllocationRepository } from './vehicle-allocation.repository.js';

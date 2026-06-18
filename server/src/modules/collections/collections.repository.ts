@@ -40,6 +40,22 @@ export class CollectionsRepository {
     });
   }
 
+  async getCollectionsForValidation(sheetId: number) {
+    return this.prisma.client_collection.findMany({
+      where: {
+        order_sheet_id: sheetId,
+      },
+
+      select: {
+        office_amount_given: true,
+        cash_collection: true,
+        cheque_collection: true,
+        online_collection: true,
+        bank_deposit: true,
+      },
+    });
+  }
+
   async getCollectionEntries(sheetId: number) {
     return this.prisma.client_collection.findMany({
       where: {
@@ -48,94 +64,95 @@ export class CollectionsRepository {
     });
   }
 
-  async upsertNightCollectionEntry(
+  async replaceNightCollections(
     sheetId: number,
-    entry: NightCollectionEntryDto,
+    entries: NightCollectionEntryDto[],
   ) {
-    return this.prisma.client_collection.upsert({
-      where: {
-        order_sheet_id_client_id: {
-          order_sheet_id: sheetId,
-          client_id: entry.clientId,
-        },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      for (const entry of entries) {
+        await tx.client_collection.upsert({
+          where: {
+            order_sheet_id_client_id: {
+              order_sheet_id: sheetId,
+              client_id: entry.clientId,
+            },
+          },
 
-      create: {
-        order_sheet_id: sheetId,
-        client_id: entry.clientId,
+          create: {
+            order_sheet_id: sheetId,
+            client_id: entry.clientId,
+            office_amount_given: entry.officeAmountGiven,
+          },
 
-        office_amount_given: entry.officeAmountGiven,
-      },
-
-      update: {
-        office_amount_given: entry.officeAmountGiven,
-      },
+          update: {
+            office_amount_given: entry.officeAmountGiven,
+          },
+        });
+      }
     });
   }
 
-  async upsertMorningCollectionEntry(
+  async replaceMorningCollections(
     sheetId: number,
-    entry: MorningCollectionEntryDto,
+    entries: MorningCollectionEntryDto[],
   ) {
-    return this.prisma.client_collection.upsert({
-      where: {
-        order_sheet_id_client_id: {
-          order_sheet_id: sheetId,
-          client_id: entry.clientId,
-        },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      for (const entry of entries) {
+        await tx.client_collection.upsert({
+          where: {
+            order_sheet_id_client_id: {
+              order_sheet_id: sheetId,
+              client_id: entry.clientId,
+            },
+          },
 
-      create: {
-        order_sheet_id: sheetId,
-        client_id: entry.clientId,
+          create: {
+            order_sheet_id: sheetId,
+            client_id: entry.clientId,
+            cash_collection: entry.cashCollection,
+            cheque_collection: entry.chequeCollection,
+            employee_remarks: entry.employeeRemarks,
+          },
 
-        cash_collection: entry.cashCollection,
-
-        cheque_collection: entry.chequeCollection,
-
-        employee_remarks: entry.employeeRemarks,
-      },
-
-      update: {
-        cash_collection: entry.cashCollection,
-
-        cheque_collection: entry.chequeCollection,
-
-        employee_remarks: entry.employeeRemarks,
-      },
+          update: {
+            cash_collection: entry.cashCollection,
+            cheque_collection: entry.chequeCollection,
+            employee_remarks: entry.employeeRemarks,
+          },
+        });
+      }
     });
   }
 
-  async upsertAdminCollectionEntry(
+  async replaceAdminCollections(
     sheetId: number,
-    entry: AdminCollectionEntryDto,
+    entries: AdminCollectionEntryDto[],
   ) {
-    return this.prisma.client_collection.upsert({
-      where: {
-        order_sheet_id_client_id: {
-          order_sheet_id: sheetId,
-          client_id: entry.clientId,
-        },
-      },
+    await this.prisma.$transaction(async (tx) => {
+      for (const entry of entries) {
+        await tx.client_collection.upsert({
+          where: {
+            order_sheet_id_client_id: {
+              order_sheet_id: sheetId,
+              client_id: entry.clientId,
+            },
+          },
 
-      create: {
-        order_sheet_id: sheetId,
-        client_id: entry.clientId,
+          create: {
+            order_sheet_id: sheetId,
+            client_id: entry.clientId,
+            online_collection: entry.onlineCollection,
+            bank_deposit: entry.bankDeposit,
+            admin_remarks: entry.adminRemarks,
+          },
 
-        online_collection: entry.onlineCollection,
-
-        bank_deposit: entry.bankDeposit,
-
-        admin_remarks: entry.adminRemarks,
-      },
-
-      update: {
-        online_collection: entry.onlineCollection,
-
-        bank_deposit: entry.bankDeposit,
-
-        admin_remarks: entry.adminRemarks,
-      },
+          update: {
+            online_collection: entry.onlineCollection,
+            bank_deposit: entry.bankDeposit,
+            admin_remarks: entry.adminRemarks,
+          },
+        });
+      }
     });
   }
 }

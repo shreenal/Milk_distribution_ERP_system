@@ -11,6 +11,7 @@ import {
   TRAY_ERROR_MESSAGES,
   TRAY_SUCCESS_MESSAGES,
 } from './trays.constants.js';
+import { TrayTransactionEntry } from '../../types/transaction.types.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
 @Injectable()
@@ -31,52 +32,36 @@ export class TraysService {
       throw new NotFoundException(TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
-    // CLIENTS
-
     const clients = await this.traysRepository.getClientsByGroupId(
       sheet.group_id,
     );
 
-    // ORDER ITEMS
-
     const sheetItems = await this.traysRepository.getSheetItems(sheet.id);
-
-    // PRODUCT TRAY RULES
 
     const trayRules = await this.traysRepository.getProductTrayRules();
 
-    // TRAY TYPES
-
     const trayTypes = await this.traysRepository.getTrayTypes();
-
-    // SAVED CLIENT TRAY DATA
 
     const trayTransactions = await this.traysRepository.getTrayTransactions(
       sheet.id,
     );
 
-    // GATEPASS DATA
     const openingBalanceMap = new Map<string, number>();
 
-    for (const client of clients) {
-      for (const trayType of trayTypes) {
-        const openingBalance =
-          await this.traysRepository.getPreviousClosingBalance({
-            currentSheetId: sheet.id,
+    const previousSheet = await this.traysRepository.getPreviousSheet(
+      sheet.group_id,
+      sheet.order_paper.order_date,
+    );
 
-            groupId: sheet.group_id,
+    if (previousSheet) {
+      const balances = await this.traysRepository.getPreviousTrayBalances(
+        previousSheet.id,
+      );
 
-            clientId: client.id,
-
-            trayTypeId: trayType.id,
-
-            paperDate: sheet.order_paper.order_date,
-          });
-
+      for (const balance of balances) {
         openingBalanceMap.set(
-          `${client.id}_${trayType.id}`,
-
-          openingBalance,
+          `${balance.client_id}_${balance.tray_type_id}`,
+          Number(balance.closing_balance ?? 0),
         );
       }
     }
@@ -102,7 +87,6 @@ export class TraysService {
     };
   }
 
-  // trays/trays.service.ts
   async saveTrayEntriesService(
     sheetId: number,
     entries: SaveTrayReturnDto[], // ← Updated type
@@ -115,14 +99,13 @@ export class TraysService {
 
     const status = await this.traysRepository.getPaperStatusBySheetId(sheetId);
 
-    if (!this.workflowStateService.canEditTrays(status as any)) {
-      throw new BadRequestException(
-        'Tray entries cannot be edited in current workflow state',
-      );
+    if (!this.workflowStateService.canEditTrays(status)) {
+      throw new BadRequestException(TRAY_ERROR_MESSAGES.TRAY_EDIT_NOT_ALLOWED);
     }
-    // BUILD LIVE TRAY DATA
+
     const traySheet = await this.getTraySheetService(sheetId);
     const trayRows = traySheet.trayBilling.rows;
+    const transactionEntries: TrayTransactionEntry[] = [];
 
     for (const entry of entries) {
       const returned = Number(entry.returned ?? 0);
@@ -133,8 +116,6 @@ export class TraysService {
         );
       }
 
-      // FIND LIVE DERIVED ROW
-
       const trayRow = trayRows.find((row) => row.clientId === entry.clientId);
 
       if (!trayRow) {
@@ -143,26 +124,22 @@ export class TraysService {
         );
       }
 
-      // ✓ GET CALCULATED VALUES FROM DERIVED ROW
       const opening = Number(trayRow[`tray_${entry.trayTypeId}_opening`] ?? 0);
 
       const taken = Number(trayRow[`tray_${entry.trayTypeId}_taken`] ?? 0);
 
-      // VALIDATION: Can't return more than available
-
       const closing = opening + taken - returned;
-      // ✓ PERSIST ONLY THE RETURNED VALUE
-      // Opening and taken are derived, not stored
-      await this.traysRepository.upsertTrayTransaction({
+      transactionEntries.push({
         order_sheet_id: sheetId,
         client_id: entry.clientId,
         tray_type_id: entry.trayTypeId,
-        opening_balance: opening, // From calculation
-        trays_returned: returned, // From input
+        opening_balance: opening,
+        trays_returned: returned,
         trays_taken: taken,
-        closing_balance: closing, // From calculation (optional)
+        closing_balance: closing,
       });
     }
+    await this.traysRepository.replaceTrayTransactions(transactionEntries);
 
     return {
       success: true,

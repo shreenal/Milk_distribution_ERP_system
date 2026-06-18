@@ -1,9 +1,16 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import type { Prisma } from '../../generated/prisma/client.js';
 
 import { OrdersRepository } from './orders.repository.js';
 import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
+
+type BillingRow = {
+  clientId: number;
+  clientName: string;
+  nightBillAmount?: number;
+  finalBillAmount?: number;
+} & Record<string, number | string | null | undefined>;
 
 @Injectable()
 export class OrdersBillingBuilder {
@@ -50,9 +57,9 @@ export class OrdersBillingBuilder {
 
     const nonMilkProductIds = new Set(nonMilkProducts.map((p) => p.id));
 
-    const milkRows: any[] = [];
+    const milkRows: BillingRow[] = [];
 
-    const nonMilkRows: any[] = [];
+    const nonMilkRows: BillingRow[] = [];
 
     let milkTotalNightBillAmount = 0;
 
@@ -63,15 +70,13 @@ export class OrdersBillingBuilder {
     let nonMilkTotalFinalBillAmount = 0;
 
     for (const client of clients) {
-      const milkRow: any = {
+      const milkRow: BillingRow = {
         clientId: client.id,
-
         clientName: client.name,
       };
 
-      const nonMilkRow: any = {
+      const nonMilkRow: BillingRow = {
         clientId: client.id,
-
         clientName: client.name,
       };
 

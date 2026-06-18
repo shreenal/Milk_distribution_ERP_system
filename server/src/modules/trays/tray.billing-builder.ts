@@ -1,17 +1,88 @@
 import { Injectable } from '@nestjs/common';
 
+import { Prisma } from '../../generated/prisma/client.js';
+
+type TrayClient = Prisma.master_clientGetPayload<{}>;
+
+type TraySheetItem = Prisma.order_sheet_itemsGetPayload<{
+  include: {
+    master_product: {
+      include: {
+        master_brand: true;
+        master_product_group: true;
+        master_product_type: true;
+        master_packaging_type: true;
+      };
+    };
+    master_client: true;
+  };
+}>;
+
+type ProductTrayRule = Prisma.product_tray_ruleGetPayload<{
+  include: {
+    master_tray_type: {
+      include: {
+        master_brand: true;
+      };
+    };
+    master_brand: true;
+    master_product_group: true;
+    master_product_type: true;
+    master_packaging_type: true;
+  };
+}>;
+
+type TrayType = Prisma.master_tray_typeGetPayload<{
+  include: {
+    master_brand: true;
+  };
+}>;
+
+type TrayTransaction = Prisma.client_tray_transactionGetPayload<{
+  include: {
+    master_client: true;
+    master_tray_type: {
+      include: {
+        master_brand: true;
+      };
+    };
+  };
+}>;
+
+export type TrayRow = {
+  clientId: number;
+  clientName: string;
+  [key: string]: string | number;
+};
+
+type TrayTotal = {
+  opening: number;
+  taken: number;
+  returned: number;
+  closing: number;
+};
+
+type TrayTotals = {
+  totalClients: number;
+  [key: string]: number | TrayTotal;
+};
+
+export type TrayColumnNode = {
+  headerName: string;
+  field?: string;
+  editable?: boolean;
+  pinned?: string;
+  children?: TrayColumnNode[];
+};
+
 @Injectable()
 export class TrayBillingBuilder {
   async buildTrayBilling(data: {
-    clients: any[];
-
-    trayTypes: any[];
-
-    sheetItems: any[];
-
-    trayRules: any[];
-
-    trayTransactions: any[];
+    clients: TrayClient[];
+    trayTypes: TrayType[];
+    sheetItems: TraySheetItem[];
+    trayRules: ProductTrayRule[];
+    trayTransactions: TrayTransaction[];
 
     openingBalanceMap: Map<string, number>;
   }) {
@@ -40,9 +111,8 @@ export class TrayBillingBuilder {
     // =========================
 
     const rows = clients.map((client) => {
-      const row: any = {
+      const row: TrayRow = {
         clientId: client.id,
-
         clientName: client.name,
       };
 
@@ -167,7 +237,7 @@ export class TrayBillingBuilder {
     // TOTALS
     // =========================
 
-    const totals: any = {
+    const totals: TrayTotals = {
       totalClients: clients.length,
     };
 
@@ -210,8 +280,14 @@ export class TrayBillingBuilder {
     };
   }
 
-  private buildTrayColumns(trayTypes: any[]) {
-    const brandMap = new Map();
+  private buildTrayColumns(trayTypes: TrayType[]) {
+    const brandMap = new Map<
+      string,
+      {
+        headerName: string;
+        children: TrayColumnNode[];
+      }
+    >();
 
     for (const trayType of trayTypes) {
       const brandName = trayType.master_brand.name;
@@ -228,7 +304,7 @@ export class TrayBillingBuilder {
         );
       }
 
-      const brandGroup = brandMap.get(brandName);
+      const brandGroup = brandMap.get(brandName)!;
 
       brandGroup.children.push({
         headerName: `${trayType.color} Tray`,

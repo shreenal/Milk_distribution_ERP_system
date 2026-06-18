@@ -5,14 +5,12 @@ import { PurchaseRepository } from './purchase.repository.js';
 import { PurchaseBuilder } from './purchase.builder.js';
 import { SavePurchaseDto } from './dto/purchase.dto.js';
 import { PurchaseValidationService } from './purchase-validation.service.js';
-import {
-  PaperStatus,
-  WorkflowStateService,
-} from '../workflow/workflow-state.service.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import {
   VehicleAssignment,
   ProcurementRule,
 } from '../../types/purchase.types.js';
+import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
 
 @Injectable()
 export class PurchaseService {
@@ -30,7 +28,9 @@ export class PurchaseService {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
 
     if (!paper) {
-      throw new BadRequestException('Order paper not found');
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
+      );
     }
 
     const vehicleAllocationPaper =
@@ -40,14 +40,16 @@ export class PurchaseService {
 
     if (!vehicleAllocationPaper) {
       throw new BadRequestException(
-        'Vehicle allocations must be completed before purchasing',
+        PURCHASE_ERROR_MESSAGES.VEHICLE_ALLOCATIONS_REQUIRED,
       );
     }
     const vehicleAssignments: VehicleAssignment[] =
       await this.purchaseRepository.findVehicleAssignmentsByPaperId(paperId);
 
     if (vehicleAssignments.length === 0) {
-      throw new BadRequestException('No vehicle assignments found');
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.NO_VEHICLE_ASSIGNMENTS,
+      );
     }
 
     const products = await this.purchaseRepository.findProducts();
@@ -73,7 +75,9 @@ export class PurchaseService {
       await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
 
     const distributorRates =
-      await this.purchaseRepository.findDistributorProductRates();
+      await this.purchaseRepository.findDistributorProductRates(
+        paper.order_date,
+      );
 
     const rateResult = this.purchaseBuilder.applyDistributorRates(
       allocationResult,
@@ -98,13 +102,13 @@ export class PurchaseService {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
 
     if (!paper) {
-      throw new BadRequestException('Order paper not found');
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
+      );
     }
 
-    if (!this.workflowState.canEditPurchases(paper.status as PaperStatus)) {
-      throw new BadRequestException(
-        'Purchases cannot be edited in current workflow state',
-      );
+    if (!this.workflowState.canEditPurchases(paper.status)) {
+      throw new BadRequestException(PURCHASE_ERROR_MESSAGES.EDIT_NOT_ALLOWED);
     }
 
     await this.purchaseValidationService.validatePurchases(paperId, dto);
@@ -123,11 +127,18 @@ export class PurchaseService {
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
 
     const distributorRates =
-      await this.purchaseRepository.findDistributorProductRates();
+      await this.purchaseRepository.findDistributorProductRates(
+        paper.order_date,
+      );
 
     const allocationMap = new Map<string, (typeof allocations)[number]>();
 
     for (const allocation of allocations) {
+      if (allocation.vehicle_id == null || allocation.product_id == null) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.INVALID_ALLOCATION_IDENTIFIERS,
+        );
+      }
       allocationMap.set(
         `${allocation.vehicle_id}_${allocation.product_id}`,
 
@@ -138,6 +149,11 @@ export class PurchaseService {
     const rateMap = new Map<string, (typeof distributorRates)[number]>();
 
     for (const rate of distributorRates) {
+      if (rate.distributor_id == null || rate.product_id == null) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.INVALID_RATE_IDENTIFIERS,
+        );
+      }
       rateMap.set(
         `${rate.distributor_id}_${rate.product_id}`,
 
@@ -157,7 +173,7 @@ export class PurchaseService {
 
         if (!allocation) {
           throw new BadRequestException(
-            `Allocation not found for vehicle ${entry.vehicleId} product ${entry.productId}`,
+            PURCHASE_ERROR_MESSAGES.ALLOCATION_NOT_FOUND(entry.vehicleId, entry.productId)
           );
         }
 

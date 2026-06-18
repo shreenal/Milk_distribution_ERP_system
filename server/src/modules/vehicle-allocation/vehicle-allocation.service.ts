@@ -4,6 +4,7 @@ import { VehicleAllocationRepository } from './vehicle-allocation.repository.js'
 import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { VehicleAllocationValidationService } from './vehicle-allocation-validation.service.js';
+import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
 
 @Injectable()
 export class VehicleAllocationService {
@@ -22,7 +23,9 @@ export class VehicleAllocationService {
       await this.vehicleAllocationRepository.findOrderPaperById(paperId);
 
     if (!paper) {
-      throw new BadRequestException('Order paper not found');
+      throw new BadRequestException(
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
+      );
     }
 
     const sheets =
@@ -113,14 +116,16 @@ export class VehicleAllocationService {
       await this.vehicleAllocationRepository.findOrderPaperById(paperId);
 
     if (!paper) {
-      throw new BadRequestException('Order paper not found');
+      throw new BadRequestException(
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
+      );
     }
 
     const status = paper.status;
 
-    if (!this.workflowState.canEditVehicleAllocations(status as any)) {
+    if (!this.workflowState.canEditVehicleAllocations(status)) {
       throw new BadRequestException(
-        'Vehicle allocations cannot be edited in current workflow state',
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.EDIT_NOT_ALLOWED,
       );
     }
     await this.vehicleAllocationValidationService.validateVehicleAllocations(

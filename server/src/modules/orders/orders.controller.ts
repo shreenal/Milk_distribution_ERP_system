@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseIntPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -15,6 +16,8 @@ import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
+import { SaveNightEntriesDto } from './dto/save-night-entries.dto.js';
+import { SaveMorningEntriesDto } from './dto/save-morning-entries.dto.js';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,8 +26,8 @@ export class OrdersController {
 
   @Get('sheet/:sheetId')
   @Roles('EMPLOYEE')
-  async getSheet(@Param('sheetId') sheetId: string) {
-    return this.ordersService.getSheetService(Number(sheetId));
+  async getSheet(@Param('sheetId', ParseIntPipe) sheetId: number) {
+    return this.ordersService.getSheetService(sheetId);
   }
 
   @Get('sheet/:sheetId/items')
@@ -40,7 +43,7 @@ export class OrdersController {
   @Roles('EMPLOYEE')
   async saveNightEntries(
     @Param('sheetId') sheetId: string,
-    @Body() entries: any[],
+    @Body() entries: SaveNightEntriesDto[],
   ) {
     try {
       return await this.ordersService.saveNightEntriesService(
@@ -61,7 +64,7 @@ export class OrdersController {
     sheetId: string,
 
     @Body()
-    entries: any[],
+    entries: SaveMorningEntriesDto[],
   ) {
     return this.ordersService.saveMorningEntriesService(
       Number(sheetId),

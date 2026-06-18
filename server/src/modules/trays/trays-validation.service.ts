@@ -1,14 +1,12 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { TraysService } from './trays.service.js';
+import { TrayRow } from './tray.billing-builder.js';
+import { TRAY_ERROR_MESSAGES } from './trays.constants.js';
 
 @Injectable()
 export class TraysValidationService {
   constructor(private readonly traysService: TraysService) {}
 
-  /**
-   * Validate that all tray returns are complete
-   * Called during morning submission
-   */
   async validateTrayCompleteness(sheetId: number): Promise<void> {
     try {
       const traySheet = await this.traysService.getTraySheetService(sheetId);
@@ -22,14 +20,17 @@ export class TraysValidationService {
       }
     } catch (error) {
       throw new BadRequestException(
-        `Tray validation failed for sheet ${sheetId}: ${
-          error instanceof Error ? error.message : 'Unknown error'
-        }`,
+        TRAY_ERROR_MESSAGES.VALIDATION_FAILED(
+          sheetId,
+          error instanceof Error
+            ? error.message
+            : TRAY_ERROR_MESSAGES.UNKNOWN_VALIDATION_ERROR,
+        ),
       );
     }
   }
 
-  private validateTrayRow(row: any): void {
+  private validateTrayRow(row: TrayRow): void {
     const trayTypeKeys = Object.keys(row).filter((key) =>
       key.endsWith('_returned'),
     );
@@ -43,7 +44,9 @@ export class TraysValidationService {
       if (taken > 0 || opening > 0) {
         if (returned === null || returned === undefined || returned === '') {
           throw new BadRequestException(
-            `Tray returns incomplete for client "${row.client_name}"`,
+            TRAY_ERROR_MESSAGES.INCOMPLETE_TRAY_RETURNS(
+              String(row.client_name),
+            ),
           );
         }
       }
@@ -54,7 +57,7 @@ export class TraysValidationService {
     const traySheet = await this.traysService.getTraySheetService(sheetId);
 
     if (!traySheet.trayBilling || traySheet.trayBilling.rows.length === 0) {
-      throw new BadRequestException('Tray calculation failed');
+      throw new BadRequestException(TRAY_ERROR_MESSAGES.CALCULATION_FAILED);
     }
   }
 }

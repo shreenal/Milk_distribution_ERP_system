@@ -1,17 +1,18 @@
-// orders-validation.service.ts
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { OrdersRepository } from './orders.repository.js';
-import { ERROR_MESSAGES } from './orders.constants.js';
+import { ERROR_MESSAGES, QUANTITY_PRECISION } from './orders.constants.js';
+import { TransactionClient } from '../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersValidationService {
+  private readonly logger = new Logger(OrdersValidationService.name);
   constructor(
     private readonly prisma: PrismaService,
     private readonly ordersRepository: OrdersRepository,
   ) {}
 
-  async validateProduct(productId: number, txClient?: any) {
+  async validateProduct(productId: number, txClient?: TransactionClient) {
     const prisma = txClient || this.prisma;
 
     const product = await prisma.master_product.findUnique({
@@ -23,19 +24,21 @@ export class OrdersValidationService {
     });
 
     if (!product) {
-      throw new BadRequestException(`Product with ID ${productId} not found`);
+      throw new BadRequestException(
+        ERROR_MESSAGES.PRODUCT_NOT_FOUND(productId),
+      );
     }
 
     if (!product.is_active) {
       throw new BadRequestException(
-        `Product "${productId}" is inactive and cannot be ordered`,
+        ERROR_MESSAGES.PRODUCT_INACTIVE(String(productId)),
       );
     }
 
     return product;
   }
 
-  async validateClient(clientId: number, txClient?: any) {
+  async validateClient(clientId: number, txClient?: TransactionClient) {
     const prisma = txClient || this.prisma;
 
     const client = await prisma.master_client.findUnique({
@@ -48,12 +51,12 @@ export class OrdersValidationService {
     });
 
     if (!client) {
-      throw new BadRequestException(`Client with ID ${clientId} not found`);
+      throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
     }
 
     if (!client.is_active) {
       throw new BadRequestException(
-        `Client "${client.name}" is inactive and cannot be ordered`,
+        ERROR_MESSAGES.CLIENT_INACTIVE(client.name),
       );
     }
 
@@ -63,7 +66,7 @@ export class OrdersValidationService {
   async validateClientInGroup(
     clientId: number,
     groupId: number,
-    txClient?: any,
+    txClient?: TransactionClient,
   ) {
     const prisma = txClient || this.prisma;
 
@@ -76,12 +79,12 @@ export class OrdersValidationService {
     });
 
     if (!client) {
-      throw new BadRequestException(`Client not found`);
+      throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
     }
 
     if (client.delivery_group_id !== groupId) {
       throw new BadRequestException(
-        `Client does not belong to group ${groupId}`,
+        ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(clientId, groupId),
       );
     }
 
@@ -108,19 +111,25 @@ export class OrdersValidationService {
 
     if (duplicates.length > 0) {
       throw new BadRequestException(
-        `Duplicate entries found: ${duplicates.join(', ')}. ` +
-          `Each client-product combination can only appear once per sheet.`,
+        ERROR_MESSAGES.DUPLICATE_ENTRIES(duplicates),
       );
     }
   }
 
   validateQuantity(qty: number) {
     if (qty < 0) {
-      throw new BadRequestException('Quantity cannot be negative');
+      throw new BadRequestException(
+        ERROR_MESSAGES.QUANTITY_NEGATIVE('Quantity', qty),
+      );
     }
 
     if ((qty * 10) % 5 !== 0) {
-      throw new BadRequestException('Quantity must be in 0.5 increments');
+      throw new BadRequestException(
+        ERROR_MESSAGES.INVALID_QUANTITY_PRECISION(
+          qty,
+          QUANTITY_PRECISION.MIN_UNIT_PRECISION,
+        ),
+      );
     }
   }
 
@@ -145,14 +154,8 @@ export class OrdersValidationService {
   }
 
   async validateMorningEntriesComplete(sheetId: number): Promise<void> {
-    const items = await this.prisma.order_sheet_items.findMany({
-      where: { order_sheet_id: sheetId },
-      select: {
-        id: true,
-        delivered_qty: true,
-        master_product: { select: { code: true } },
-      },
-    });
+    const items =
+      await this.ordersRepository.getMorningValidationItems(sheetId);
 
     if (items.length === 0) return; // Empty OK
 
@@ -167,15 +170,8 @@ export class OrdersValidationService {
   }
 
   async validateQuantitySanity(sheetId: number): Promise<void> {
-    const items = await this.prisma.order_sheet_items.findMany({
-      where: { order_sheet_id: sheetId },
-      select: {
-        id: true,
-        ordered_qty: true,
-        delivered_qty: true,
-        master_product: { select: { code: true } },
-      },
-    });
+    const items =
+      await this.ordersRepository.getQuantityValidationItems(sheetId);
 
     // Check no negative quantities
     const negative = items.filter((i) => Number(i.delivered_qty) < 0);
@@ -194,7 +190,7 @@ export class OrdersValidationService {
     });
 
     if (extreme.length > 0) {
-      console.warn(`Over-delivery detected: ${extreme.length} items`);
+      this.logger.warn(`Over-delivery detected: ${extreme.length} items`);
     }
   }
 }

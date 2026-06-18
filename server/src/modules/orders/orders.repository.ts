@@ -139,6 +139,45 @@ export class OrdersRepository {
     });
   }
 
+  async getMorningValidationItems(sheetId: number) {
+    return this.prisma.order_sheet_items.findMany({
+      where: {
+        order_sheet_id: sheetId,
+      },
+
+      select: {
+        id: true,
+        delivered_qty: true,
+
+        master_product: {
+          select: {
+            code: true,
+          },
+        },
+      },
+    });
+  }
+
+  async getQuantityValidationItems(sheetId: number) {
+    return this.prisma.order_sheet_items.findMany({
+      where: {
+        order_sheet_id: sheetId,
+      },
+
+      select: {
+        id: true,
+        ordered_qty: true,
+        delivered_qty: true,
+
+        master_product: {
+          select: {
+            code: true,
+          },
+        },
+      },
+    });
+  }
+
   async upsertSheetEntry(data: {
     order_sheet_id: number;
 
@@ -356,21 +395,16 @@ export class OrdersRepository {
     productId: number,
     effectiveDate: Date, // ← CRITICAL: Use order date, not current date
   ) {
-    // CLIENT SPECIFIC RATE
-    // Try to find a client-specific rate valid on the effective date
     const clientRate = await this.prisma.master_client_rate_product.findFirst({
       where: {
         client_id: clientId,
         product_id: productId,
         is_active: true,
 
-        // Rate must have started on or before effective date
         effective_from: {
           lte: effectiveDate,
         },
 
-        // Rate must still be active on effective date
-        // (either no end date, or end date is after effective date)
         OR: [
           {
             effective_to: null,

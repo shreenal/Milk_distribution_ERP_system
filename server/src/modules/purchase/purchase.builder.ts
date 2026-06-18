@@ -1,11 +1,63 @@
 import { Injectable } from '@nestjs/common';
 
-import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
+import {
+  ProductColumnsBuilder,
+  ProductColumnNode,
+} from '../../common/builders/product-columns.builder.js';
 
 import {
   VehicleAssignment,
   ProcurementRule,
 } from '../../types/purchase.types.js';
+import { Prisma } from '../../generated/prisma/client.js';
+
+type Product = Prisma.master_productGetPayload<{
+  include: {
+    master_brand: true;
+    master_product_group: true;
+    master_product_type: true;
+    master_packaging_type: true;
+  };
+}>;
+
+type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
+  include: {
+    master_vehicle: true;
+    master_product: {
+      include: {
+        master_brand: true;
+        master_product_group: true;
+      };
+    };
+  };
+}>;
+
+type PurchaseEntry = Prisma.purchase_entryGetPayload<{}>;
+
+type DistributorRate = Prisma.distributor_product_rateGetPayload<{}>;
+
+type PurchaseRow = {
+  vehicleId: number;
+  vehicleName: string | null;
+  [key: string]: string | number | null;
+};
+
+type PurchaseGridItem = {
+  purchaseKey: string;
+  distributorId: number;
+  distributorName: string;
+  brandId: number;
+  brandName: string;
+  productGroupId: number;
+  productGroupName: string;
+  columns: ProductColumnNode[];
+  rows: PurchaseRow[];
+};
+
+type PurchaseGrid = {
+  purchases: PurchaseGridItem[];
+};
+
 @Injectable()
 export class PurchaseBuilder {
   constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
@@ -13,11 +65,11 @@ export class PurchaseBuilder {
   buildPurchaseGrids(
     procurementRules: ProcurementRule[],
 
-    products: any[],
+    products: Product[],
 
     vehicleAssignments: VehicleAssignment[],
-  ) {
-    const purchaseGrids: any[] = [];
+  ): PurchaseGrid {
+    const purchaseGrids: PurchaseGridItem[] = [];
 
     for (const rule of procurementRules) {
       const gridProducts = products.filter(
@@ -80,7 +132,7 @@ export class PurchaseBuilder {
   }
 
   private buildPurchaseColumns(
-    products: any[],
+    products: Product[],
 
     includePackagingType: boolean,
   ) {
@@ -92,7 +144,7 @@ export class PurchaseBuilder {
       includePackagingType,
     );
 
-    const updateFields = (nodes: any[]) => {
+    const updateFields = (nodes: ProductColumnNode[]) => {
       for (const node of nodes) {
         if (node.field && node.productId) {
           const productId = node.productId;
@@ -102,6 +154,7 @@ export class PurchaseBuilder {
               headerName: 'Allocated',
               field: `product_${productId}_allocated`,
               productId,
+              children: [],
             },
 
             {
@@ -109,18 +162,21 @@ export class PurchaseBuilder {
               field: `product_${productId}_purchased`,
               productId,
               editable: true,
+              children: [],
             },
 
             {
               headerName: 'Rate',
               field: `product_${productId}_rate`,
               productId,
+              children: [],
             },
 
             {
               headerName: 'Amount',
               field: `product_${productId}_amount`,
               productId,
+              children: [],
             },
           ];
 
@@ -139,7 +195,10 @@ export class PurchaseBuilder {
     return columns;
   }
 
-  applyVehicleAllocations(purchaseGrids: any, allocations: any[]) {
+  applyVehicleAllocations(
+    purchaseGrids: PurchaseGrid,
+    allocations: VehicleAllocation[],
+  ) {
     const result = structuredClone(purchaseGrids);
 
     for (const allocation of allocations) {
@@ -165,7 +224,10 @@ export class PurchaseBuilder {
     return result;
   }
 
-  applyPurchaseEntries(purchaseGrids: any, purchaseEntries: any[]) {
+  applyPurchaseEntries(
+    purchaseGrids: PurchaseGrid,
+    purchaseEntries: PurchaseEntry[],
+  ) {
     const result = structuredClone(purchaseGrids);
 
     for (const entry of purchaseEntries) {
@@ -178,7 +240,7 @@ export class PurchaseBuilder {
       const allocatedField = `product_${entry.product_id}_allocated`;
 
       const grid = result.purchases.find(
-        (purchase: any) => purchase.distributorId === entry.distributor_id,
+        (purchase) => purchase.distributorId === entry.distributor_id,
       );
 
       if (!grid) {
@@ -186,7 +248,7 @@ export class PurchaseBuilder {
       }
 
       const row = grid.rows.find(
-        (vehicle: any) => vehicle.vehicleId === entry.vehicle_id,
+        (vehicle) => vehicle.vehicleId === entry.vehicle_id,
       );
 
       if (!row) {
@@ -207,12 +269,16 @@ export class PurchaseBuilder {
     return result;
   }
 
-  applyDistributorRates(purchaseGrids: any, distributorRates: any[]) {
+  applyDistributorRates(
+    purchaseGrids: PurchaseGrid,
+    distributorRates: DistributorRate[],
+  ) {
     const result = structuredClone(purchaseGrids);
 
     for (const rate of distributorRates) {
       const grid = result.purchases.find(
-        (purchase: any) => purchase.distributorId === rate.distributor_id,
+        (purchase: PurchaseGridItem) =>
+          purchase.distributorId === rate.distributor_id,
       );
 
       if (!grid) {
@@ -239,10 +305,12 @@ export class PurchaseBuilder {
   }
 }
 
-const initializeProductFields = (columns: any[]) => {
-  const row: any = {};
+const initializeProductFields = (
+  columns: ProductColumnNode[],
+): Record<string, number> => {
+  const row: Record<string, number> = {};
 
-  const walk = (nodes: any[]) => {
+  const walk = (nodes: ProductColumnNode[]) => {
     for (const node of nodes) {
       if (node.field) {
         row[node.field] = 0;

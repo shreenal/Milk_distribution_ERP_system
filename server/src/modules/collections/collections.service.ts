@@ -10,10 +10,11 @@ import { SaveNightCollectionsDto } from './dto/save-night-collection.dto.js';
 
 import { SaveMorningCollectionsDto } from './dto/save-morning-collection.dto.js';
 
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import {
-  PaperStatus,
-  WorkflowStateService,
-} from '../workflow/workflow-state.service.js';
+  COLLECTION_ERROR_MESSAGES,
+  COLLECTION_SUCCESS_MESSAGES,
+} from './collections.constants.js';
 
 @Injectable()
 export class CollectionsService {
@@ -29,7 +30,7 @@ export class CollectionsService {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
-      throw new BadRequestException('Order sheet not found');
+      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
     const clients = await this.collectionsRepository.getClientsByGroupId(
@@ -52,26 +53,24 @@ export class CollectionsService {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
-      throw new BadRequestException('Order sheet not found');
+      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
     const status = sheet.order_paper.status;
 
-    if (!this.workflowState.canEditNightCollections(status as PaperStatus)) {
+    if (!this.workflowState.canEditNightCollections(status)) {
       throw new BadRequestException(
-        'Night collections can only be edited in DRAFT status',
+        COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
       );
     }
 
-    for (const entry of dto.entries) {
-      await this.collectionsRepository.upsertNightCollectionEntry(
-        sheetId,
-        entry,
-      );
-    }
+    await this.collectionsRepository.replaceNightCollections(
+      sheetId,
+      dto.entries,
+    );
 
     return {
-      message: 'Night collections saved successfully',
+      message: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED,
     };
   }
 
@@ -82,26 +81,24 @@ export class CollectionsService {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
-      throw new BadRequestException('Order sheet not found');
+      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
     const status = sheet.order_paper.status;
 
-    if (!this.workflowState.canEditMorningCollections(status as PaperStatus)) {
+    if (!this.workflowState.canEditMorningCollections(status)) {
       throw new BadRequestException(
-        'Morning collections can only be edited after night submission',
+        COLLECTION_ERROR_MESSAGES.MORNING_EDIT_NOT_ALLOWED,
       );
     }
 
-    for (const entry of dto.entries) {
-      await this.collectionsRepository.upsertMorningCollectionEntry(
-        sheetId,
-        entry,
-      );
-    }
+    await this.collectionsRepository.replaceMorningCollections(
+      sheetId,
+      dto.entries,
+    );
 
     return {
-      message: 'Morning collections saved successfully',
+      message: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED,
     };
   }
 
@@ -109,26 +106,24 @@ export class CollectionsService {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
-      throw new BadRequestException('Order sheet not found');
+      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
     const status = sheet.order_paper.status;
 
-    if (!this.workflowState.canAdminEditCollections(status as any)) {
+    if (!this.workflowState.canAdminEditCollections(status)) {
       throw new BadRequestException(
-        'Admin collections cannot be edited in current workflow state',
+        COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
       );
     }
 
-    for (const entry of dto.entries) {
-      await this.collectionsRepository.upsertAdminCollectionEntry(
-        sheetId,
-        entry,
-      );
-    }
+    await this.collectionsRepository.replaceAdminCollections(
+      sheetId,
+      dto.entries,
+    );
 
     return {
-      message: 'Admin collections saved successfully',
+      message: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED,
     };
   }
 }
