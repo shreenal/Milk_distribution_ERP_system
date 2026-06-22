@@ -2,7 +2,7 @@
 
 ## Summary
 
-The Milk Distribution Server consists of **11 feature modules** organized by business domain:
+The Milk Distribution Server consists of **12 feature modules** organized by business domain:
 
 | Module | Status | Purpose | Controllers | Services | Imports |
 |--------|--------|---------|-------------|----------|---------|
@@ -13,12 +13,13 @@ The Milk Distribution Server consists of **11 feature modules** organized by bus
 | **Trays** | ✅ Complete | Tray inventory management | 1 | 2 | WorkflowModule |
 | **Vehicle Allocation** | ✅ Complete | Daily vehicle load planning | 1 | 2 | WorkflowModule |
 | **Purchase** | ✅ Complete | Procurement management | 1 | 2 | WorkflowModule |
+| **Cash Settlement** | ✅ Complete | Cash close recording, route expenses, denomination capture, bank deposits, and reopened-paper cash reconciliation | 1 | 2 | WorkflowModule | 
 | **Delivery Summary** | ✅ Complete | Billing group delivery reporting | 1 | 1 | PrismaModule |
 | **Workflow** | ✅ Core | State machine validation | 0 | 1 | N/A |
 | **Clients** | ⚠️ Stub | Client master data | 0 | 0 | N/A |
 | **Products** | ⚠️ Stub | Product master data | 0 | 0 | N/A |
-
-**Total**: 11 modules | **9 active** | **2 stubs** | **1 shared (Workflow)**
+ 
+**Total**: 12 modules | **1 auth module** | **8 business feature modules** | **1 shared core module (Workflow)** | **2 stubs**
 
 ---
 
@@ -39,6 +40,7 @@ graph LR
     ClientsModule["ClientsModule"]
     ProductsModule["ProductsModule"]
     DeliverySummaryModule["DeliverySummaryModule"]
+    CashSettlementModule["CashSettlementModule"]
     
     PrismaModule --> OrdersModule
     PrismaModule --> PaperModule
@@ -47,12 +49,15 @@ graph LR
     PrismaModule --> VehicleModule
     PrismaModule --> PurchaseModule
     PrismaModule --> DeliverySummaryModule
+    PrismaModule --> CashSettlementModule
+
     
     WorkflowModule --> OrdersModule
     WorkflowModule --> CollectionsModule
     WorkflowModule --> TraysModule
     WorkflowModule --> VehicleModule
     WorkflowModule --> PurchaseModule
+    WorkflowModule --> CashSettlementModule
     
     AuthModule -.->|JwtAuthGuard| OrdersModule
     AuthModule -.->|JwtAuthGuard| PaperModule
@@ -61,6 +66,7 @@ graph LR
     AuthModule -.->|JwtAuthGuard| VehicleModule
     AuthModule -.->|JwtAuthGuard| PurchaseModule
     AuthModule -.->|JwtAuthGuard| DeliverySummaryModule
+    AuthModule -.->|JwtAuthGuard| CashSettlementModule
     
     PaperModule -->|uses| OrdersModule
     
@@ -76,6 +82,7 @@ graph LR
     style ClientsModule fill:#f5f5f5,stroke:#616161
     style ProductsModule fill:#f5f5f5,stroke:#616161
     style DeliverySummaryModule fill:#f5f5f5,stroke:#616161
+    style CashSettlementModule fill:#f5f5f5,stroke:#616161
 ```
 
 ---
@@ -141,7 +148,7 @@ paper/
 
 **Key Services**:
 - **PaperService**
-  - `generatePaperService(date)` - Create daily paper and sheets
+  - `generatePaperService(date)` - Create a paper for the requested sale date and derive its order_date automatically
   - `getTodayPaperService()` - Get today or latest paper
   - `submitNightEntryService(paperId)` - Lock night entries → NIGHT_SUBMITTED
   - `submitMorningEntryService(paperId)` - Lock morning entries → MORNING_SUBMITTED
@@ -178,7 +185,7 @@ orders/
 ├── orders.repository.ts      # Data access (order_sheet_items CRUD)
 ├── orders.module.ts          # Module definition
 ├── orders.constants.ts       # Constants
-├── orders.builder.ts       # Response structure and AG Grid structure
+├── orders-billing.builder.ts       # Response structure and AG Grid structure
 └── dto/
     ├── save-night-entries.dto.ts       # SaveNightEntriesDto[]
     └── save-morning-entries.dto.ts     # SaveMorningEntriesDto[]
@@ -222,7 +229,12 @@ orders/
 
 ### 4. Collections Module ✅
 
-**Purpose**: Payment collection tracking
+**Purpose**: 
+- Night physical cash received
+- Morning physical cash received
+- Cheque collections
+- Online collections
+- Client Bank deposits
 
 **Location**: `src/modules/collections/`
 
@@ -258,8 +270,7 @@ collections/
 
 **Key Services**:
 - `getCollectionGrid(sheetId)` - Fetch all collections for sheet with client details
-- saveNightCollections()
-  DRAFT, REOPENED
+- saveNightCollections() - DRAFT, NIGHT_SUBMITTED, REOPENED
 
 - saveMorningCollections() - NIGHT_SUBMITTED, REOPENED
 
@@ -269,8 +280,8 @@ collections/
 - `cash_collection` - Cash received
 - `cheque_collection` - Cheque received
 - `online_collection` - Online transfer received
-- `bank_deposit` - Bank deposit amount
-- `office_amount_given` - Advance amount given to client
+- `bank_deposit`  - Client amount deposited directly into bank
+- `office_amount_given` - Cash received by office during night collection
 
 **Edit Rules** (per WorkflowStateService):
 - DRAFT:
@@ -305,7 +316,7 @@ trays/
 ├── trays.service.ts         # Tray exchange logic
 ├── trays.repository.ts      # Data access
 ├── trays.module.ts          # Module definition
-├── trays.builder.ts          # response structure and ag grid structure
+├── trays.billing-builder.ts          # response structure and ag grid structure
 └── dto/
     └── save-trays-entries.dto.ts     # SaveTrayReturnDto[]
 ```
@@ -428,30 +439,152 @@ purchase/
 - `savePurchases(paperId, dto)` - Save purchase entries with:
   - purchase_rate (from distributor_product_rate)
   - purchase_amount (quantity × rate)
-  - allocated_qty (optional, from vehicle_allocation)
+  - allocated_qty (from vehicle_allocation)
+  - gatepass_date (resolved from `master_brand.gatepass_date_policy`)
+
 
 **Purchase Workflow**:
-1. Employee reviews vehicle allocations
-2. Enters purchase quantities per distributor/vehicle/product
-3. System looks up purchase rates from distributor_product_rate
-4. Calculates purchase_amount automatically
+1. System builds purchase grids from vehicle assignments, procurement rules and products.
+2. Vehicle allocation quantities prefill purchased quantities.
+3. Employee reviews and adjusts purchase quantities per distributor / vehicle / product.
+4. For each purchase row, system resolves `gatepass_date` from the product brand’s `gatepass_date_policy`.
+5. System looks up the distributor purchase rate effective on that row’s `gatepass_date`.
+6. System saves `purchase_entry` rows with `allocated_qty`, `purchased_qty`, `purchase_rate`, `purchase_amount`, and `gatepass_date`.
 
 **Edit Rules**: NIGHT_SUBMITTED, REOPENED states
+
+**Gatepass Date Behavior**:
+- Purchase rows are still created under the current `order_paper`.
+- Each `purchase_entry` stores its own `gatepass_date`.
+- `gatepass_date` is resolved from the purchased product brand using `order_paper.sale_date` as the base date:
+  - `SAME_DAY` → use `order_paper.sale_date`
+  - `PREVIOUS_DAY` → use previous calendar date relative to `order_paper.sale_date`
+- Purchase-date-sensitive accounting should use `purchase_entry.gatepass_date`, not `order_paper.sale_date`.
 
 **Dependencies**: WorkflowModule, PrismaModule
 
 **Data Source**:
-Purchase planning uses:
-- delivery_group_id
-- ordered_qty
-
-Purchase does NOT use:
-- billing_group_id
-- delivered_qty
+Purchase planning is based on:
+- vehicle allocations for the paper
+- distributor procurement rules
+- products grouped by distributor / brand / product group
 
 ---
 
-### 8. Delivery Summary Module ✅
+### 8. Cash Settlement Module ✅
+
+**Purpose**:
+Historical cash-close recording and cash-settlement review for a paper.
+
+Covers:
+- Route expenses
+- Route denomination entry
+- Direct collection denomination entry
+- Bank deposits with denomination capture for office cash deposited during settlement
+- Cash-close summary and route-level difference reporting after reopen
+
+**Location**:
+`src/modules/cash-settlement/`
+
+**Files**:
+cash-settlement/
+├── cash-settlement.controller.ts
+├── cash-settlement.service.ts
+├── cash-settlement.repository.ts
+├── cash-settlement.module.ts
+├── cash-settlement.builder.ts
+├── cash-settlement.constants.ts
+├── cash-settlement-validation.service.ts
+└── dto/
+
+**Key Services**:
+- getCashSettlementService(paperId)
+- saveRouteExpensesService(paperId, dto)
+- saveRouteDenominationsService(paperId, dto)
+- saveDirectCollectionsService(paperId, dto)
+- saveBankDepositsService(paperId, dto)
+
+- CashSettlementValidationService
+  - validateMorningSubmitReadiness(paperId)
+  - validateRouteDenominations(...)
+  - validateBankDeposits(...)
+
+
+**Repository Responsibilities**:
+- Route settlement persistence
+- Route expense persistence
+- Direct collection persistence
+- Bank deposit persistence
+- Reconciliation queries
+
+**Dependencies**:
+WorkflowModule, PrismaModule
+
+**DTOs**:
+- SaveRouteExpensesDto
+- SaveRouteDenominationsDto
+- SaveDirectCollectionsDto
+- SaveBankDepositsDto
+
+
+**Cash Settlement Workflow**
+
+### Normal first-close flow
+1. Collections are completed.
+2. Route expenses are entered.
+3. Route denominations are entered for each route.
+4. Direct collections are entered with denomination counts.
+5. Bank deposits are entered with denomination counts.
+6. Cash-settlement validation runs before MORNING_SUBMITTED.
+
+Validation rules during first close:
+- Route Net Cash = Route Denomination Total
+- Total Bank Deposits <= Available Office Cash
+- Bank deposit denomination usage must be valid against available counted cash
+
+### Reopened paper behavior
+After a paper is reopened, cash settlement splits into:
+
+**Editable after reopen**
+- Route Expenses only
+
+**Frozen historical cash rows after reopen**
+- Route Denominations
+- Direct Collections
+- Bank Deposits
+
+If collections are corrected after reopen:
+- revised route cash may change
+- revised route net cash may change
+- route expense totals may also change if route expenses are edited
+- route denomination totals remain frozen historical cash-close records
+- direct collection rows remain frozen historical cash-close records
+- bank deposit rows remain frozen historical cash-close records
+- the cash-settlement response shows route-level and paper-level differences between revised accounting cash and historical cash-close data
+
+**Edit Rules**
+
+### NIGHT_SUBMITTED
+Editable:
+- Route Expenses
+- Route Denominations
+- Direct Collections
+- Bank Deposits
+
+### REOPENED
+Editable:
+- Route Expenses only
+
+Locked:
+- Route Denominations
+- Direct Collections
+- Bank Deposits
+
+### DRAFT / MORNING_SUBMITTED / FINALIZED
+Cash settlement locked
+
+
+### 9. Delivery Summary Module ✅
 
 **Purpose**: Billing-group based delivery reconciliation and reporting
 
@@ -512,7 +645,7 @@ GET /delivery-summary/:paperId
   Returns billing-group summary using delivered quantities
 
 
-### 9. Workflow Module ✅
+### 10. Workflow Module ✅
 
 **Purpose**: State machine validation (shared across modules)
 
@@ -543,10 +676,13 @@ canEditMorningEntries(status):       status === NIGHT_SUBMITTED || status === RE
 canEditVehicleAllocations(status):   status === DRAFT (PERMANENT)
 canEditPurchases(status):            status === NIGHT_SUBMITTED || status === REOPENED
 canEditTrays(status):                status === NIGHT_SUBMITTED || status === REOPENED
-canEmployeeEditCollections(status):  status === DRAFT || status === NIGHT_SUBMITTED
 canAdminEditCollections(status):     status === MORNING_SUBMITTED || status === REOPENED
 canFinalize(status):                 status === MORNING_SUBMITTED || status === REOPENED
 canEditNightCollections(status):     status === DRAFT || status === NIGHT_SUBMITTED || status === REOPENED
+canEditRouteExpenses(status):       status === NIGHT_SUBMITTED || status === REOPENED
+canEditRouteDenominations(status):  status === NIGHT_SUBMITTED
+canEditDirectCollections(status):   status === NIGHT_SUBMITTED
+canEditBankDeposits(status):        status === NIGHT_SUBMITTED
 
 canEditMorningCollections(status):   status === NIGHT_SUBMITTED || status === REOPENED
 ```
@@ -557,7 +693,7 @@ canEditMorningCollections(status):   status === NIGHT_SUBMITTED || status === RE
 
 ---
 
-### 10. Clients Module ⚠️
+### 11. Clients Module ⚠️
 
 **Purpose**: Client master data management
 
@@ -574,7 +710,7 @@ canEditMorningCollections(status):   status === NIGHT_SUBMITTED || status === RE
 
 ---
 
-### 11. Products Module ⚠️
+### 12. Products Module ⚠️
 
 **Purpose**: Product master data management
 
@@ -639,6 +775,7 @@ imports: [
   VehicleAllocationModule,
   PurchaseModule,
   DeliverySummaryModule,
+  CashSettlementModule,
   // ClientsModule,     // Stub (not imported yet)
   // ProductsModule,    // Stub (not imported yet)
 ]
@@ -658,7 +795,7 @@ imports: [
    - Uses WorkflowStateService to verify DRAFT state
 
 3. **Frontend**: POSTs to `/collections/sheet/:id/night-save` (CollectionsModule)
-   - Saves office amounts
+   - Office received money
 
 4. **Frontend**: POSTs to `/vehicle-allocations/:paperId/vehicle-allocations` (VehicleAllocationModule)
    - Allocates products to vehicles
@@ -688,6 +825,17 @@ imports: [
 6. Billing groups are compared against purchase quantities
 7. Billing team generates invoices
 ## Next Steps
+
+### Cash Reconciliation First Close Workflow
+
+1. Collections completed
+2. Cash Settlement module opened
+3. Route expenses entered
+4. Route denominations entered
+5. Direct collections entered
+6. Bank deposits entered
+7. Reconciliation validated
+8. Morning submission allowed
 
 For detailed documentation on specific modules, see:
 - [4-AUTH_MODULE.md](4-AUTH_MODULE.md) - Deep dive into authentication

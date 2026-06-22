@@ -720,10 +720,12 @@ Quantity Source:
   }
   ```
 
-  **Auto-calculated Fields**:
-  - `purchase_rate`: Looked up from `distributor_product_rate` table
-  - `purchase_amount`: purchased_qty × purchase_rate
-  - `allocated_qty`:Derived from vehicle allocation records
+**Auto-calculated Fields**:
+- `allocated_qty`: derived from matching `vehicle_allocation`
+- `gatepass_date`: resolved from `order_paper.sale_date` and the purchased product brand's `gatepass_date_policy`
+- `purchase_rate`: looked up from `distributor_product_rate` using `distributorId + productId + gatepass_date`
+- `purchase_amount`: `purchased_qty × purchase_rate`
+
 
   ---
 
@@ -768,25 +770,49 @@ Quantity Source:
 4. Load products.
 5. Load procurement rules.
 6. Build purchase grids.
-7. Apply vehicle allocations.
-8. Apply distributor rates.
-9. Apply purchase entries.
-10. Return grids.
+7. Load saved vehicle allocations.
+8. Apply vehicle allocations to grids.
+9. For each allocation:
+   - find the vehicle's assigned distributor
+   - resolve gatepass date from `order_paper.sale_date` and brand `gatepass_date_policy`
+   - load applicable distributor product rate for that distributor + product + gatepass date
+10. Apply those rate defaults to the purchase grids.
+11. If purchase paper exists, load saved purchase entries.
+12. Apply saved purchase entries.
+13. Return grids.
+
+
+### Vehicle–Distributor Assignment Rule
+
+Purchase logic assumes one distributor assignment per vehicle for a paper.
+
+Source:
+- `vehicle_distribution_assignment`
+
+Rule:
+- each vehicle can be assigned to exactly one distributor
+- purchase rate defaults are resolved using that assigned distributor
+
   ---
 
-  #### `savePurchases(paperId: number, dto: SavePurchaseDto)`
+
+
+#### `savePurchases(paperId: number, dto: SavePurchaseDto)`
 
 1. Validate order paper exists.
 2. Validate workflow state.
 3. Validate purchases.
-4. Create purchase paper if needed.
-5. Load vehicle allocations.
-6. Load distributor rates.
-7. Build allocation lookup map.
-8. Build distributor rate lookup map.
-9. Calculate purchase amounts.
-10. Replace purchase entries.
-11. Return refreshed purchase grids.
+4. Filter DTO entries to rows where `purchasedQty > 0`.
+5. Create purchase paper if missing.
+6. Load vehicle allocations.
+7. Build allocation lookup map using `vehicleId + productId`.
+8. For each purchase entry:
+   - find matching allocation
+   - resolve gatepass date from `order_paper.sale_date` and brand `gatepass_date_policy`
+   - load applicable distributor product rate for `distributorId + productId + gatepassDate`
+   - calculate purchase amount
+9. Replace all purchase entries for the purchase paper.
+10. Return refreshed purchase grids.
 
   ---
 
@@ -813,11 +839,11 @@ Checks:
 1. Product exists.
 2. Vehicle exists.
 3. Distributor exists.
-4. purchasedQty cannot be negative
-5. purchasedQty = 0 is allowed and skipped during validation
+4. purchasedQty cannot be negative.
+5. purchasedQty = 0 is allowed and skipped during validation.
 6. Vehicle belongs to assigned distributor.
-7. Procurement rule exists.
-8. Allocation exists.
+7. Procurement rule exists for distributor + product.
+8. Allocation exists for vehicle + product.
 9. Purchased quantity does not exceed allocated quantity.
 
 ---
@@ -864,18 +890,25 @@ Checks:
    Formula:
    Purchased Qty = Allocated Qty
 
-  ##### applyDistributorRates()
+ ##### applyPurchaseRates()
 
-  Applies distributor purchase rates.
+Applies resolved purchase-rate defaults to the purchase grids.
 
-  Responsibilities:
-  - Loads purchase rates into grid
-  - Calculates purchase amounts
-  - Updates amount fields
+Input:
+- distributorId
+- vehicleId
+- productId
+- purchaseRate
 
-  Formula:
+Responsibilities:
+- finds the matching purchase grid using distributor + product presence
+- finds the matching vehicle row
+- sets `product_{id}_rate`
+- recalculates `product_{id}_amount` using current purchased quantity
 
-  purchase_amount = purchased_qty × purchase_rate
+Formula:
+purchase_amount = purchased_qty × purchase_rate
+
 
   ##### applyPurchaseEntries()
 
@@ -959,20 +992,21 @@ Example:
   ```
 
   **purchase_entry**:
-  ```typescript
-  {
-    id: Int;
-    purchase_paper_id: Int;
-    distributor_id: Int;
-    vehicle_id: Int;
-    product_id: Int;
-    purchased_qty: Decimal(10,2);
-    purchase_rate: Decimal(10,2);       // From distributor_product_rate
-    purchase_amount: Decimal(12,2);     // Calculated: qty × rate
-    allocated_qty: Decimal(10,2)?;      // From vehicle_allocation
-    created_at: DateTime;
-    updated_at: DateTime;
-  }
+```typescript
+{
+  id: Int;
+  purchase_paper_id: Int;
+  distributor_id: Int;
+  vehicle_id: Int;
+  product_id: Int;
+  purchased_qty: Decimal(10,2);
+  purchase_rate: Decimal(10,2);       // From distributor_product_rate
+  purchase_amount: Decimal(12,2);     // Calculated: qty × rate
+  allocated_qty: Decimal(10,2)?;      // From vehicle_allocation
+  gatepass_date: DateTime @db.Date;          // Resolved from brand gatepass policy
+  created_at: DateTime;
+  updated_at: DateTime;
+}
   ```
 
   ---
@@ -998,17 +1032,20 @@ Example:
   ```typescript
   // Find active rate for distributor + product
   const rate = await prisma.distributor_product_rate.findFirst({
-    where: {
-      distributor_id,
-      product_id,
-      is_active: true,
-      effective_from: { lte: today },
-      OR: [
-        { effective_to: null },
-        { effective_to: { gte: today } }
-      ]
-    },
-  });
+  where: {
+    distributor_id,
+    product_id,
+    is_active: true,
+    effective_from: { lte: gatepassDate },
+    OR: [
+      { effective_to: null },
+      { effective_to: { gte: gatepassDate } },
+    ],
+  },
+  orderBy: {
+    effective_from: 'desc',
+  },
+});
   ```
 
   ---
@@ -1053,25 +1090,48 @@ Users may modify Purchased Qty before saving.
     - ⚠️ PERMANENTLY LOCKED
     - Cannot modify (even if reopened)
     - Routes are set, tray expectations calculated
+    - Cash Settlement reconciliation depends on finalized route collections
   ```
 
   ### Purchase Workflow
 
-  ```
+  ```text
   1. NIGHT_SUBMITTED: Enter purchase orders
-    - After night entries are locked
-    - System knows order quantities
-    - Employee decides purchase qty per distributor/vehicle
-    - System auto-calculates rates and amounts
+    - Vehicle allocations are already frozen
+    - Purchase grids are prefilled from vehicle allocations
+    - Employee reviews / edits purchased quantities per distributor / vehicle / product
+    - System resolves gatepass date per product brand
+- System applies distributor purchase rates using distributor + product + gatepass date
+    - System calculates purchase amounts
+    - System resolves purchase_entry.gatepass_date from brand gatepass policy
 
   2. Can edit in:
-    - NIGHT_SUBMITTED (normal entry)
-    - REOPENED (corrections)
+    - NIGHT_SUBMITTED
+    - REOPENED
 
   3. Locked in:
-    - DRAFT (orders not finalized yet)
-    - MORNING_SUBMITTED, FINALIZED (after finalization)
+    - DRAFT
+    - MORNING_SUBMITTED
+    - FINALIZED
   ```
+
+
+
+### Purchase Gatepass Date Logic
+
+Each `purchase_entry` stores its own `gatepass_date`.
+
+Resolution rule:
+- `SAME_DAY` → `purchase_entry.gatepass_date = order_paper.sale_date`
+- `PREVIOUS_DAY` → `purchase_entry.gatepass_date = order_paper.sale_date - 1 day`
+
+Source of policy:
+- `master_brand.gatepass_date_policy`
+
+Why this matters:
+- Different brands may follow different dairy gatepass date rules.
+- Historical purchase rate lookup must use `purchase_entry.gatepass_date`.
+- Distributor outstanding and purchase-date-sensitive accounting should use `purchase_entry.gatepass_date`, not the paper's generic workflow date.
 
   ---
 
@@ -1079,35 +1139,44 @@ Users may modify Purchased Qty before saving.
 
   **Complete Daily Workflow**:
 
-  ```
-  Day starts (DRAFT):
-  1. Create paper
-  2. Enter night orders
+```text
+Day starts (DRAFT):
+1. Create paper
+2. Enter night orders
+3. Plan vehicle allocations
+4. Assign vehicles to distributors
+5. Click NIGHT_SUBMITTED
+   - vehicle allocations become permanently locked
 
-  Night submission:
-  1. Employee plans vehicle allocations
-    - Vehicle 1: 100 units Product A
-    - Vehicle 2: 150 units Product B
-  2. Assigns distributors
-    - Vehicle 1 → Distributor ABC
-    - Vehicle 2 → Distributor XYZ
-  3. Clicks NIGHT_SUBMITTED (allocations LOCKED)
+Working phase after NIGHT_SUBMITTED:
+1. Record morning delivery quantities / shortages
+2. Complete trays entry
+3. Complete collections entry
+4. Enter purchase quantities
+   - system pre-fills purchased quantity from vehicle allocation
+   - system resolves gatepass date from `order_paper.sale_date` and brand gatepass policy
+   - system looks up purchase rate using distributor + product + gatepass date
+   - system calculates purchase amount
+   - saved `purchase_entry` stores allocated_qty, purchased_qty, purchase_rate, purchase_amount, gatepass_date
+5. Complete cash settlement
+   - route expenses
+   - route denominations
+   - direct collections
+   - bank deposits
+6. Click MORNING_SUBMITTED
 
-  Morning phase (NIGHT_SUBMITTED):
-  1. Employee enters purchase orders
-    - Distributor ABC: 100 qty @ 20/unit = 2000
-    - Distributor XYZ: 150 qty @ 18/unit = 2700
-    - System auto-calculates rates + amounts
+After MORNING_SUBMITTED:
+1. Admin completes admin-side collection fields if applicable
+2. Admin reviews paper
+3. Admin finalizes paper
 
-  Next morning (MORNING_SUBMITTED):
-  1. Morning deliveries recorded
-  2. Admin finalizes paper
+If paper is REOPENED:
+1. Purchases can be corrected
+2. Collections and trays can be corrected according to reopen rules
+3. Vehicle allocations still cannot be changed
+4. Cash settlement remains partially editable according to reopen rules
+5. Admin finalizes again
 
-  If error found (REOPENED):
-  1. Can re-enter purchase quantities
-  2. Can modify collections, trays
-  3. BUT vehicle allocations CANNOT change
-  4. Admin finalizes again
   ```
 
   ---
@@ -1151,12 +1220,13 @@ grouped by delivery routes, not billing groups.
   - **Constraints**: Cannot modify after NIGHT_SUBMITTED
   - **Uses**: Purchase orders, tray expectations, distribution routes
 
-  ### Purchase Module
-  - **Purpose**: Procurement order management
-  - **Edit Rules**: NIGHT_SUBMITTED, REOPENED
-  - **Auto-calculated**: purchase_rate, purchase_amount
-  - **Lookup**: distributor_product_rate table
-  - **Dependencies**: vehicle_allocation (for context)
+
+### Purchase Module
+- **Purpose**: Procurement order management
+- **Edit Rules**: NIGHT_SUBMITTED, REOPENED
+- **Auto-calculated**: purchase_rate, purchase_amount, allocated_qty, gatepass_date
+- **Lookup**: distributor_product_rate table
+- **Dependencies**: vehicle_allocation, order_paper, workflow_state
 
   ---
 

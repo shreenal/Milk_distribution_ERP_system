@@ -2,18 +2,44 @@
 
 ## Overview
 
-The Milk Distribution system uses **PostgreSQL** with **Prisma ORM**. The schema contains **32 data models** organized into 7 categories:
+The Milk Distribution system uses **PostgreSQL** with **Prisma ORM**. The schema contains **39 data models** organized into 8 categories:
 
 
-- **Master Data**: 12 models (Dairy, Brand, Product, Distributor, Client, Vehicle, Group, etc.)
-- **Workflow**: 3 models (order_paper, order_sheet, order_sheet_items)
-- **Collections & Payments**: 2 models (client_collection, client_payment)
-- **Trays**: 3 models (Transaction, Summary Paper, Summary Row)
-- **Vehicles**: 3 models (Allocation Paper, Allocation, Assignment)
-- **Purchases & Rates**: 7 models (Purchase Paper, Entry, Tray, Client Rates, Distributor Rates,distributor_procurement_rule,product_tray_rule)
-- **Auth**: 2 models (Users, Roles)
+The schema contains **39 data models** organized into 8 categories:
 
-**Total: 32 Models** | Migration history tracked in prisma/migrations | **Auto-generated Prisma Client**: `src/generated/prisma/client.d.ts`
+- Master Data: 15 models
+  (Dairy, Brand, Product, Distributor, Client, Vehicle,
+   Group, Employee, Bank, Expense Type, etc.)
+
+- Workflow: 3 models
+  (order_paper, order_sheet, order_sheet_items)
+
+- Collections & Payments: 2 models
+  (client_collection, client_payment)
+
+- Cash Settlement: 4 models
+  (cash_route_settlement, cash_route_expense,
+   cash_direct_collection, cash_bank_deposit)
+
+- Trays: 3 models
+  (client_tray_transaction, tray_summary_paper,
+   tray_summary_row)
+
+- Vehicles: 3 models
+  (vehicle_allocation_paper, vehicle_allocation,
+   vehicle_distribution_assignment)
+
+- Purchases & Rates: 7 models
+  (purchase_paper, purchase_entry, purchase_tray,
+   master_client_rate_product,
+   distributor_product_rate,
+   distributor_procurement_rule,
+   product_tray_rule)
+
+- Auth: 2 models
+  (users, roles)
+
+**Total: 39 Models** | Migration history tracked in prisma/migrations | **Auto-generated Prisma Client**: `src/generated/prisma/client.d.ts`
 
 ---
 
@@ -47,10 +73,11 @@ REOPENED           # Open for corrections
 ```
 
 ### GatepassDatePolicy
-Determines gatepass date policy per brand:
+Determines how `purchase_entry.gatepass_date` is resolved from the paper's `sale_date` for a brand:
+
 ```enum
-PREVIOUS_DAY       # Gatepass dated previous day
-SAME_DAY          # Gatepass dated same day
+SAME_DAY       # purchase_entry.gatepass_date = order_paper.sale_date
+PREVIOUS_DAY   # purchase_entry.gatepass_date = order_paper.sale_date - 1 day
 ```
 
 ---
@@ -72,6 +99,10 @@ graph TB
         Vehicle[master_vehicle]
         Driver[master_driver]
         Group[master_group]
+        Employee[master_employee]
+        Bank[master_bank]
+        Expensetype[master_expense_type]
+
     end
     
     subgraph "Workflow & Orders"
@@ -98,6 +129,13 @@ graph TB
         TraySummary[tray_summary_row]
         TrayTrans[client_tray_transaction]
         PurchTray[purchase_tray]
+    end
+
+    subgraph "Cash Settlement"
+        RouteSettlement[cash_route_settlement]
+        RouteExpense[cash_route_expense]
+        DirectCollection[cash_direct_collection]
+        BankDeposit[cash_bank_deposit]
     end
     
     subgraph "Authentication"
@@ -144,6 +182,13 @@ graph TB
     PG -.-> TraySummary
     Tray -.-> TraySummary
     User --> Role
+    Sheet --> RouteSettlement
+RouteSettlement --> RouteExpense
+Paper --> DirectCollection
+Paper --> BankDeposit
+Employee --> DirectCollection
+Bank --> BankDeposit
+ExpenseType --> RouteExpense
     
     classDef master fill:#e3f2fd,stroke:#1976d2
     classDef workflow fill:#f3e5f5,stroke:#7b1fa2
@@ -193,7 +238,7 @@ id=2, name="Mother Dairy", city="Mumbai"
 | id | Int | PK | Unique identifier |
 | name | String | UNIQUE | Brand name |
 | dairy_id | Int | FK → master_dairy | Parent dairy |
-| gatepass_date_policy | GatepassDatePolicy | DEFAULT SAME_DAY | Gatepass date rule |
+| gatepass_date_policy | GatepassDatePolicy | DEFAULT SAME_DAY | Determines how purchase_entry.gatepass_date is resolved for this brand |
 | is_active | Boolean | DEFAULT true | Active/inactive |
 | created_at | DateTime | DEFAULT now() | Audit timestamp |
 | updated_at | DateTime | AUTO | Audit timestamp |
@@ -274,6 +319,8 @@ id=3, name="200ml Bottle"
 | updated_at | DateTime | AUTO | Audit timestamp |
 
 **Unique Constraint**: (brand_id, product_group_id, product_type_id, packaging_type_id, packaging_size, packaging_unit)
+
+
 
 **Hierarchical Structure**:
 ```
@@ -425,16 +472,78 @@ id=2, brand_id=1, color="Blue", description="500ml pouch crate"
 
 ---
 
+### 13. master_employee
+**Purpose**: Central registry of office employees and collectors
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| name | String | UNIQUE, NOT NULL | Employee name |
+| contact | String? | NULL | Contact number |
+| is_active | Boolean | DEFAULT true | Active flag |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Unique Constraint**: `name`
+
+**Use**: Used in direct collections to associate non-route cash with specific office staff.
+
+**Relationships**:
+- 1:N with `cash_direct_collection`
+
+---
+
+### 14. master_bank
+**Purpose**: Central registry of commercial banks used for cash deposits
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| name | String | UNIQUE, NOT NULL | Bank name |
+| is_active | Boolean | DEFAULT true | Active flag |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Unique Constraint**: `name`
+
+**Use**: Selected during the bank deposit step to specify where physical cash is being deposited.
+
+**Relationships**:
+- 1:N with `cash_bank_deposit`
+
+---
+
+
+### 15. master_expense_type
+**Purpose**: Configurable master list for valid route-level expense categories
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| name | String | UNIQUE, NOT NULL | Expense category name (e.g., Diesel, Tea, Loader) |
+| is_active | Boolean | DEFAULT true | Active flag |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Unique Constraint**: `name`
+
+**Use**: Categorizes individual route expenses in cash settlement forms.
+
+**Relationships**:
+- 1:N with `cash_route_expense`
+---
+
+
 ## Order Workflow Models
 
-### 13. order_paper
+### 16. order_paper
 **Purpose**: Daily order paper - main workflow orchestrator
 
 | Field | Type | Constraint | Purpose |
 |-------|------|-----------|---------|
 | id | Int | PK | Unique identifier |
-| order_date | DateTime | UNIQUE @db.Date | Paper date (date-only) |
-| sale_date | DateTime | @db.Date | Sale date |
+| order_date | DateTime | UNIQUE @db.Date | Previous-night ordering date used to generate the paper |
+| sale_date  | DateTime | @db.Date        | Business delivery / sale date represented by the paper |
 | status | OrderPaperStatus | DEFAULT DRAFT | Workflow state |
 | night_entry_submitted_at | DateTime? | NULL | Submission timestamp |
 | morning_entry_submitted_at | DateTime? | NULL | Submission timestamp |
@@ -449,6 +558,8 @@ id=2, brand_id=1, color="Blue", description="500ml pouch crate"
 - 1:1 with `purchase_paper` (optional)
 - 1:1 with `vehicle_allocation_paper` (optional)
 - 1:1 with `tray_summary_paper` (optional)
+- 1:N with `cash_direct_collection`
+- 1:N with `cash_bank_deposit`
 
 **State Machine**:
 ```
@@ -459,7 +570,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 14. order_sheet
+### 17. order_sheet
 **Purpose**: Order sheet for one group in one paper
 
 | Field | Type | Constraint | Purpose |
@@ -478,10 +589,11 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 - 1:N with `order_sheet_items` (line items)
 - 1:N with `client_collection` (payment tracking)
 - 1:N with `client_tray_transaction` (tray tracking)
+- 1:1  with `cash_route_settlement`
 
 ---
 
-### 15. order_sheet_items
+### 18. order_sheet_items
 **Purpose**: Individual product order line item
 
 | Field | Type | Constraint | Purpose |
@@ -509,16 +621,18 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 - N:1 with `master_client`
 - N:1 with `master_product`
 
+
 **Business Logic**:
 - `ordered_qty` populated in DRAFT (night entry)
 - `delivered_qty` populated after NIGHT_SUBMITTED (morning entry)
-- Rates and amounts calculated on finalization
+- `night_selling_rate` and `night_bill_amount` are resolved during night entry save using the paper `sale_date`
+- Final billing fields are recalculated later from delivered quantities during morning/final billing flow
 
 ---
 
 ## Collections & Payments Models
 
-### 16. client_collection
+### 19. client_collection
 **Purpose**: Daily collection tracking from one client
 
 | Field | Type | Constraint | Purpose |
@@ -526,7 +640,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 | id | Int | PK | Unique identifier |
 | order_sheet_id | Int | FK → order_sheet | Which day/sheet |
 | client_id | Int | FK → master_client | Which client |
-| office_amount_given | Decimal(12,2) | DEFAULT 0 | Amount given to client |
+| office_amount_given | Decimal(12,2) | DEFAULT 0 | Physical cash received by the office during night collections |
 | cash_collection | Decimal(12,2) | DEFAULT 0 | Cash received |
 | cheque_collection | Decimal(12,2) | DEFAULT 0 | Cheque received |
 | online_collection | Decimal(12,2) | DEFAULT 0 | Online transfer received |
@@ -559,7 +673,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
   Admin Collections
 ---
 
-### 17. client_payment
+### 20. client_payment
 **Purpose**: Historical payment records
 
 | Field | Type | Constraint | Purpose |
@@ -578,7 +692,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ## Tray & Vehicle Management Models
 
-### 18. client_tray_transaction
+### 21. client_tray_transaction
 **Purpose**: Daily tray exchange tracking per client
 
 | Field | Type | Constraint | Purpose |
@@ -588,7 +702,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 | client_id | Int | FK → master_client | Which client |
 | tray_type_id | Int | FK → master_tray_type | Tray type |
 | opening_balance | Int | DEFAULT 0 | Trays at start |
-|  expected_trays_taken | Int? | NULL | System calculated expected trays |
+| expected_trays_taken | Int? | NULL | System calculated expected trays |
 | trays_taken | Int | DEFAULT 0 | Actual trays given |
 | trays_returned | Int | DEFAULT 0 | Trays returned |
 | closing_balance | Int | DEFAULT 0 | Trays at end |
@@ -602,7 +716,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 19. vehicle_allocation_paper
+### 22. vehicle_allocation_paper
 **Purpose**: Vehicle allocation root for one order paper
 
 | Field | Type | Constraint | Purpose |
@@ -619,7 +733,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 20. vehicle_allocation
+### 23. vehicle_allocation
 **Purpose**: Product quantity allocated to vehicle
 
 | Field | Type | Constraint | Purpose |
@@ -638,7 +752,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 21. vehicle_distribution_assignment
+### 24. vehicle_distribution_assignment
 **Purpose**: Distributor assignment to vehicle for a paper
 
 | Field | Type | Constraint | Purpose |
@@ -656,7 +770,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ## Purchases & Rates Models
 
-### 22. purchase_paper
+### 25. purchase_paper
 **Purpose**: Purchase root for one order paper
 
 | Field | Type | Constraint | Purpose |
@@ -672,7 +786,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 23. purchase_entry
+### 26. purchase_entry
 **Purpose**: Individual purchase order line
 
 | Field | Type | Constraint | Purpose |
@@ -680,6 +794,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 | id | Int | PK | Unique identifier |
 | purchase_paper_id | Int | FK → purchase_paper | Parent paper |
 | distributor_id | Int | FK → master_distributor | Supplier |
+| gatepass_date | DateTime @db.Date | NOT NULL | Accounting gatepass date resolved from brand policy |
 | vehicle_id | Int | FK → master_vehicle | Transport |
 | product_id | Int | FK → master_product | Product |
 | purchased_qty | Decimal(10,2) | NOT NULL | Quantity purchased |
@@ -691,13 +806,24 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 **Unique Constraint**: (purchase_paper_id, distributor_id, vehicle_id, product_id)
 
-**Indexes**: (purchase_paper_id, vehicle_id), (distributor_id)
+**Indexes**: (purchase_paper_id, vehicle_id), (distributor_id), (gatepass_date)
 
 **Editable States**: NIGHT_SUBMITTED, REOPENED
 
+**Gatepass Date Logic**:
+- Purchase workflow is still performed against the current `order_paper`.
+- But each saved `purchase_entry` stores its own `gatepass_date`.
+- `gatepass_date` is resolved from the purchased product's brand policy using `order_paper.sale_date` as the base date:
+  - `SAME_DAY` → use `order_paper.sale_date`
+  - `PREVIOUS_DAY` → use the previous calendar date relative to `order_paper.sale_date`
+- Distributor outstanding and purchase-date-sensitive accounting should use `purchase_entry.gatepass_date`, not `order_paper.sale_date`.
+
+**Note**:
+`purchase_paper` is the workflow container for one `order_paper`, but accounting date is stored per row in `purchase_entry.gatepass_date`.
+
 ---
 
-### 24. purchase_tray
+### 27. purchase_tray
 **Purpose**: Tray issue/return from purchase
 
 | Field | Type | Constraint | Purpose |
@@ -712,7 +838,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 25. tray_summary_paper
+### 28. tray_summary_paper
 **Purpose**: Tray summary root for one order paper
 
 | Field | Type | Constraint | Purpose |
@@ -728,7 +854,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 26. tray_summary_row
+### 29. tray_summary_row
 **Purpose**: Tray summary detail per vehicle/distributor/brand/group
 
 | Field | Type | Constraint | Purpose |
@@ -752,7 +878,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 27. master_client_rate_product
+### 30. master_client_rate_product
 **Purpose**: Customer-specific selling rates
 
 | Field | Type | Constraint | Purpose |
@@ -771,7 +897,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 28. distributor_product_rate
+### 31. distributor_product_rate
 **Purpose**: Distributor's cost and selling rates for products
 
 | Field | Type | Constraint | Purpose |
@@ -791,7 +917,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 29. distributor_procurement_rule
+### 32. distributor_procurement_rule
 **Purpose**: Rules for product procurement by distributor
 
 | Field | Type | Constraint | Purpose |
@@ -808,7 +934,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 30. product_tray_rule
+### 33. product_tray_rule
 **Purpose**: Rules mapping products to tray types
 
 | Field | Type | Constraint | Purpose |
@@ -830,7 +956,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ## Authentication Models
 
-### 31. users
+### 34. users
 **Purpose**: System user accounts
 
 | Field | Type | Constraint | Purpose |
@@ -854,7 +980,7 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 ---
 
-### 32. roles
+### 35. roles
 **Purpose**: User role definitions
 
 | Field | Type | Constraint | Purpose |
@@ -869,6 +995,172 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 **Relationships**:
 - 1:N with `users`
 
+---
+
+## Cash Settlement Models
+
+
+**Cash Settlement Edit Rules**
+
+### NIGHT_SUBMITTED
+Editable:
+- route denomination rows (`cash_route_settlement`)
+- route expenses (`cash_route_expense`)
+- direct collections (`cash_direct_collection`)
+- bank deposits (`cash_bank_deposit`)
+
+### REOPENED
+Editable:
+- cash_route_expense only
+
+Locked historical cash rows:
+- cash_route_settlement
+- cash_direct_collection
+- cash_bank_deposit
+
+### DRAFT / MORNING_SUBMITTED / FINALIZED
+Cash settlement locked
+
+
+
+Route Cash
+=
+office_amount_given + cash_collection
+
+Route Net Cash
+=
+Route Cash - Route Expenses
+
+Office Cash
+=
+Total Route Net Cash + Total Direct Collections
+
+Remaining Cash
+=
+Office Cash - Total Bank Deposits
+
+
+### 36. cash_route_settlement
+**Purpose**: Stores denomination breakdowns and physical notes received for a specific delivery route sheet.
+
+**Business Rule**:
+Route cash totals, expense totals, route net cash and reconciliation values are calculated dynamically and are not persisted.
+
+
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| order_sheet_id | Int | FK → order_sheet, UNIQUE | Linked route order sheet |
+| note_2000 | Int | DEFAULT 0 | Count of ₹2000 notes |
+| note_500 | Int | DEFAULT 0 | Count of ₹500 notes |
+| note_200 | Int | DEFAULT 0 | Count of ₹200 notes |
+| note_100 | Int | DEFAULT 0 | Count of ₹100 notes |
+| note_50 | Int | DEFAULT 0 | Count of ₹50 notes |
+| note_20 | Int | DEFAULT 0 | Count of ₹20 notes |
+| note_10 | Int | DEFAULT 0 | Count of ₹10 notes |
+| coins | Decimal(12,2) | DEFAULT 0.00 | Total loose change value |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Unique Constraint**: `order_sheet_id`
+
+**Use**: Reconciles physical route cash collections with night/morning modules using denomination breakdowns.
+
+**Reopen Behavior**:
+This row becomes read-only after `REOPENED`.
+Its denomination counts remain historical cash-close records and are not rewritten after reopen.
+
+---
+
+### 37. cash_route_expense
+**Purpose**: Granular ledger records of route expenses incurred during transit
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| cash_route_settlement_id | Int | FK → cash_route_settlement | Parent route settlement document |
+| expense_type_id | Int | FK → master_expense_type | Category of the expense |
+| amount | Decimal(12,2) | NOT NULL | Incurred cost amount |
+| remarks | String? | NULL | Transaction notes/descriptions |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Index**: `cash_route_settlement_id`, `expense_type_id`
+
+**Use**: Deducted from the route cash total to compute `Route Net Cash`.
+
+**Reopen Behavior**:
+Route expenses remain editable after `REOPENED`.
+They are treated as correctable accounting adjustments, unlike denomination-based cash rows which remain frozen historical cash-close records.
+
+---
+
+### 38. cash_direct_collection
+**Purpose**: Tracks cash collected directly from clients by office staff independent of a delivery route
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| order_paper_id | Int | FK → order_paper | Associated parent paper workflow |
+| employee_id | Int | FK → master_employee | Office collector identity |
+| note_2000 | Int | DEFAULT 0 | Count of ₹2000 notes |
+| note_500 | Int | DEFAULT 0 | Count of ₹500 notes |
+| note_200 | Int | DEFAULT 0 | Count of ₹200 notes |
+| note_100 | Int | DEFAULT 0 | Count of ₹100 notes |
+| note_50 | Int | DEFAULT 0 | Count of ₹50 notes |
+| note_20 | Int | DEFAULT 0 | Count of ₹20 notes |
+| note_10 | Int | DEFAULT 0 | Count of ₹10 notes |
+| coins | Decimal(12,2) | DEFAULT 0.00 | Total loose change value |
+| remarks | String? | NULL | Transaction notes/descriptions |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Unique Constraint**: `(order_paper_id, employee_id)`
+
+**Index**: `order_paper_id`, `employee_id`
+
+**Use**: Added directly to `Total Route Net Cash` to calculate final daily `Office Cash`.
+
+**Reopen Behavior**:
+These rows become read-only after `REOPENED`.
+They remain historical direct-cash records from the original close and are not recomputed from other modules.
+---
+
+### 39. cash_bank_deposit
+**Purpose**: Records cash allocated for bank deposit along with its denomination breakdown.
+Multiple deposit records may exist for the same bank within a single order paper.
+
+| Field | Type | Constraint | Purpose |
+|-------|------|-----------|---------|
+| id | Int | PK | Unique identifier |
+| order_paper_id | Int | FK → order_paper | Associated parent paper workflow |
+| bank_id | Int | FK → master_bank | Destination bank ledger |
+| note_2000 | Int | DEFAULT 0 | Count of ₹2000 notes deposited |
+| note_500 | Int | DEFAULT 0 | Count of ₹500 notes deposited |
+| note_200 | Int | DEFAULT 0 | Count of ₹200 notes deposited |
+| note_100 | Int | DEFAULT 0 | Count of ₹100 notes deposited |
+| note_50 | Int | DEFAULT 0 | Count of ₹50 notes deposited |
+| note_20 | Int | DEFAULT 0 | Count of ₹20 notes deposited |
+| note_10 | Int | DEFAULT 0 | Count of ₹10 notes deposited |
+| coins | Decimal(12,2) | DEFAULT 0.00 | Loose change amount deposited |
+| deposit_reference | String? | NULL | Bank acknowledgment/Challan/UTR reference |
+| remarks | String? | NULL | Transaction notes/descriptions |
+| created_at | DateTime | DEFAULT now() | Record creation timestamp |
+| updated_at | DateTime | NOT NULL | Record last update timestamp |
+
+**Index**: `order_paper_id`, `bank_id`
+
+**Validation Rules**
+Route Net Cash = Route Denomination Total
+Total Bank Deposits <= Office Cash
+
+**Use**: Deducted from `Office Cash` during summary reconciliation to identify the final `Remaining Cash`.
+
+
+**Reopen Behavior**:
+These rows become read-only after `REOPENED`.
+They remain historical bank-deposit cash-close records from the original close.
 ---
 
 ## Performance Indexes
@@ -889,9 +1181,10 @@ All relationships automatically create indexes. Additional indexes:
 @@index([client_id])
 @@index([product_id])
 
-// purchase_entry
+// purchase_entry 
 @@index([purchase_paper_id, vehicle_id])
 @@index([distributor_id])
+@@index([gatepass_date])
 
 // product_tray_rule
 @@index([product_group_id, brand_id, product_type_id, packaging_type_id])
@@ -899,6 +1192,20 @@ All relationships automatically create indexes. Additional indexes:
 // client_payment
 @@index([client_id])
 @@index([payment_date])
+
+// cash_route_expense
+@@index([cash_route_settlement_id])
+@@index([expense_type_id])
+
+// cash_direct_collection
+@@index([order_paper_id])
+@@index([employee_id])
+
+// cash_bank_deposit
+@@index([order_paper_id])
+@@index([bank_id])
+
+
 ```
 
 ---
@@ -911,6 +1218,9 @@ When parent deleted, cascade children:
 - `purchase_paper` → deletes `purchase_entry`
 - `vehicle_allocation_paper` → deletes `vehicle_allocation`, `vehicle_distribution_assignment`
 - `tray_summary_paper` → deletes `tray_summary_row`
+- order_sheet → cash_route_settlement → cash_route_expense
+- order_paper → cash_direct_collection
+- order_paper → cash_bank_deposit
 
 ### Unique Constraints
 Prevent duplicates:
@@ -921,6 +1231,9 @@ Prevent duplicates:
 - One allocation per (paper, vehicle, product)
 - One assignment per (paper, vehicle)
 - One purchase per (paper, distributor, vehicle, product)
+
+
+
 
 ---
 
@@ -938,6 +1251,8 @@ Prevent duplicates:
 9. Vehicle group allocation (added then removed)
 10. Distributor product rates
 11. Vehicle distribution assignments
+12. add_cash_settlement_module
+13. change_in_cash_bank_deposit
 
 View migration history: `npx prisma migrate status`
 
@@ -945,21 +1260,46 @@ View migration history: `npx prisma migrate status`
 
 ## Summary
 
-**32 Models** organized into 7 logical categories:
-- **Master Data**: 12 models (Dairy, Brand, Product, Distributor, Client, Vehicle, Group, etc.)
-- **Workflow**: 3 models (order_paper, order_sheet, order_sheet_items)
-- **Collections & Payments**: 2 models (client_collection, client_payment)
-- **Trays**: 3 models (Transaction, Summary Paper, Summary Row)
-- **Vehicles**: 3 models (Allocation Paper, Allocation, Assignment)
-- **Purchases & Rates**: 7 models (Purchase Paper, Entry, Tray, Client Rates, Distributor Rates,distributor_procurement_rule,product_tray_rule)
-- **Auth**: 2 models (Users, Roles)
+**39 Models** organized into 8 logical categories:
+
+- Master Data: 15 models
+  (Dairy, Brand, Product, Distributor, Client, Vehicle,
+   Group, Employee, Bank, Expense Type, etc.)
+
+- Workflow: 3 models
+  (order_paper, order_sheet, order_sheet_items)
+
+- Collections & Payments: 2 models
+  (client_collection, client_payment)
+
+- Cash Settlement: 4 models
+  (cash_route_settlement, cash_route_expense,
+   cash_direct_collection, cash_bank_deposit)
+
+- Trays: 3 models
+  (client_tray_transaction, tray_summary_paper,
+   tray_summary_row)
+
+- Vehicles: 3 models
+  (vehicle_allocation_paper, vehicle_allocation,
+   vehicle_distribution_assignment)
+
+- Purchases & Rates: 7 models
+  (purchase_paper, purchase_entry, purchase_tray,
+   master_client_rate_product,
+   distributor_product_rate,
+   distributor_procurement_rule,
+   product_tray_rule)
+
+- Auth: 2 models
+  (users, roles)
 
 All models use PostgreSQL with Prisma ORM. Schema managed through migrations. Full Prisma client auto-generated in `src/generated/prisma/`.
 
 ---
 
 **Last Updated**: 2026-06-16  
-**Total Models**: 32 
+**Total Models**: 39
 **Total Migrations**:prisma/migrations
 **ORM**: Prisma 7.8.0  
 **Database**: PostgreSQL 12+

@@ -147,23 +147,23 @@ export class TraysRepository {
     });
   }
 
-  async getPreviousSheet(groupId: number, paperDate: Date) {
-    return this.prisma.order_sheet.findFirst({
-      where: {
-        group_id: groupId,
-        order_paper: {
-          order_date: {
-            lt: paperDate,
-          },
+  async getPreviousSheet(groupId: number, saleDate: Date) {
+  return this.prisma.order_sheet.findFirst({
+    where: {
+      group_id: groupId,
+      order_paper: {
+        sale_date: {
+          lt: saleDate,
         },
       },
-      orderBy: {
-        order_paper: {
-          order_date: 'desc',
-        },
+    },
+    orderBy: {
+      order_paper: {
+        sale_date: 'desc',
       },
-    });
-  }
+    },
+  });
+}
 
   async getPreviousTrayBalances(orderSheetId: number) {
     return this.prisma.client_tray_transaction.findMany({

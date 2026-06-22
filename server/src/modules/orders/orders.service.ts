@@ -179,14 +179,14 @@ export class OrdersService {
             const sellingRate = await this.ordersRepository.getSellingRate(
               entry.clientId,
               entry.productId,
-              sheet.order_paper.order_date, // ← FIXED
+              sheet.order_paper.sale_date, // ← FIXED
             );
 
             if (sellingRate === null || sellingRate === undefined) {
               throw new BadRequestException(
                 ERROR_MESSAGES.NO_APPLICABLE_RATE(
                   entry.productId,
-                  sheet.order_paper.order_date.toISOString(),
+                  sheet.order_paper.sale_date.toISOString(),
                 ),
               );
             }
@@ -310,11 +310,11 @@ export class OrdersService {
 
             const product = existingItem.master_product;
 
-            // CRITICAL FIX: Use order_date for historical accuracy
+            // CRITICAL FIX: Use sale_date for historical accuracy
             const sellingRate = await this.ordersRepository.getSellingRate(
               entry.clientId,
               entry.productId,
-              sheet.order_paper.order_date, // ← FIXED
+              sheet.order_paper.sale_date, // ← FIXED
             );
 
             if (sellingRate === null || sellingRate === undefined) {

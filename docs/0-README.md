@@ -3,8 +3,8 @@
 ## Quick Navigation
 - **[0-README.md](0-README.md)** - Project overview, setup, quick start (you are here)
 - **[1-ARCHITECTURE.md](1-ARCHITECTURE.md)** - System design patterns, workflow state machine, key decisions
-- **[2-DATABASE.md](2-DATABASE.md)** - Database schema, entity relationships, 31 models overview
-- **[3-MODULES_OVERVIEW.md](3-MODULES_OVERVIEW.md)** - All 11 feature modules summary
+- **[2-DATABASE.md](2-DATABASE.md)** - Database schema, entity relationships, 39 models overview
+- **[3-MODULES_OVERVIEW.md](3-MODULES_OVERVIEW.md)** - All 12 feature modules summary
 - **[4-AUTH_MODULE.md](4-AUTH_MODULE.md)** - Authentication, JWT, role-based access control
 - **[5-ORDERS_PAPER_MODULES.md](5-ORDERS_PAPER_MODULES.md)** - Orders & Paper workflow modules
 - **[6-COLLECTIONS_TRAYS_MODULES.md](6-COLLECTIONS_TRAYS_MODULES.md)** - Collections & Trays modules
@@ -12,17 +12,20 @@
 - **[8-API_ENDPOINTS.md](8-API_ENDPOINTS.md)** - Complete REST API reference with cURL examples
 - **[9-WORKFLOWS.md](9-WORKFLOWS.md)** - End-to-end user workflows with Mermaid diagrams
 - **[10-COMMON_UTILITIES.md](10-COMMON_UTILITIES.md)** - Guards, decorators, builders, middleware, utilities
-- **[11-TESTING.md](11-TESTING.md)** - Testing setup, running tests, test files
+- **[11-CASH_SETTLEMENT.md](11-CASH_SETTLEMENT.md)** - Cash settlement, denominations, expenses and bank deposits
 
 ---
 
 ## Project Overview
 
-**Milk Distribution Server** is a NestJS-based REST API for managing daily milk distribution operations. It handles order entry, paper workflow management, payment collection tracking, tray inventory management, vehicle allocation, and procurement operations,delivery summary reporting.
+**Milk Distribution Server** is a NestJS-based REST API for managing daily milk distribution operations. It handles order entry, paper workflow management,
+payment collection tracking, tray inventory management,
+vehicle allocation, procurement operations,
+cash settlement management, and delivery summary reporting.
 
 ### Key Characteristics
 - **Framework**: NestJS 11 with TypeScript (ES2023)
-- **Database**: PostgreSQL with Prisma ORM (32 data models)
+- **Database**: PostgreSQL with Prisma ORM (39 data models)
 - **Authentication**: JWT-based with role-based access control (EMPLOYEE, ADMIN)
 - **API Type**: RESTful JSON API
 - **Default Port**: 3000
@@ -87,10 +90,11 @@ server/
 │   │   ├── purchase/           # Procurement management
 │   │   ├── workflow/           # Workflow state machine
 │   │   ├── clients/            # Client master data (stub)
-│   │   └── products/           # Product master data (stub)
-├   ├   ├── delivery-summary/
+│   │   ├── products/           # Product master data (stub)
+│   │   ├── delivery-summary/
+│   │   └── cash-settlement/
 │   ├── prisma/                 # Database configuration
-│   │   ├── schema.prisma       # Database schema (32 models)
+│   │   ├── schema.prisma       # Database schema (39 models)
 │   │   └── migrations/         # Schema migration history
 │   └── types/                  # TypeScript type definitions
 ├── test/                       # Test files
@@ -176,32 +180,72 @@ Server will start on `http://localhost:3000`
 
 ### 1. Daily Paper Workflow
 All operations in the system are tied to a daily **order paper**:
-- **DRAFT** →
-- Night Entries enabled
-- Night Collections (office_amount_given) enabled
-- Vehicle Allocations enabled
-- **NIGHT_SUBMITTED** → Locked night entries,
-- Night Collections 
-- Morning Entries enabled
-- Morning Collections enabled
-- Purchases enabled
-- Trays enabled
-- Vehicle Allocations ❌ PERMANENTLY LOCKED (cannot be modified even in REOPENED)
-- **MORNING_SUBMITTED** → Locked morning entries,Morning Collections locked,Purchase locked,trays locked,Night Collections locked, accepts admin collections
-- **FINALIZED** → Business day closed and locked
-- **REOPENED** → (from FINALIZED)
- Allows:
-- Morning Entries
-- Purchases
-- Trays
-- Night Collections
-- Morning Collections
-- Admin Collections
-- Finalization
 
-Does NOT allow:
-- Night Entries
-- Vehicle Allocations
+- **DRAFT**
+  - Night Entries enabled
+  - Night Collections (`office_amount_given`) enabled
+  - Vehicle Allocations enabled
+
+- **NIGHT_SUBMITTED**
+  - Night entries locked
+  - Morning Entries enabled
+  - Morning Collections enabled
+  - Purchases enabled
+  - Trays enabled
+  - Cash Settlement enabled
+    - Route Expenses
+    - Route Denominations
+    - Direct Collections
+    - Bank Deposits
+  - Vehicle Allocations permanently locked (cannot be modified even in REOPENED)
+  - Purchases use paper workflow state, but purchase accounting date is stored per `purchase_entry.gatepass_date`
+
+- **MORNING_SUBMITTED**
+  - Morning Entries locked
+  - Morning Collections locked
+  - Purchases locked
+  - Trays locked
+  - Night Collections locked
+  - Admin Collections enabled
+
+- **FINALIZED**
+  - Business day closed and locked
+
+- **REOPENED** (from FINALIZED)
+  Allows:
+  - Morning Entries
+  - Purchases
+  - Trays
+  - Night Collections
+  - Morning Collections
+  - Admin Collections
+  - Route Expenses only
+  - Finalization
+
+  Does NOT allow:
+  - Night Entries
+  - Vehicle Allocations
+  - Route Denominations
+  - Direct Collections
+  - Bank Deposits
+
+
+### Paper Date Model
+
+Each order paper stores both:
+- `order_date`
+- `sale_date`
+
+`sale_date` is the business day for delivery, billing, collections, trays, and
+most day-level operational logic.
+
+`order_date` represents the night ordering date that leads into that sale day.
+In the normal workflow, `order_date` is the previous calendar day of the
+paper's `sale_date`.
+
+When a paper is generated for a requested sale date:
+- `sale_date = requested date`
+- `order_date = sale_date - 1 day`
 
 ### 2. Authentication & Authorization
 - Uses JWT tokens for stateless authentication
@@ -210,8 +254,8 @@ Does NOT allow:
 - Role-based decorators for endpoint protection
 
 ### 3. Data Models
-The system manages **32 database models** across:
-- **Master Data**: Dairy, Brand, Distributor, Client, Product, Vehicle, Driver, Group
+The system manages **39 database models** across:
+- **Master Data**: Dairy, Brand, Distributor, Client, Product,Vehicle, Driver, Group, Employee, Bank, Expense Type
 - **Transaction Data**: Order entries, Collections, Tray transactions, Purchases
 - **Configuration Data**: Rates, Rules, Allocations, Summaries
 - **Auth Data**: Users, Roles
@@ -222,6 +266,27 @@ Workflow transitions are strictly validated through `WorkflowStateService`:
 - Controls what operations are allowed in each state
 - Ensures data consistency and business rule compliance
 
+### 5. Purchase Gatepass Date Resolution
+
+Purchase dates are resolved per purchase row, not per paper.
+
+Each brand defines a `gatepass_date_policy` in `master_brand`.
+When a purchase row is saved, the system calculates `purchase_entry.gatepass_date`
+from:
+
+- the paper `sale_date`
+- the purchased product's brand policy
+
+Rules:
+- `SAME_DAY` → `gatepass_date = sale_date`
+- `PREVIOUS_DAY` → `gatepass_date = sale_date - 1 day`
+
+This allows different brands in the same paper to follow different dairy gatepass
+date rules.
+
+`order_paper.sale_date` is the business date for the paper workflow, but purchase
+accounting and outstanding logic should use the persisted
+`purchase_entry.gatepass_date`.
 ---
 
 ## File Organization by Module
@@ -265,42 +330,83 @@ See [8-API_ENDPOINTS.md](8-API_ENDPOINTS.md) for complete API reference with exa
 
 ## Database Overview
 
-PostgreSQL database with **32 models** managed by Prisma ORM:
+PostgreSQL database with **39 models** managed by Prisma ORM:
 
 - **10+ migrations** tracking schema evolution
 - **Decimal precision** for currency (12,2) and quantities (10,2)
 - **Relationships**: Foreign keys, unique constraints, indexes for performance
-- **Enums**: OrderPaperStatus, GatepassDatePolicy, PaymentMode
+- **Enums**: `OrderPaperStatus`, `GatepassDatePolicy`, `PaymentMode`
+- `GatepassDatePolicy` controls how each brand's purchase gatepass date is resolved
+- Purchase rows persist the resolved date in `purchase_entry.gatepass_date`
+- `order_paper.sale_date` is the business date of the paper workflow
+- purchase rows do not directly use `sale_date` as their persisted accounting date
+- instead, each purchase row stores a resolved `purchase_entry.gatepass_date`
+  derived from the paper `sale_date` and the brand's `GatepassDatePolicy`
 
 See [2-DATABASE.md](2-DATABASE.md) for complete schema documentation.
+
 
 ---
 
 ## Workflow Overview
 
 ### Order Entry & Paper Submission
-1. **DRAFT** state: Employee enters night orders and vehicle allocations
-2. **NIGHT_SUBMITTED**: Employee locks night entries, morning entries enabled,purchase enabled,tray enabled,morning collections enabled
-3. **MORNING_SUBMITTED**: - 
-- Morning entries locked
-- Admin collections enabled
-- Purchases locked
-- Trays locked
-4. **FINALIZED**: Paper finalized and locked
-5. **REOPENED (optional):**
-   - Morning Entries enabled
+1. **DRAFT**
+   - Employee enters night orders and vehicle allocations
+
+2. **NIGHT_SUBMITTED**
+   - Night entries locked
+   - Morning entries enabled
+   - Morning collections enabled
    - Purchases enabled
    - Trays enabled
-   - Night Collections enabled
-   - Morning Collections enabled
-   - Admin Collections enabled
-   - Vehicle Allocations ❌ PERMANENTLY LOCKED (even in REOPENED state)
-   - Night Entries remain locked
+   - Cash settlement enabled
+   - Purchase rows are created during the paper workflow, but each saved purchase row stores its own resolved `gatepass_date` based on brand policy
+
+3. **MORNING_SUBMITTED**
+   - Morning entries locked
+   - Morning collections locked
+   - Night collections locked
+   - Admin collections enabled
+   - Purchases locked
+   - Trays locked
+   - Cash settlement locked
+
+4. **FINALIZED**
+   - Paper finalized and locked
+
+5. **REOPENED** (optional)
+   Enabled:
+   - Morning Entries
+   - Purchases
+   - Trays
+   - Night Collections
+   - Morning Collections
+   - Admin Collections
+   - Route Expenses
+   - Finalization
+
+   Not enabled:
+   - Night Entries
+   - Vehicle Allocations
+   - Route Denominations
+   - Direct Collections
+   - Bank Deposits
+
+### Order Selling Rate Resolution
+
+Night and morning order billing rates are resolved using the paper `sale_date`,
+not `order_date`.
+
+Reason:
+- order rows belong to the business sale day
+- `order_date` represents the previous night’s ordering session
+- rate lookup should follow the sale/billing day, not the entry-night date
 
 ### Collections Tracking
-- **Night Collections**: Employee records office amounts given to clients,
-- **Morning Collections**: Employee records cashCollection/chequeCollection,employeeremarks
-- **Admin Collections**: Admin verifies and finalizes onlinecollections,adminremarks,bankdeposit
+- **Night Collections**: Employee records cash received by the office during night collections
+- **Morning Collections**: Employee records `cash_collection`, `cheque_collection`, and `employee_remarks`
+- **Admin Collections**: Admin records `online_collection`, `bank_deposit`, and `admin_remarks`
 
 ### Tray Management
 - **Tray Exchange**: Track opening balance, trays taken, trays returned, closing balance
@@ -317,6 +423,42 @@ See [2-DATABASE.md](2-DATABASE.md) for complete schema documentation.
 - Read-only reporting module
 
 See [9-WORKFLOWS.md](9-WORKFLOWS.md) for detailed end-to-end workflows with diagrams.
+
+### Cash Settlement
+
+- Tracks physical cash received from routes
+- Records route-level expenses
+- Tracks route denomination counts
+- Records direct collections by office staff
+- Records office bank deposits
+
+
+- Route Net Cash = Route Total Cash - Route Expenses
+- Available Office Cash = Sum of all night collections office_amount_given
+- Validation enforced at: MORNING_SUBMITTED transition
+
+Normal first-time cash close:
+- Route Net Cash must equal route denomination total for each route
+- Total bank deposits cannot exceed available office cash
+- Cash Settlement validation is enforced during the normal first-time morning submit / close flow
+
+Editability:
+- In NIGHT_SUBMITTED:
+  - Route Expenses editable
+  - Route Denominations editable
+  - Direct Collections editable
+  - Bank Deposits editable
+
+REOPENED does NOT allow NEW/EDIT actions on:
+- Route Denominations (frozen, read-only)
+- Direct Collections (frozen, read-only)
+- Bank Deposits (frozen, read-only)
+But historical records remain VISIBLE (read-only)
+
+If collections or route expenses are corrected after reopen, route cash and route
+net cash may change. Historical route denominations, direct collections, and bank
+deposit records remain frozen and are shown read-only, so reopened cash figures
+may no longer reconcile exactly to the original denomination/deposit records.
 
 ---
 
@@ -383,7 +525,7 @@ For detailed information, visit the specific documentation:
 - **Module Documentation**: [3-MODULES_OVERVIEW.md](3-MODULES_OVERVIEW.md) → [4-11]
 - **API Reference**: [8-API_ENDPOINTS.md](8-API_ENDPOINTS.md)
 - **User Workflows**: [9-WORKFLOWS.md](9-WORKFLOWS.md)
-- **Testing**: [11-TESTING.md](11-TESTING.md)
+
 
 ---
 
@@ -417,5 +559,5 @@ npx prisma migrate status
 
 ---
 
-**Last Updated**: 2026-06-16  
+**Last Updated**: 2026-06-21 
 **Version**: 0.0.1

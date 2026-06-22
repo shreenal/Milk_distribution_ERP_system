@@ -1,5 +1,6 @@
 {
     "recommendations": [
-        "ctc.vscode-tree-extension"
+        "ctc.vscode-tree-extension",
+        "esbenp.prettier-vscode"
     ]
 }

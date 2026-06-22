@@ -12,7 +12,7 @@ export class PaperService {
     private readonly paperRepository: PaperRepository,
     private readonly paperValidationService: PaperValidationService,
     private readonly workflowState: WorkflowStateService,
-  ) {}
+  ) { }
 
   async generatePaperService(date: string) {
     try {
@@ -28,7 +28,12 @@ export class PaperService {
         throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
       }
 
-      const dateOnly = new Date(Date.UTC(year, month - 1, day));
+      const saleDate = new Date(Date.UTC(year, month - 1, day));
+      const orderDate = new Date(saleDate);
+      orderDate.setUTCDate(orderDate.getUTCDate() - 1);
+
+      const tomorrowSale = new Date(saleDate);
+      tomorrowSale.setUTCDate(tomorrowSale.getUTCDate() + 1);
 
       const today = new Date();
 
@@ -40,7 +45,7 @@ export class PaperService {
         ),
       );
 
-      if (dateOnly < todayUtc) {
+      if (saleDate < todayUtc) {
         throw new BadRequestException(ERROR_MESSAGES.PAST_DATE_NOT_ALLOWED);
       }
 
@@ -50,26 +55,23 @@ export class PaperService {
         thirtyDaysAhead.getUTCDate() + DATE_CONFIG.MAX_FUTURE_DAYS,
       );
 
-      if (dateOnly > thirtyDaysAhead) {
+      if (saleDate > thirtyDaysAhead) {
         throw new BadRequestException(
           ERROR_MESSAGES.FUTURE_DATE_TOO_FAR(DATE_CONFIG.MAX_FUTURE_DAYS),
         );
       }
 
-      const tomorrow = new Date(dateOnly);
 
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-
-      const existingPaper = await this.paperRepository.findOrderPaper(
-        dateOnly,
-        tomorrow,
+      const existingPaper = await this.paperRepository.findPaperBySaleDate(
+        saleDate,
+        tomorrowSale,
       );
 
       if (existingPaper) {
         return existingPaper;
       }
 
-      const paper = await this.paperRepository.generateOrderPaper(dateOnly);
+      const paper = await this.paperRepository.generatePaperFromOrderDate(orderDate);
 
       const groups = await this.paperRepository.getActiveGroups();
 
@@ -99,7 +101,7 @@ export class PaperService {
 
       tomorrow.setDate(tomorrow.getDate() + 1);
 
-      const todayPaper = await this.paperRepository.findTodayPaper(
+      const todayPaper = await this.paperRepository.findPaperBySaleDate(
         today,
         tomorrow,
       );

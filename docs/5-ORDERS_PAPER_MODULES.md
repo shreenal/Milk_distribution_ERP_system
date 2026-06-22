@@ -68,7 +68,7 @@ export class PaperController {
 
 #### 1. POST /papers
 
-**Purpose**: Generate daily order paper with order sheets for all groups
+**Purpose**: Generate daily order paper for a requested sale date, with order sheets for all groups
 
 **Auth**: EMPLOYEE
 
@@ -90,15 +90,15 @@ curl -X POST http://localhost:3000/papers \
 **Validation**:
 - Date must be string
 - Date format must be YYYY-MM-DD
-- Date cannot be in past
-- Date cannot be more than 30 days in future
+- Sale Date cannot be in past
+- Sale Date cannot be more than 30 days in future
 
 **Response** (200 OK):
 ```json
 {
   "id": 1,
-  "order_date": "2026-06-17",
-  "sale_date": "2026-06-18",
+  "order_date": "2026-06-16",
+  "sale_date": "2026-06-17",
   "status": "DRAFT",
   "night_entry_submitted_at": null,
   "morning_entry_submitted_at": null,
@@ -109,6 +109,9 @@ curl -X POST http://localhost:3000/papers \
   "updated_at": "2026-06-16T10:00:00Z",
 }
 ```
+
+**Note**:
+`order_paper.sale_date` is a paper-level date only. Purchase/outstanding accounting must use `purchase_entry.gatepass_date`, which is resolved per product brand using `master_brand.gatepass_date_policy`.
 
 **Error Response** (400):
 ```json
@@ -140,6 +143,7 @@ curl -X GET http://localhost:3000/papers/today \
   "paper": {
     "id": 1,
     "order_date": "2026-06-16",
+    "sale_date": "2026-06-17",
     "status": "DRAFT",
     "order_sheet": [ ... ]
   }
@@ -152,9 +156,10 @@ curl -X GET http://localhost:3000/papers/today \
   "type": "LATEST",
   "paper": {
     "id": 0,
-    "order_date": "2026-06-15",
+    "order_date": "2026-06-16",
+    "sale_date": "2026-06-17",
     "status": "FINALIZED",
-    "order_sheets": [ ... ]
+    "order_sheet": [ ... ]
   }
 }
 ```
@@ -178,7 +183,7 @@ curl -X POST http://localhost:3000/papers/1/submit-night \
 - Vehicle allocations must be complete
 - Vehicle assignments must be complete
 - Night entries must be complete
-- Tray calculations must exist
+- Tray validation/readiness checks must pass
 - Night collections must be complete
 
 **Response** (200 OK):
@@ -221,14 +226,18 @@ curl -X POST http://localhost:3000/papers/1/submit-morning \
 - Tray returns must be complete
 - Morning collections must be complete
 - Purchases must be complete
+- Cash settlement validation must pass
+
+When a paper is reopened, cash settlement is treated as historical cash-close data.
+Re-finalization after reopen does not require denomination/deposit rows to be re-entered or re-matched to revised collection totals.
 
 **Response** (200 OK):
 ```json
 {
   "id": 1,
   "status": "MORNING_SUBMITTED",
-  "morning_entry_submitted_at": "2026-06-16T14:00:00Z",
-  "updated_at": "2026-06-16T14:00:00Z"
+  "morning_entry_submitted_at": "2026-06-17T14:00:00Z",
+  "updated_at": "2026-06-17T14:00:00Z"
 }
 ```
 
@@ -303,6 +312,13 @@ curl -X POST http://localhost:3000/papers/1/reopen \
 - Purchases: Editable again
 - Trays: Editable again
 
+Cash Settlement:
+- Route Expenses: Editable
+- Route Denominations: Locked
+- Direct Collections: Locked
+- Bank Deposits: Locked
+  
+
 ---
 
 ### Service: PaperService
@@ -314,14 +330,11 @@ curl -X POST http://localhost:3000/papers/1/reopen \
 #### `generatePaperService(date: string)`
 
 Logic:
-1. Validate date format (YYYY-MM-DD)
-2. Validate date is within allowed range (today to +30 days)
-3. Check if paper already exists for that date
-4. If paper exists, return existing paper
-5. Create a new order paper with DRAFT status.
-6. Load all active delivery groups.
-7. Generate an order sheet for each active group.
-8. Return the created paper.
+1. Parse requested sale date from YYYY-MM-DD string.
+2. Validate sale date is within allowed range.
+3. Check whether a paper already exists for that sale date.
+4. Derive order_date = sale_date - 1 day.
+5. Create the paper and its order sheets if it does not exist.
 
 ---
 
@@ -332,7 +345,7 @@ Returns the current day's paper. If no paper exists for today, returns the most 
 **Logic:**
 1. Look up today's paper using the current date range.
 2. Return the paper as type `TODAY` when found.
-3. Otherwise retrieve the latest paper by `order_date`.
+3. Otherwise retrieve the latest available paper.
 4. Throw an exception if no papers exist.
 5. Return the latest paper as type `LATEST`.
    
@@ -413,6 +426,7 @@ Validates that a paper is ready to transition to the `MORNING_SUBMITTED` state.
 4. Tray return completeness validation passes.
 5. Morning collection validation passes.
 6. Purchase validation passes.
+7. Cash settlement must be complete
 
 **Returns:**
 - The validated paper.
@@ -423,7 +437,7 @@ Validates that a paper is ready to transition to the `MORNING_SUBMITTED` state.
 
 ---
 
-#### validateFinalizeReadiness(paperId)
+#### `validateFinalizeReadiness(paperId)`
 
 Validates that a paper is ready to transition to the `FINALIZED` state.
 
@@ -436,7 +450,9 @@ Validates that a paper is ready to transition to the `FINALIZED` state.
 
 **Throws:**
 - `BadRequestException` when any validation fails.
+- 
 ---
+
 
 ## Orders Module (Order Entry)
 
@@ -718,7 +734,7 @@ Returns the complete sheet workspace required by the UI.
 6. Validate product exists and is active.
 7. Validate ordered quantity is provided.
 8. Validate quantity rules and precision.
-9. Resolve historical selling rate using paper order_date.
+9. Resolve historical selling rate using paper sale_date.
 10. Calculate night bill amount.
 11. Upsert order sheet entries within a transaction.
 12. Return success response.
@@ -736,7 +752,7 @@ Returns the complete sheet workspace required by the UI.
 6. Validate client exists and belongs to the sheet group.
 7. Validate product exists and is active.
 8. Validate a corresponding night order exists.
-9. Resolve historical selling rate using paper order_date.
+9. Resolve historical selling rate using paper sale_date.
 10. Calculate taxable amount.
 11. Calculate GST amount.
 12. Calculate final bill amount.
@@ -1020,7 +1036,17 @@ DRAFT
 └─ → Transition: NIGHT_SUBMITTED
 
 NIGHT_SUBMITTED
-├─ ✅ Can enter: - Morning Entries, Night Collections, Morning Collections, Purchases, Trays
+├─✅ Can enter:
+│  - Morning Entries
+│  - Night Collections
+│  - Morning Collections
+│  - Purchases
+│  - Trays
+│  - Cash Settlement:
+│    - Route Expenses
+│    - Route Denominations
+│    - Direct Collections
+│    - Bank Deposits
 ├─ ❌ Locked: Night entries, Vehicle allocations (PERMANENT)
 └─ → Transition: MORNING_SUBMITTED
 
@@ -1034,7 +1060,9 @@ FINALIZED
 └─ → Transition: REOPENED (admin only)
 
 REOPENED
-├─ ✅ Can enter: Morning entries,Night Collections, Morning Collections,Admin collections,Purchases, Trays
+├─ ✅ Can enter: Morning entries, Night Collections, Morning Collections, Admin collections, Purchases, Trays
+├─ ✅ Cash Settlement: Route Expenses only
+├─ ❌ Cash Settlement locked sections: Route Denominations, Direct Collections, Bank Deposits
 ├─ ❌ Locked: Night entries, Vehicle allocations (PERMANENT even here)
 └─ → Transition: FINALIZED (admin only)
 ```

@@ -49,9 +49,9 @@ export class TraysService {
     const openingBalanceMap = new Map<string, number>();
 
     const previousSheet = await this.traysRepository.getPreviousSheet(
-      sheet.group_id,
-      sheet.order_paper.order_date,
-    );
+  sheet.group_id,
+  sheet.order_paper.sale_date,
+);
 
     if (previousSheet) {
       const balances = await this.traysRepository.getPreviousTrayBalances(

@@ -4,12 +4,36 @@
 
 ### Overview
 
-A complete day in the Milk Distribution system involves these phases:
+A complete paper lifecycle in the Milk Distribution system moves through these workflow states:
 
-1. **DRAFT Phase** (Early Morning): Night order entry and planning
-2. **NIGHT_SUBMITTED Phase** (Morning): Morning delivery and collections
-3. **MORNING_SUBMITTED Phase** (Afternoon): Admin review and finalization
-4. **FINALIZED Phase** (Evening): Ready for distribution
+1. **DRAFT**
+   - Night order entry
+   - Vehicle allocation planning
+   - Night collection / office amount entry
+
+2. **NIGHT_SUBMITTED**
+   - Morning delivery entry
+   - Morning collections
+   - Purchases
+   - Trays
+   - Cash Settlement
+
+3. **MORNING_SUBMITTED**
+   - Admin collection review
+   - Admin collection entry
+   - Final pre-close checks
+
+4. **FINALIZED**
+   - Business day closed
+   - Reporting and audit state
+
+5. **REOPENED** (only after finalization if correction is required)
+   - Selected modules become editable again according to reopen rules
+   - Cash Settlement becomes partly historical:
+     - route expenses editable
+     - route denominations read-only
+     - direct collections read-only
+     - bank deposits read-only
 
 ---
 
@@ -17,10 +41,10 @@ A complete day in the Milk Distribution system involves these phases:
 
 **Time**: 4:00 AM - 10:00 AM  
 **Status**: DRAFT  
-**Editable**: 
-- Night entries,
-- Vehicle allocations,
-- Office amounts / Night collections  
+**Editable**:
+- Night Orders
+- Vehicle Allocations
+- Night Collections (`office_amount_given`)
 
 ```mermaid
 sequenceDiagram
@@ -60,10 +84,10 @@ sequenceDiagram
 1. System creates daily paper with one sheet per delivery group
 2. Employee enters product quantities for each client
 3. Employee allocates products to vehicles for optimal routes
-4. Employee records advance amounts given to clients
+4. Employee records cash received by the office during night collections
 5. Employee locks night entries
 
-**Restrictions After Step 6**:
+**Restrictions After Step 5**:
 - ❌ Cannot modify night orders
 - ❌ Cannot modify vehicle allocations (PERMANENT LOCK)
 - ✅ Can enter morning data
@@ -75,7 +99,13 @@ sequenceDiagram
 
 **Time**: 10:00 AM - 2:00 PM  
 **Status**: NIGHT_SUBMITTED  
-**Editable**: Morning deliveries, Night Collections,Morning Collections, Purchases, Trays  
+**Editable**:
+- Morning Deliveries
+- Night collection office amounts (`office_amount_given`)
+- Morning Collections
+- Purchases
+- Trays
+- Cash Settlement
 
 ```mermaid
 sequenceDiagram
@@ -101,8 +131,21 @@ sequenceDiagram
     E->>API: POST /trays/sheet/1/save [entries]
     API->>DB: UPDATE client_tray_transaction (trays_returned)
     API-->>E: Trays saved
+
+    Note over E,DB: 5. Cash Settlement
+E->>API: POST /cash-settlement/1/route-expenses
+API->>DB: REPLACE cash_route_expense rows
+
+E->>API: POST /cash-settlement/1/route-denominations
+API->>DB: UPDATE cash_route_settlement denomination fields
+
+E->>API: POST /cash-settlement/1/direct-collections
+API->>DB: REPLACE cash_direct_collection rows
+
+E->>API: POST /cash-settlement/1/bank-deposits
+API->>DB: REPLACE cash_bank_deposit rows
     
-    Note over E,DB: 5. Submit Morning Entries
+    Note over E,DB: 6. Submit Morning Entries
     E->>API: POST /papers/1/submit-morning
     API->>DB: UPDATE order_paper (status = MORNING_SUBMITTED)
     API-->>E: Paper transitioned
@@ -114,13 +157,15 @@ sequenceDiagram
 3. Client collections recorded (multiple payment methods)
 4. Purchase orders entered
 5. Tray exchanges recorded (returns by clients)
-6. Morning entries locked for admin review
+6. Cash settlement completed
+7. Morning entries locked for admin review
 
-**Restrictions After Step 5**:
+**Restrictions After Step 6**:
 - ❌ Cannot modify morning deliveries
 - ❌ Cannot modify purchases
 - ❌ Cannot modify trays
-- ❌ Cannot modify night collections (UNLESS paper is REOPENED)
+- ❌ Cannot modify cash settlement
+- ❌ Cannot modify night collections after MORNING_SUBMITTED
 - ✅ Admin can add collection remarks
 
 ---
@@ -186,16 +231,22 @@ graph LR
 ```
 
 **If Error Detected**:
-1. Admin clicks POST /papers/:paperId/reopen
-2. Paper transitions to REOPENED status
-3. Admin can re-enter morning deliveries
-4. Admin can update night collections
-5. Admin can update morning collections
-6. Admin can update admin collections
-7. Admin can update purchases
-8. Admin can update trays
-9. Vehicle allocations remain LOCKED
-10. Admin finalizes again
+1. Admin clicks `POST /papers/:paperId/reopen`
+2. Paper transitions to `REOPENED`
+3. Admin can correct:
+   - morning deliveries
+   - night collections
+   - morning collections
+   - admin collections
+   - purchases
+   - trays
+4. Vehicle allocations remain permanently locked
+5. Cash Settlement follows reopen-specific rules:
+   - route expenses remain editable
+   - route denominations remain read-only historical rows
+   - direct collections remain read-only historical rows
+   - bank deposits remain read-only historical rows
+6. Admin finalizes again
 
 ---
 
@@ -221,8 +272,8 @@ curl -X POST http://localhost:3000/papers \
 # Response:
  {
   "id": 1,
-  "order_date": "2026-06-17",
-  "sale_date": "2026-06-18",
+  "order_date": "2026-06-16",
+  "sale_date": "2026-06-17",
   "status": "DRAFT",
   "night_entry_submitted_at": null,
   "morning_entry_submitted_at": null,
@@ -234,6 +285,9 @@ curl -X POST http://localhost:3000/papers \
 }
 
 echo "Paper created with ID: 1"
+
+**Note**:
+`order_paper.sale_date` is a paper-level date. Purchase/outstanding accounting must use `purchase_entry.gatepass_date`, which is resolved per purchase row from the product brand's `gatepass_date_policy`.
 ```
 
 ---
@@ -502,13 +556,32 @@ curl -X POST http://localhost:3000/purchases/1 \
   }'
 
 # System auto-calculates:
-# - purchase_rate from distributor_product_rate
-# - purchase_amount = qty × rate
+# - allocated_qty from matching vehicle allocation
+# - gatepass_date from order_paper.sale_date + master_brand.gatepass_date_policy
+# - purchase_rate from distributor_product_rate using distributorId + productId + gatepass_date
+# - purchase_amount = purchasedQty × purchase_rate
 ```
+
+### Workflow 8: Cash Settlement
+
+**User**: EMPLOYEE  
+**Duration**: 10–20 minutes  
+**Paper Status**: NIGHT_SUBMITTED  
+
+1. Open Cash Settlement screen
+2. Enter route expenses and save them
+3. Enter route denomination counts and save them
+4. Enter direct collection denomination rows and save them
+5. Enter bank deposit denomination rows and save them
+6. System validates:
+   - route denomination totals against route net cash
+   - deposit totals against available office cash
+   - deposited denomination counts against available denomination counts
+7. Once all required cash data is valid, paper becomes eligible for morning submission
 
 ---
 
-### Workflow 8: Morning Submission
+### Workflow 9: Morning Submission
 
 **User**: EMPLOYEE  
 **Duration**: 1 minute  
@@ -529,7 +602,7 @@ curl -X POST http://localhost:3000/papers/1/submit-morning \
 
 ---
 
-### Workflow 9: Admin Finalization
+### Workflow 10: Admin Finalization
 
 **User**: ADMIN  
 **Duration**: 10 minutes  
@@ -570,16 +643,23 @@ curl -X POST http://localhost:3000/papers/1/finalize \
 #   "finalized_at": "2026-06-16T16:00:00Z"
 # }
 
-echo "✅ Paper finalized. Ready for distribution."
+echo "✅ Paper finalized. Ready for reporting
+Ready for reconciliation
+Business day closed"
 ```
 
 ---
 
-### Workflow 10: Correction After Finalization (Reopen)
+### Workflow 11: Correction After Finalization (Reopen)
 
 **User**: ADMIN  
 **Scenario**: Client address error discovered after finalization  
 **Duration**: 20 minutes  
+
+Note:
+After reopen, Cash Settlement is partly historical.
+Route denomination rows, direct collection rows, and bank deposit rows are not re-entered or recomputed.
+Only route expenses remain editable inside Cash Settlement.
 
 ```bash
 # 1. Reopen paper
@@ -597,16 +677,31 @@ curl -X POST http://localhost:3000/orders/sheet/1/morning-save \
     ...corrections...
   ]'
 
-# 3. Admin updates collections if needed
-curl -X POST http://localhost:3000/collections/sheet/1/morning-save \
-  -H "Authorization: Bearer $ADMIN_TOKEN"\
-  -d '...'
+# 3. Admin updates collection data if needed
+#    depending on what was wrong:
+#    - POST /collections/sheet/:sheetId/night-save
+#    - POST /collections/sheet/:sheetId/morning-save
+#    - POST /collections/sheet/:sheetId/admin-save
 
-# 4. Admin re-finalizes
+# 4. Admin updates purchases if needed
+#    - purchase rows remain editable in REOPENED
+#    - gatepass_date is still resolved from brand gatepass policy per purchase row
+
+
+# 5. Admin updates route expenses in Cash Settlement if needed
+#    - route expenses remain editable after reopen
+#    - route denominations remain historical and read-only
+#    - direct collections remain historical and read-only
+#    - bank deposits remain historical and read-only
+
+# 6. Admin re-finalizes
 curl -X POST http://localhost:3000/papers/1/finalize \
   -H "Authorization: Bearer $ADMIN_TOKEN"
 
 # Paper back to FINALIZED status
+
+
+
 ```
 
 ---
@@ -636,6 +731,7 @@ graph LR
     B -->|collections| B
     B -->|purchases| B
     B -->|trays| B
+    B -->|cash settlement| B
     
     C -->|admin remarks| C
     
@@ -643,6 +739,7 @@ graph LR
     E -->|collections| E
     E -->|purchases| E
     E -->|trays| E
+    E -->|route expenses| E
     
     style A fill:#e1f5ff,stroke:#0277bd,stroke-width:2px
     style B fill:#fff3e0,stroke:#e65100,stroke-width:2px
@@ -663,6 +760,10 @@ Morning Deliveries     |  ❌   |       ✅        |        ❌          |    �
 Night Collections      |  ✅   |       ✅        |        ❌          |    ❌     |    ✅
 Morning Collections    |  ❌   |       ✅        |        ❌          |    ❌     |    ✅
 Admin Collections      |  ❌   |       ❌        |        ✅          |    ❌     |    ✅
+Route Expenses         |  ❌   |       ✅        |        ❌          |    ❌     |    ✅
+Route Denominations    |  ❌   |       ✅        |        ❌          |    ❌     |    ❌
+Direct Collections     |  ❌   |       ✅        |        ❌          |    ❌     |    ❌
+Bank Deposits          |  ❌   |       ✅        |        ❌          |    ❌     |    ❌
 Purchases              |  ❌   |       ✅        |        ❌          |    ❌     |    ✅
 Trays                  |  ❌   |       ✅        |        ❌          |    ❌     |    ✅
 Finalize               |  ❌   |       ❌        |        ✅          |    ❌     |    ✅
@@ -680,7 +781,7 @@ Reopen                 |  ❌   |       ❌        |        ❌          |    �
 | DRAFT | 4-6 hours | 500-1000 orders |
 | NIGHT_SUBMITTED | 3-4 hours | 500-1000 deliveries |
 | MORNING_SUBMITTED | 30 min | Collections verified |
-| FINALIZED | Ongoing | Ready for delivery |
+| FINALIZED | Ongoing | Business day closed|
 
 ---
 
@@ -695,7 +796,10 @@ The workflow enforces:
    - ADMIN can perform everything EMPLOYEE can perform
    - ADMIN additionally performs review, reopen and finalization
 5. **Error Recovery**: Reopen capability for corrections
-
+6. **Physical Cash Reconciliation**: Cash Settlement must be completed before morning submission
+7. **Historical Cash Freeze After Reopen**:
+   - route denominations, direct collections, and bank deposits remain historical
+   - route expenses remain editable after reopen
 ---
 
 **Last Updated**: 2026-06-16

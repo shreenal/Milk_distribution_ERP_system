@@ -4,7 +4,7 @@ import { Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findOrderPaperById(paperId: number) {
     return this.prisma.order_paper.findUnique({
@@ -60,11 +60,12 @@ export class PurchaseRepository {
         {
           distributor_id: 'asc',
         },
-
         {
           vehicle_id: 'asc',
         },
-
+        {
+          gatepass_date: 'asc',
+        },
         {
           product_id: 'asc',
         },
@@ -173,45 +174,35 @@ export class PurchaseRepository {
     });
   }
 
-  async findDistributorProductRates(effectiveDate: Date) {
-    return this.prisma.distributor_product_rate.findMany({
-      where: {
-        is_active: true,
-
-        effective_from: {
-          lte: effectiveDate,
-        },
-
-        OR: [
-          {
-            effective_to: null,
-          },
-          {
-            effective_to: {
-              gte: effectiveDate,
-            },
-          },
-        ],
-      },
-
-      orderBy: [
-        {
-          distributor_id: 'asc',
-        },
-        {
-          product_id: 'asc',
-        },
-        {
-          effective_from: 'desc',
-        },
-      ],
-    });
-  }
 
   async findVehicleAllocationPaperByOrderPaperId(orderPaperId: number) {
     return this.prisma.vehicle_allocation_paper.findUnique({
       where: {
         order_paper_id: orderPaperId,
+      },
+    });
+  }
+
+  async findDistributorProductRateForDate(
+    distributorId: number,
+    productId: number,
+    effectiveDate: Date,
+  ) {
+    return this.prisma.distributor_product_rate.findFirst({
+      where: {
+        distributor_id: distributorId,
+        product_id: productId,
+        is_active: true,
+        effective_from: {
+          lte: effectiveDate,
+        },
+        OR: [
+          { effective_to: null },
+          { effective_to: { gte: effectiveDate } },
+        ],
+      },
+      orderBy: {
+        effective_from: 'desc',
       },
     });
   }

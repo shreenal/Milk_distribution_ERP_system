@@ -34,8 +34,6 @@ type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
 
 type PurchaseEntry = Prisma.purchase_entryGetPayload<{}>;
 
-type DistributorRate = Prisma.distributor_product_rateGetPayload<{}>;
-
 type PurchaseRow = {
   vehicleId: number;
   vehicleName: string | null;
@@ -57,6 +55,15 @@ type PurchaseGridItem = {
 type PurchaseGrid = {
   purchases: PurchaseGridItem[];
 };
+
+
+type PurchaseRateDefault = {
+  distributorId: number;
+  vehicleId: number;
+  productId: number;
+  purchaseRate: number;
+};
+
 
 @Injectable()
 export class PurchaseBuilder {
@@ -196,113 +203,117 @@ export class PurchaseBuilder {
   }
 
   applyVehicleAllocations(
-    purchaseGrids: PurchaseGrid,
-    allocations: VehicleAllocation[],
-  ) {
-    const result = structuredClone(purchaseGrids);
+  purchaseGrids: PurchaseGrid,
+  allocations: VehicleAllocation[],
+) {
+  const result = structuredClone(purchaseGrids);
 
-    for (const allocation of allocations) {
-      const allocatedField = `product_${allocation.product_id}_allocated`;
+  for (const allocation of allocations) {
+    const allocatedField = `product_${allocation.product_id}_allocated`;
+    const purchasedField = `product_${allocation.product_id}_purchased`;
 
-      const purchasedField = `product_${allocation.product_id}_purchased`;
+    const grid = result.purchases.find(
+      (purchase) =>
+        purchase.rows.some((row) => allocatedField in row),
+    );
 
-      for (const grid of result.purchases) {
-        const row = grid.rows.find(
-          (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
-        );
-
-        if (row) {
-          row[allocatedField] = Number(allocation.allocated_qty);
-
-          row[purchasedField] = Number(allocation.allocated_qty);
-
-          break;
-        }
-      }
+    if (!grid) {
+      continue;
     }
 
-    return result;
+    const row = grid.rows.find(
+      (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
+    );
+
+    if (!row) {
+      continue;
+    }
+
+    row[allocatedField] = Number(allocation.allocated_qty);
+    row[purchasedField] = Number(allocation.allocated_qty);
   }
+
+  return result;
+}
 
   applyPurchaseEntries(
-    purchaseGrids: PurchaseGrid,
-    purchaseEntries: PurchaseEntry[],
-  ) {
-    const result = structuredClone(purchaseGrids);
+  purchaseGrids: PurchaseGrid,
+  purchaseEntries: PurchaseEntry[],
+) {
+  const result = structuredClone(purchaseGrids);
 
-    for (const entry of purchaseEntries) {
-      const purchasedField = `product_${entry.product_id}_purchased`;
+  for (const entry of purchaseEntries) {
+    const purchasedField = `product_${entry.product_id}_purchased`;
+    const rateField = `product_${entry.product_id}_rate`;
+    const amountField = `product_${entry.product_id}_amount`;
+    const allocatedField = `product_${entry.product_id}_allocated`;
 
-      const rateField = `product_${entry.product_id}_rate`;
+    const grid = result.purchases.find(
+      (purchase) =>
+        purchase.distributorId === entry.distributor_id &&
+        purchase.rows.some((row) => purchasedField in row),
+    );
 
-      const amountField = `product_${entry.product_id}_amount`;
-
-      const allocatedField = `product_${entry.product_id}_allocated`;
-
-      const grid = result.purchases.find(
-        (purchase) => purchase.distributorId === entry.distributor_id,
-      );
-
-      if (!grid) {
-        continue;
-      }
-
-      const row = grid.rows.find(
-        (vehicle) => vehicle.vehicleId === entry.vehicle_id,
-      );
-
-      if (!row) {
-        continue;
-      }
-
-      if (row) {
-        row[allocatedField] = Number(entry.allocated_qty ?? 0);
-
-        row[purchasedField] = Number(entry.purchased_qty);
-
-        row[rateField] = Number(entry.purchase_rate);
-
-        row[amountField] = Number(entry.purchase_amount);
-      }
+    if (!grid) {
+      continue;
     }
 
-    return result;
-  }
+    const row = grid.rows.find(
+      (vehicle) => vehicle.vehicleId === entry.vehicle_id,
+    );
 
-  applyDistributorRates(
-    purchaseGrids: PurchaseGrid,
-    distributorRates: DistributorRate[],
-  ) {
-    const result = structuredClone(purchaseGrids);
-
-    for (const rate of distributorRates) {
-      const grid = result.purchases.find(
-        (purchase: PurchaseGridItem) =>
-          purchase.distributorId === rate.distributor_id,
-      );
-
-      if (!grid) {
-        continue;
-      }
-
-      const rateField = `product_${rate.product_id}_rate`;
-
-      for (const row of grid.rows) {
-        row[rateField] = Number(rate.purchase_rate);
-
-        const purchasedField = `product_${rate.product_id}_purchased`;
-
-        const amountField = `product_${rate.product_id}_amount`;
-
-        const amount =
-          Number(row[purchasedField] ?? 0) * Number(rate.purchase_rate);
-
-        row[amountField] = Number(amount.toFixed(2));
-      }
+    if (!row) {
+      continue;
     }
 
-    return result;
+    row[allocatedField] = Number(entry.allocated_qty ?? 0);
+    row[purchasedField] = Number(entry.purchased_qty);
+    row[rateField] = Number(entry.purchase_rate);
+    row[amountField] = Number(entry.purchase_amount);
   }
+
+  return result;
+}
+
+applyPurchaseRates(
+  purchaseGrids: PurchaseGrid,
+  rateDefaults: PurchaseRateDefault[],
+) {
+  const result = structuredClone(purchaseGrids);
+
+  for (const rate of rateDefaults) {
+    const purchasedField = `product_${rate.productId}_purchased`;
+    const rateField = `product_${rate.productId}_rate`;
+    const amountField = `product_${rate.productId}_amount`;
+
+    const grid = result.purchases.find(
+      (purchase) =>
+        purchase.distributorId === rate.distributorId &&
+        purchase.rows.some((row) => purchasedField in row),
+    );
+
+    if (!grid) {
+      continue;
+    }
+
+    const row = grid.rows.find(
+      (vehicle) => vehicle.vehicleId === rate.vehicleId,
+    );
+
+    if (!row) {
+      continue;
+    }
+
+    row[rateField] = Number(rate.purchaseRate);
+
+    const amount =
+      Number(row[purchasedField] ?? 0) * Number(rate.purchaseRate);
+
+    row[amountField] = Number(amount.toFixed(2));
+  }
+
+  return result;
+}
 }
 
 const initializeProductFields = (
@@ -326,3 +337,4 @@ const initializeProductFields = (
 
   return row;
 };
+

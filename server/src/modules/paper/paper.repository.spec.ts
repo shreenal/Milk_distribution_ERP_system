@@ -39,7 +39,7 @@ describe('PaperRepository', () => {
       const today = new Date();
       const tomorrow = new Date();
 
-      await repository.findTodayPaper(today, tomorrow);
+      await repository.findPaperBySaleDate(today, tomorrow);
 
       expect(prisma.order_paper.findFirst).toHaveBeenCalledWith({
         where: {
@@ -89,11 +89,11 @@ describe('PaperRepository', () => {
       const today = new Date();
       const tomorrow = new Date();
 
-      await repository.findOrderPaper(today, tomorrow);
+      await repository.findPaperBySaleDate(today, tomorrow);
 
       expect(prisma.order_paper.findFirst).toHaveBeenCalledWith({
         where: {
-          order_date: {
+          sale_date: {
             gte: today,
             lt: tomorrow,
           },
@@ -118,7 +118,7 @@ describe('PaperRepository', () => {
     it('should create draft paper with next day sale date', async () => {
       const date = new Date('2026-01-01');
 
-      await repository.generateOrderPaper(date);
+      await repository.generatePaperFromOrderDate(date);
 
       const createCall = prisma.order_paper.create.mock.calls[0][0];
 

@@ -5,9 +5,9 @@ import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PaperRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
-  async findTodayPaper(today: Date, tomorrow: Date) {
+  async findPaperBySaleDate(today: Date, tomorrow: Date) {
     return this.prisma.order_paper.findFirst({
       where: {
         sale_date: {
@@ -42,7 +42,7 @@ export class PaperRepository {
     });
   }
 
-  async findOrderPaper(today: Date, tomorrow: Date) {
+  async findPaperByOrderDateRange(today: Date, tomorrow: Date) {
     return this.prisma.order_paper.findFirst({
       where: {
         order_date: {
@@ -104,16 +104,13 @@ export class PaperRepository {
     });
   }
 
-  async generateOrderPaper(date: Date) {
-    const saleDate = new Date(date);
-
-    saleDate.setDate(saleDate.getDate() + 1);
+  async generatePaperFromOrderDate(date: Date) {
 
     return this.prisma.order_paper.create({
       data: {
         order_date: date,
 
-        sale_date: saleDate,
+        sale_date: resolvePaperSaleDate(date),
 
         status: OrderPaperStatus.DRAFT,
       },
@@ -188,4 +185,11 @@ export class PaperRepository {
       },
     });
   }
+
+}
+
+function resolvePaperSaleDate(orderDate: Date): Date {
+  const saleDate = new Date(orderDate);
+  saleDate.setDate(saleDate.getDate() + 1);
+  return saleDate;
 }

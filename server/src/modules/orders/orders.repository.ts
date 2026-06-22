@@ -1,7 +1,7 @@
-import { BadRequestException, Body, Injectable, Param } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Prisma } from '@prisma/client/extension';
+import { Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class OrdersRepository {
@@ -362,7 +362,7 @@ export class OrdersRepository {
    *
    * @param clientId - The client ID
    * @param productId - The product ID
-   * @param effectiveDate - The date to use for rate lookup (typically order_date)
+   * @param effectiveDate - The date to use for rate lookup (typically sale_date)
    *                        NOT the current date
    *
    * @returns The applicable selling rate for the given date
@@ -372,7 +372,7 @@ export class OrdersRepository {
    * const rate = await this.getNightApplicableRate(
    *   clientId,
    *   productId,
-   *   orderPaper.order_date  // ← Correct
+   *   orderPaper.sale_date  // ← Correct
    * );
    *
    * // Wrong (old code): Used current date
@@ -393,7 +393,7 @@ export class OrdersRepository {
   async getSellingRate(
     clientId: number,
     productId: number,
-    effectiveDate: Date, // ← CRITICAL: Use order date, not current date
+    effectiveDate: Date, // ← CRITICAL: Use sale date, not current date
   ) {
     const clientRate = await this.prisma.master_client_rate_product.findFirst({
       where: {

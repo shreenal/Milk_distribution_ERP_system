@@ -11,6 +11,7 @@ import { VehicleAllocationModule } from './modules/vehicle-allocation/vehicle-al
 import { PaperModule } from './modules/paper/paper.module.js';
 import { PurchaseModule } from './modules/purchase/purchase.module.js';
 import { DeliverySummaryModule } from './modules/delivery-summary/delivery-summary.module.js';
+import { CashSettlementModule } from './modules/cash-settlement/cash-settlement.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { DeliverySummaryModule } from './modules/delivery-summary/delivery-summa
     PaperModule,
     PurchaseModule,
     DeliverySummaryModule,
+    CashSettlementModule,
   ],
   controllers: [AppController],
   providers: [AppService],

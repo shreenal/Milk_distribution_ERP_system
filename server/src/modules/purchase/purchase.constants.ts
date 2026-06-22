@@ -40,4 +40,7 @@ export const PURCHASE_ERROR_MESSAGES = {
   INVALID_RATE_IDENTIFIERS:
   'Distributor rate contains invalid identifiers',
 
+  VEHICLE_ASSIGNMENT_NOT_FOUND: (vehicleId: number) =>
+  `Vehicle assignment not found for vehicle ${vehicleId}`
+
 } as const;

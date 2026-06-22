@@ -10,6 +10,7 @@ import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocatio
 import { OrdersModule } from '../orders/orders.module.js';
 import { PaperRepository } from './paper.repository.js';
 import { PurchaseModule } from '../purchase/purchase.module.js';
+import { CashSettlementModule } from '../cash-settlement/cash-settlement.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { PurchaseModule } from '../purchase/purchase.module.js';
     CollectionsModule,
     VehicleAllocationModule,
     PurchaseModule,
+    CashSettlementModule,
   ],
   controllers: [PaperController],
 

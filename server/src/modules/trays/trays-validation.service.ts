@@ -45,7 +45,7 @@ export class TraysValidationService {
         if (returned === null || returned === undefined || returned === '') {
           throw new BadRequestException(
             TRAY_ERROR_MESSAGES.INCOMPLETE_TRAY_RETURNS(
-              String(row.client_name),
+              String(row.clientName),
             ),
           );
         }

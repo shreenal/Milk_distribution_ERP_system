@@ -6,6 +6,8 @@ import { CollectionsValidationService } from '../collections/collections-validat
 import { OrdersValidationService } from '../orders/orders-validation.service.js';
 import { PaperRepository } from './paper.repository.js';
 import { PurchaseValidationService } from '../purchase/purchase-validation.service.js';
+import { CashSettlementValidationService }
+    from '../cash-settlement/cash-settlement-validation.service.js';
 
 @Injectable()
 export class PaperValidationService {
@@ -16,6 +18,7 @@ export class PaperValidationService {
     private readonly traysValidationService: TraysValidationService,
     private readonly collectionsValidationService: CollectionsValidationService,
     private readonly purchaseValidationService: PurchaseValidationService,
+    private readonly cashSettlementValidationService:CashSettlementValidationService,
   ) {}
 
   async validateNightSubmitReadiness(paperId: number) {
@@ -74,6 +77,7 @@ export class PaperValidationService {
       );
     }
     await this.purchaseValidationService.validatePurchasesComplete(paperId);
+    await this.cashSettlementValidationService.validateMorningSubmitReadiness(paperId);
 
     return paper;
   }

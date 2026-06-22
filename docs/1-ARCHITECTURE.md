@@ -46,6 +46,9 @@ export class PaperController {
 - Vehicle allocation and purchase validation
 - Billing group delivery reconciliation
 - Delivery summary generation
+- Cash settlement reconciliation
+- Route expense tracking
+- Office bank deposit management
 
 ### 3. Repository Layer (Data Access)
 - Abstracts database queries from service
@@ -69,7 +72,7 @@ async saveNightEntries(sheetId: number, entries: SaveNightEntriesDto[]) {
 ```
 
 ### 4. Database Layer (Prisma ORM)
-- PostgreSQL database managed through Prisma ORM with domain models covering orders, collections, trays, vehicles, purchases, authentication, and workflow management.
+- PostgreSQL database managed through Prisma ORM with domain models covering orders, collections, trays, vehicles, purchases,cash settlement and bank reconciliation, authentication, and workflow management.
 - Prisma schema defines entities and relationships
 - Auto-generated Prisma client in `src/generated/prisma/`
 - Migrations track schema evolution
@@ -114,8 +117,9 @@ AppModule
 ├── CollectionsModule     (Feature: Payment collections)
 ├── TraysModule           (Feature: Tray inventory)
 ├── VehicleAllocationModule  (Feature: Load planning)
-├──  PurchaseModule        (Feature: Procurement)
-└── DeliverySummaryModule  (Feature: Billing Group Summaries)
+├── PurchaseModule        (Feature: Procurement)
+├── CashSettlementModule  (Feature: Cash reconciliation & office bank deposits)
+└── DeliverySummaryModule (Feature: Billing Group Summaries)
 ```
 
 **Key Dependency Rule**: Feature modules depend on `WorkflowModule` for state validation and `AuthModule` for security guards.
@@ -153,10 +157,12 @@ graph LR
 | State             | Editable                                                                                     |
 | ----------------- | -------------------------------------------------------------------------------------------- |
 | DRAFT             | Night Entries, Night Collections, Vehicle Allocations                                        |
-| NIGHT_SUBMITTED   | Morning Entries, Night Collections, Morning Collections,Purchases,Trays                      |
-| MORNING_SUBMITTED | Admin Collections                                                                            |
+| NIGHT_SUBMITTED | Morning Entries, Night Collections, Morning Collections, Purchases, Trays, Cash Settlement |
+| MORNING_SUBMITTED | Admin Collections, Cash Settlement locked, Purchases locked, Trays locked, Morning Collections locked, Night Collections locked |
 | FINALIZED         | None                                                                                         |
-| REOPENED          | Morning Entries, Purchases, Trays, Night Collections, Morning Collections, Admin Collections |
+| REOPENED            | Morning Entries, Purchases, Trays, Night Collections, Morning Collections, Admin Collections, Route Expenses only |
+
+**Note:** Purchase rows are edited during the paper workflow (`NIGHT_SUBMITTED` / `REOPENED`), but the accounting date of each saved purchase row is stored separately in `purchase_entry.gatepass_date` based on brand policy.
 
 ### Edit Permissions by State
 
@@ -171,6 +177,17 @@ canEmployeeEditCollections(status): status === DRAFT || status === NIGHT_SUBMITT
 canAdminEditCollections(status):    status === MORNING_SUBMITTED || status === REOPENED
 canEditNightCollections(status):    status === DRAFT || status === NIGHT_SUBMITTED || status === REOPENED
 canEditMorningCollections(status):  status === NIGHT_SUBMITTED ||  status === REOPENED
+canEditRouteExpenses(status):
+    status === NIGHT_SUBMITTED || status === REOPENED
+
+canEditRouteDenominations(status):
+    status === NIGHT_SUBMITTED
+
+canEditDirectCollections(status):
+    status === NIGHT_SUBMITTED
+
+canEditBankDeposits(status):
+    status === NIGHT_SUBMITTED
 ```
 
 ### Critical Rule: Vehicle Allocation Lock
@@ -239,6 +256,21 @@ sequenceDiagram
     end
 ```
 
+### Order Selling Rate Resolution
+
+Decision:
+Order billing rates are resolved using the paper `sale_date`.
+
+Rationale:
+- Order rows belong to the delivery/billing business day.
+- `order_date` represents the previous-night ordering session, not the billing day.
+- Historical selling rate lookup should follow the paper’s business sale date.
+
+Implementation:
+- Night order save uses `sheet.order_paper.sale_date` for selling-rate lookup.
+- Morning recalculation/update logic also uses `sheet.order_paper.sale_date`.
+
+
 Billing Reconciliation Flow
 
 1. Morning quantities are entered
@@ -248,6 +280,45 @@ Billing Reconciliation Flow
 5. Billing summaries are generated
 6. Billing team reconciles deliveries
 7. Billing team prepares invoices
+
+Purpose:
+Generate billing-group delivery summaries using delivered quantities and client billing groups.
+
+Purchase Save Flow
+
+1. Vehicle allocations determine planned purchase quantities
+2. Employee enters purchased quantities in the Purchase module
+3. Backend loads the paper `sale_date`
+4. Backend resolves each purchase row's `gatepass_date` using the purchased product's brand policy
+5. Purchase rows are saved in `purchase_entry`
+6. Purchase accounting and future outstanding logic use `purchase_entry.gatepass_date`
+
+Cash Settlement Flow
+
+1. Collections are completed
+2. Route cash is sourced from:
+   - office_amount_given
+   - cash_collection
+3. Route expenses are entered
+4. Route denominations are counted
+5. Direct collections are entered
+6. Bank deposits are entered
+7. Cash reconciliation is validated
+8. Paper may transition to MORNING_SUBMITTED
+
+
+### Reopened Cash Settlement Behavior
+
+After a paper is reopened, cash settlement becomes partially historical:
+
+- Route expenses remain editable
+- Route denomination rows remain frozen historical cash-count records
+- Direct collection rows remain frozen historical cash records
+- Bank deposit rows remain frozen historical deposit records
+
+If collections or route expenses are corrected after reopen, route cash and route net cash may change, but the original denomination, direct collection, and bank deposit records do not change. The cash settlement screen therefore acts as a historical cash-close view showing the difference between revised accounting cash and historical cash records. The cash settlement screen therefore acts as a historical cash-close view showing the difference between revised accounting cash and historical cash records.
+
+
 
 ### Entry Point: main.ts
 ```typescript
@@ -282,14 +353,17 @@ async function bootstrap() {
 
 **Implementation**:
 ```typescript
-model order_paper {
-  id       Int
-  order_date DateTime @unique
-  status   OrderPaperStatus
-  order_sheet order_sheet[]  // 1:N relationship
-}
-
+order_paper
+├── order_sheet[]
+├── purchase_paper
+│   └── purchase_entry[]  // each row stores its own gatepass_date
+├── cash_direct_collection[]
+└── cash_bank_deposit[]
 ```
+
+
+**Note:** Purchase workflow is still initiated from the daily paper, but purchase accounting date is resolved per `purchase_entry.gatepass_date` using brand gatepass policy. A paper can therefore contain purchase rows that may belong to different gatepass dates, depending on the gatepass date policy of the purchased brands.
+
 
 ### 2. Permanent Vehicle Allocation Lock
 **Decision**: Vehicle allocations are locked immediately after NIGHT_SUBMITTED and cannot be modified
@@ -426,9 +500,18 @@ OrdersModule → OrdersController, OrdersService, OrdersRepository
 PaperModule  → PaperController, PaperService, PaperRepository
 TraysModule  → TraysController, TraysService, TraysRepository
 DeliverySummaryModule → DeliverySummaryController, DeliverySummaryService,DeliverySummaryRepository, DeliverySummaryBuilder
+CashSettlementModule
+→ CashSettlementController
+→ CashSettlementService
+→ CashSettlementRepository
+→ CashSettlementBuilder
+→ CashSettlementValidationService
+
 
 Purpose:
-Generate billing-group delivery summaries using delivered quantities and client billing groups.
+Track route cash reconciliation, expenses,
+denominations, direct collections and office bank deposits.
+
 ```
 
 ---
@@ -452,6 +535,66 @@ Night Group Summary
 
 Billing Group Summary
     billing_group_id + delivered_qty
+
+### 9. Cash Settlement Architecture
+
+Decision:
+Cash settlement data is split between route-level and office-level entities.
+
+Rationale:
+- Route cash belongs to individual order sheets
+- Direct collections belong to the paper
+- Office bank deposits belong to the paper
+- Physical denominations must be tracked separately from accounting collections
+- Historical denomination records must remain unchanged during reopen corrections
+
+Validation Rules:
+- During the normal first-time cash close, Route Net Cash must equal route denomination total for every route.
+- During the normal first-time cash close, total bank deposits cannot exceed available office cash.
+- Cash settlement validation is enforced only during the normal first close flow.
+- After reopen, cash-settlement rows are treated as historical records and are not revalidated against revised collection totals.
+
+
+Cash Settlement editing is section-based:
+- Route expenses: editable in NIGHT_SUBMITTED and REOPENED
+- Route denominations: editable only in NIGHT_SUBMITTED
+- Direct collections: editable only in NIGHT_SUBMITTED
+- Bank deposits: editable only in NIGHT_SUBMITTED
+
+Implementation:
+
+order_paper
+│
+├── cash_direct_collection
+├── cash_bank_deposit
+│
+└── order_sheet
+        │
+        └── cash_route_settlement
+                │
+                └── cash_route_expense
+
+
+### 10. Purchase Gatepass Date Resolution
+
+Decision:
+Purchase dates are resolved per `purchase_entry`, not from a single paper-wide purchase date.
+
+Rationale:
+- Different brands may follow different dairy gatepass date policies.
+- A single `order_paper` can contain purchases for brands that belong to different gatepass dates.
+- Distributor outstanding and purchase-date-sensitive accounting must follow the actual dairy gatepass date for each purchase row.
+
+Implementation:
+- `master_brand.gatepass_date_policy` stores the policy for each brand.
+- When purchases are saved, the backend resolves `purchase_entry.gatepass_date` from:
+  - `order_paper.sale_date`
+  - the purchased product's brand policy
+- Resolution rules:
+  - `SAME_DAY` → `gatepass_date = sale_date`
+  - `PREVIOUS_DAY` → `gatepass_date = sale_date - 1 day`
+- `order_paper.sale_date` is the paper business date, but purchase accounting should use the persisted `purchase_entry.gatepass_date`.
+
 
 ## Error Handling
 
@@ -593,6 +736,8 @@ Originally, order paper workflow was handled directly in `OrdersModule`. This ha
 
 ---
 
+
+
 ## Summary
 
 The Milk Distribution Server uses a proven **NestJS layered architecture** with:
@@ -603,6 +748,9 @@ The Milk Distribution Server uses a proven **NestJS layered architecture** with:
 - **Security**: JWT authentication + role-based authorization
 - **Scalability**: Stateless, database-driven, no server-side sessions
 - Dual aggregation model: Delivery Groups for operations, Billing Groups for financial reconciliation
+- Cash settlement integrated into the workflow with section-based edit permissions:
+  - full cash entry during NIGHT_SUBMITTED
+  - historical cash freeze after REOPENED except route-expense correction
 
 This architecture supports rapid feature development, easy testing, and maintainable code growth.
 

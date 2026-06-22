@@ -4,7 +4,7 @@
 
 ### Overview
 
-Tracks payment collections from clients in multiple forms: cash, cheques, online transfers, and bank deposits.
+Tracks payment collections from clients in multiple forms: cash, cheques, online transfers, and client bank deposit amount.
 
 **Location**: `src/modules/collections/`
 
@@ -129,7 +129,7 @@ curl -X GET http://localhost:3000/collections/sheet/1 \
 
 #### 2. POST /collections/sheet/:sheetId/night-save
 
-**Purpose**: Save night collections - office amount given to client
+**Purpose**: Save night-side office amount entries (`office_amount_given`) for the sheet
 
 **Auth**: EMPLOYEE
 
@@ -876,6 +876,11 @@ NIGHT_SUBMITTED:
 - cheque_collection (editable)
 - employee_remarks (editable)
   ✅ Trays: trays_returned (editable)
+  ✅ Cash Settlement:
+- route expenses
+- route denominations
+- direct collections
+- bank deposits
   
 
 MORNING_SUBMITTED:
@@ -901,6 +906,12 @@ REOPENED:
 
 ✅ Purchases
 
+Cash Settlement:
+- ✅ Route Expenses
+- ❌ Route Denominations
+- ❌ Direct Collections
+- ❌ Bank Deposits
+
 ❌ vehicle_allocations
 ```
 
@@ -913,23 +924,38 @@ REOPENED:
 - **Editable Fields**:
   - DRAFT: office_amount_given
   - NIGHT_SUBMITTED:
-office_amount_given
-cash_collection
-cheque_collection
-employee_remarks
+    - office_amount_given
+    - cash_collection
+    - cheque_collection
+    - employee_remarks
   - MORNING_SUBMITTED:
-online_collection
-bank_deposit
-admin_remarks
-REOPENED:
-office_amount_given
-cash_collection
-cheque_collection
-employee_remarks
-online_collection
-bank_deposit
-admin_remarks
+    - online_collection
+    - bank_deposit
+    - admin_remarks
+  - REOPENED:
+    - office_amount_given
+    - cash_collection
+    - cheque_collection
+    - employee_remarks
+    - online_collection
+    - bank_deposit
+    - admin_remarks
 - **DTOs**: SaveNightCollectionsDto, SaveMorningCollectionsDto, SaveAdminCollectionsDto
+
+Cash Settlement Module uses:
+- office_amount_given
+- cash_collection
+- route expenses
+- route denominations
+- direct collections
+- bank deposits
+
+Reopen behavior:
+- route cash is recalculated from collections
+- route expenses remain editable
+- route denominations remain frozen historical cash counts
+- direct collections remain frozen historical cash counts
+- bank deposits remain frozen historical deposit records
 
 ### Trays Module
 - **Purpose**: Tray/container inventory tracking
@@ -937,6 +963,8 @@ admin_remarks
 - **Calculated Fields**: opening_balance, expected_trays_taken, closing_balance
 - **DTO**: SaveTrayReturnDto
 - **Editable States**: NIGHT_SUBMITTED, REOPENED
+
+
 
 ---
 
