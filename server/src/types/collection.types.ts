@@ -1,3 +1,5 @@
+import { Prisma } from '../generated/prisma/client.js';
+
 export interface CollectionRow {
   collectionId;
 
@@ -46,16 +48,30 @@ export interface CollectionTotals {
   grandTotal: number;
 }
 
-export interface CollectionGrid {
-  orderSheetId: number;
 
-  groupId: number;
+export type CollectionSheet = Prisma.order_sheetGetPayload<{
+  include: {
+    master_group: true;
+    order_paper: true;
+  };
+}>;
 
-  groupName: string;
+export type CollectionClient = Prisma.master_clientGetPayload<{}>;
 
-  paperStatus: string;
+export type CollectionGrid = {
+  columns: any[];
+  rows: any[];
+  totals: {
+    totalClients: number;
+    cashCollection: number;
+    officeAmountGiven: number;
+    chequeCollection: number;
+    onlineCollection: number;
+    bankDeposit: number;
+    employeeTotal: number;
+    adminTotal: number;
+    grandTotal: number;
+  };
+};
 
-  rows: CollectionRow[];
-
-  totals: CollectionTotals;
-}
+export type SavedCollection = Prisma.client_collectionGetPayload<{}>;

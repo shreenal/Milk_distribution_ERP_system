@@ -5,7 +5,7 @@ import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PaperRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findPaperBySaleDate(today: Date, tomorrow: Date) {
     return this.prisma.order_paper.findFirst({
@@ -105,7 +105,6 @@ export class PaperRepository {
   }
 
   async generatePaperFromOrderDate(date: Date) {
-
     return this.prisma.order_paper.create({
       data: {
         order_date: date,
@@ -185,7 +184,6 @@ export class PaperRepository {
       },
     });
   }
-
 }
 
 function resolvePaperSaleDate(orderDate: Date): Date {

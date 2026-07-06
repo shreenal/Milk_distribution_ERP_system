@@ -13,6 +13,7 @@ import {
 } from './trays.constants.js';
 import { TrayTransactionEntry } from '../../types/transaction.types.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import { SupplyCategory } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class TraysService {
@@ -24,7 +25,7 @@ export class TraysService {
     private readonly trayBillingBuilder: TrayBillingBuilder,
 
     private readonly workflowStateService: WorkflowStateService,
-  ) {}
+  ) { }
   async getTraySheetService(sheetId: number) {
     const sheet = await this.traysRepository.findSheetById(sheetId);
 
@@ -32,9 +33,17 @@ export class TraysService {
       throw new NotFoundException(TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
-    const clients = await this.traysRepository.getClientsByGroupId(
-      sheet.group_id,
-    );
+    const milkClients =
+      await this.traysRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        SupplyCategory.MILK,
+      );
+
+    const nonMilkClients =
+      await this.traysRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        SupplyCategory.NON_MILK,
+      );
 
     const sheetItems = await this.traysRepository.getSheetItems(sheet.id);
 
@@ -49,9 +58,9 @@ export class TraysService {
     const openingBalanceMap = new Map<string, number>();
 
     const previousSheet = await this.traysRepository.getPreviousSheet(
-  sheet.group_id,
-  sheet.order_paper.sale_date,
-);
+      sheet.group_id,
+      sheet.order_paper.sale_date,
+    );
 
     if (previousSheet) {
       const balances = await this.traysRepository.getPreviousTrayBalances(
@@ -67,18 +76,15 @@ export class TraysService {
     }
 
     const trayBilling = await this.trayBillingBuilder.buildTrayBilling({
-      clients,
-
+      milkClients,
+      nonMilkClients,
       trayTypes,
-
       sheetItems,
-
       trayRules,
-
       trayTransactions,
-
       openingBalanceMap,
     });
+
 
     return {
       sheet,
@@ -104,7 +110,10 @@ export class TraysService {
     }
 
     const traySheet = await this.getTraySheetService(sheetId);
-    const trayRows = traySheet.trayBilling.rows;
+    const trayRows = [
+      ...traySheet.trayBilling.milkTrayGrid.rows,
+      ...traySheet.trayBilling.nonMilkTrayGrid.rows,
+    ];
     const transactionEntries: TrayTransactionEntry[] = [];
 
     for (const entry of entries) {
@@ -116,7 +125,13 @@ export class TraysService {
         );
       }
 
-      const trayRow = trayRows.find((row) => row.clientId === entry.clientId);
+      const field = `tray_${entry.trayTypeId}_taken`;
+
+const trayRow = trayRows.find(
+  (row) =>
+    row.clientId === entry.clientId &&
+    row[field] !== undefined,
+);
 
       if (!trayRow) {
         throw new BadRequestException(

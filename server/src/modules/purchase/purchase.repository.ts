@@ -4,7 +4,7 @@ import { Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findOrderPaperById(paperId: number) {
     return this.prisma.order_paper.findUnique({
@@ -44,9 +44,14 @@ export class PurchaseRepository {
         master_distributor: true,
       },
 
-      orderBy: {
-        vehicle_id: 'asc',
-      },
+      orderBy: [
+        {
+          vehicle_id: 'asc',
+        },
+        {
+          category: 'asc',
+        },
+      ],
     });
   }
 
@@ -55,20 +60,15 @@ export class PurchaseRepository {
       where: {
         purchase_paper_id: purchasePaperId,
       },
-
+      include: {
+        product_link: true,
+      },
       orderBy: [
-        {
-          distributor_id: 'asc',
-        },
-        {
-          vehicle_id: 'asc',
-        },
-        {
-          gatepass_date: 'asc',
-        },
-        {
-          product_id: 'asc',
-        },
+        { distributor_id: 'asc' },
+        { category: 'asc' },
+        { vehicle_id: 'asc' },
+        { gatepass_date: 'asc' },
+        { product_id: 'asc' },
       ],
     });
   }
@@ -137,17 +137,10 @@ export class PurchaseRepository {
       },
 
       orderBy: [
-        {
-          distributor_id: 'asc',
-        },
-
-        {
-          brand_id: 'asc',
-        },
-
-        {
-          product_group_id: 'asc',
-        },
+        { distributor_id: 'asc' },
+        { category: 'asc' },
+        { brand_id: 'asc' },
+        { product_group_id: 'asc' },
       ],
     });
   }
@@ -166,14 +159,21 @@ export class PurchaseRepository {
         master_product: {
           include: {
             master_brand: true,
-
             master_product_group: true,
+            master_product_type: true,
+            master_packaging_type: true,
           },
         },
       },
+
+      orderBy: [
+        { distributor_id: 'asc' },
+        { category: 'asc' },
+        { vehicle_id: 'asc' },
+        { product_id: 'asc' },
+      ],
     });
   }
-
 
   async findVehicleAllocationPaperByOrderPaperId(orderPaperId: number) {
     return this.prisma.vehicle_allocation_paper.findUnique({
@@ -183,27 +183,49 @@ export class PurchaseRepository {
     });
   }
 
-  async findDistributorProductRateForDate(
-    distributorId: number,
-    productId: number,
-    effectiveDate: Date,
-  ) {
+  async findProductLinkRateForDate(productLinkId: number, effectiveDate: Date) {
     return this.prisma.distributor_product_rate.findFirst({
       where: {
-        distributor_id: distributorId,
-        product_id: productId,
+        product_link_id: productLinkId,
         is_active: true,
         effective_from: {
           lte: effectiveDate,
         },
-        OR: [
-          { effective_to: null },
-          { effective_to: { gte: effectiveDate } },
-        ],
+        OR: [{ effective_to: null }, { effective_to: { gte: effectiveDate } }],
       },
       orderBy: {
         effective_from: 'desc',
       },
     });
+  }
+
+  async getProductLink(distributorId: number, productId: number) {
+    return this.prisma.master_product_link.findUnique({
+      where: {
+        distributor_id_product_id: {
+          distributor_id: distributorId,
+          product_id: productId,
+        },
+      },
+      select: {
+        id: true,
+        distributor_id: true,
+        product_id: true,
+      },
+    });
+  }
+
+  async findPurchaseRateForDistributorProduct(
+    distributorId: number,
+    productId: number,
+    effectiveDate: Date,
+  ) {
+    const productLink = await this.getProductLink(distributorId, productId);
+
+    if (!productLink) {
+      return null;
+    }
+
+    return this.findProductLinkRateForDate(productLink.id, effectiveDate);
   }
 }

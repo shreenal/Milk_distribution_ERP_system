@@ -11,6 +11,8 @@ import { OrdersModule } from '../orders/orders.module.js';
 import { PaperRepository } from './paper.repository.js';
 import { PurchaseModule } from '../purchase/purchase.module.js';
 import { CashSettlementModule } from '../cash-settlement/cash-settlement.module.js';
+import { DistributorTransferModule } from '../distributor-transfer/distributor-transfer.module.js';
+import {DairyTrayTrackingModule} from '../dairy-tray-tracking/dairy-tray-tracking.module.js';
 
 @Module({
   imports: [
@@ -21,7 +23,10 @@ import { CashSettlementModule } from '../cash-settlement/cash-settlement.module.
     VehicleAllocationModule,
     PurchaseModule,
     CashSettlementModule,
+    DistributorTransferModule,
+    DairyTrayTrackingModule,
   ],
+  
   controllers: [PaperController],
 
   providers: [PaperService, PaperValidationService, PaperRepository],

@@ -10,11 +10,15 @@ import { SaveNightCollectionsDto } from './dto/save-night-collection.dto.js';
 
 import { SaveMorningCollectionsDto } from './dto/save-morning-collection.dto.js';
 
+
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import {
   COLLECTION_ERROR_MESSAGES,
   COLLECTION_SUCCESS_MESSAGES,
 } from './collections.constants.js';
+
+import { SupplyCategory } from '../../generated/prisma/client.js';
+import { CollectionsValidationService } from './collections-validation.service.js';
 
 @Injectable()
 export class CollectionsService {
@@ -23,8 +27,10 @@ export class CollectionsService {
 
     private readonly collectionBuilder: CollectionBuilder,
 
+    private readonly collectionsValidationService: CollectionsValidationService,
+
     private readonly workflowState: WorkflowStateService,
-  ) {}
+  ) { }
 
   async getCollectionGrid(sheetId: number) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
@@ -33,23 +39,30 @@ export class CollectionsService {
       throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
-    const clients = await this.collectionsRepository.getClientsByGroupId(
-      sheet.group_id,
-    );
+    const milkClients =
+      await this.collectionsRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        SupplyCategory.MILK,
+      );
+
+    const nonMilkClients =
+      await this.collectionsRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        SupplyCategory.NON_MILK,
+      );
 
     const savedCollections =
       await this.collectionsRepository.getCollectionEntries(sheetId);
 
-    return this.collectionBuilder.buildCollectionGrid(
+    return this.collectionBuilder.buildCollectionSection(
       sheet,
-
-      clients,
-
+      milkClients,
+      nonMilkClients,
       savedCollections,
     );
   }
 
-  async saveNightCollections(sheetId: number, dto: SaveNightCollectionsDto) {
+  async saveNightCollections(sheetId: number, category: SupplyCategory, dto: SaveNightCollectionsDto) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
@@ -64,8 +77,21 @@ export class CollectionsService {
       );
     }
 
+    const validClients =
+      await this.collectionsRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        category,
+      );
+
+    this.collectionsValidationService.validateClientsForCategory(
+      dto.entries,
+      validClients,
+      category,
+    );
+
     await this.collectionsRepository.replaceNightCollections(
       sheetId,
+      category,
       dto.entries,
     );
 
@@ -76,6 +102,7 @@ export class CollectionsService {
 
   async saveMorningCollections(
     sheetId: number,
+    category: SupplyCategory,
     dto: SaveMorningCollectionsDto,
   ) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
@@ -92,8 +119,21 @@ export class CollectionsService {
       );
     }
 
+    const validClients =
+      await this.collectionsRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        category,
+      );
+
+    this.collectionsValidationService.validateClientsForCategory(
+      dto.entries,
+      validClients,
+      category,
+    );
+
     await this.collectionsRepository.replaceMorningCollections(
       sheetId,
+      category,
       dto.entries,
     );
 
@@ -102,7 +142,10 @@ export class CollectionsService {
     };
   }
 
-  async saveAdminCollections(sheetId: number, dto: SaveAdminCollectionsDto) {
+  async saveAdminCollections(
+    sheetId: number,
+    category: SupplyCategory,
+    dto: SaveAdminCollectionsDto) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
@@ -119,6 +162,7 @@ export class CollectionsService {
 
     await this.collectionsRepository.replaceAdminCollections(
       sheetId,
+      category,
       dto.entries,
     );
 

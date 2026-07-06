@@ -1,138 +1,116 @@
 export class CashSettlementResponseDto {
+  paperStatus!: string;
+  routeSettlements: RouteSettlementRowDto[] = [];
 
-routeSettlements: RouteSettlementRowDto[] = [];
+  routeExpenses: RouteExpenseRowDto[] = [];
 
-routeExpenses: RouteExpenseRowDto[] = [];
+  routeDenominations: RouteDenominationRowDto[] = [];
 
-routeDenominations: RouteDenominationRowDto[] = [];
+  directCollections: DirectCollectionRowDto[] = [];
 
-directCollections: DirectCollectionRowDto[] = [];
+  bankDeposits: BankDepositRowDto[] = [];
 
-bankDeposits: BankDepositRowDto[] = [];
-
-  summary: CashSummaryDto = {
-    totalRouteCash: 0,
-    totalRouteExpenses: 0,
-    totalRouteNetCash: 0,
-
-    totalRouteDenominationCash: 0,
-    historicalDirectCollectionCash: 0,
-
-    revisedOfficeCash: 0,
-
-    totalDeposits: 0,
-
-    historicalCashOnHand: 0,
-
-    reconciliationDifference: 0,
-};
+  summary!: CashSummaryDto;
 }
 
 export interface RouteSettlementRowDto {
-    sheetId: number;
-    routeName: string;
+  sheetId: number;
+  routeName: string;
 
-    routeCash: number;
-    expenseTotal: number;
-    routeNetCash: number;
+  routeCash: number;
+  expenseTotal: number;
+  routeNetCash: number;
 
-    denominationTotal: number;
-    difference: number;
+  denominationTotal: number;
+  difference: number;
 }
 
-
 export interface RouteDenominationRowDto {
-    sheetId: number;
-    routeName: string;
+  sheetId: number;
+  routeName: string;
 
-    note2000: number;
-    note500: number;
-    note200: number;
-    note100: number;
-    note50: number;
-    note20: number;
-    note10: number;
+  note2000: number;
+  note500: number;
+  note200: number;
+  note100: number;
+  note50: number;
+  note20: number;
+  note10: number;
 
-    coins: number;
+  coins: number;
 
-    denominationTotal: number;
+  denominationTotal: number;
 }
 
 export interface DirectCollectionRowDto {
+  id: number;
 
-    id: number;
+  employeeId: number;
+  employeeName: string;
 
-    employeeId: number;
-    employeeName: string;
+  note2000: number;
+  note500: number;
+  note200: number;
+  note100: number;
+  note50: number;
+  note20: number;
+  note10: number;
 
-    note2000: number;
-    note500: number;
-    note200: number;
-    note100: number;
-    note50: number;
-    note20: number;
-    note10: number;
+  coins: number;
 
-    coins: number;
-
-    collectionAmount: number;
+  collectionAmount: number;
 }
 
-export interface CashSummaryDto {
-    totalRouteCash: number;
-    totalRouteExpenses: number;
-    totalRouteNetCash: number;
-
-    totalRouteDenominationCash: number;
-    historicalDirectCollectionCash: number;
-
-    revisedOfficeCash: number;
-
-    totalDeposits: number;
-
-    historicalCashOnHand: number;
-
-    reconciliationDifference: number;
+export interface CashSummaryBaseDto {
+  totalRouteCash: number;
+  totalRouteExpenses: number;
+  totalRouteNetCash: number;
+  totalDeposits: number;
 }
+
+export interface CashSummaryInitialDto extends CashSummaryBaseDto {
+  directCollectionCash: number;
+  officeCash: number;
+  cashInHandAfterDeposits: number;
+}
+
+export interface CashSummaryReopenedDto extends CashSummaryBaseDto {
+  historicalRouteDenominationCash: number;
+  historicalDirectCollectionCash: number;
+  revisedOfficeCash: number;
+  historicalCashOnHand: number;
+  reconciliationDifference: number;
+}
+
+export type CashSummaryDto = CashSummaryInitialDto | CashSummaryReopenedDto;
 
 export interface BankDepositRowDto {
+  id: number;
 
-    id: number;
+  bankId: number;
+  bankName: string;
 
-    bankId: number;
+  note2000: number;
+  note500: number;
+  note200: number;
+  note100: number;
+  note50: number;
+  note20: number;
+  note10: number;
 
-    bankName: string;
+  coins: number;
 
-    note2000: number;
-
-    note500: number;
-
-    note200: number;
-
-    note100: number;
-
-    note50: number;
-
-    note20: number;
-
-    note10: number;
-
-    coins: number;
-
-    depositAmount: number;
+  depositAmount: number;
 }
 
 export interface RouteExpenseRowDto {
+  id: number;
 
-    id: number;
+  sheetId: number;
+  routeName: string;
 
-    sheetId: number;
+  expenseTypeId: number;
+  expenseTypeName: string;
 
-    routeName: string;
-
-    expenseTypeId: number;
-
-    expenseTypeName: string;
-
-    amount: number;
+  amount: number;
 }

@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async getActiveGroups() {
     return this.prisma.master_group.findMany({
@@ -64,6 +65,28 @@ export class OrdersRepository {
     });
   }
 
+  async getClientsByGroupAndCategory(
+    groupId: number,
+    category: SupplyCategory,
+  ) {
+    return this.prisma.master_client.findMany({
+      where: {
+        delivery_group_id: groupId,
+        is_active: true,
+
+        categories: {
+          some: {
+            category,
+          },
+        },
+      },
+
+      orderBy: {
+        name: 'asc',
+      },
+    });
+  }
+
   async getProductsByGroup(groupName: string) {
     const data = await this.prisma.master_product.findMany({
       where: {
@@ -100,6 +123,33 @@ export class OrdersRepository {
     return data;
   }
 
+  async getProductsByCategory(category: SupplyCategory) {
+    return this.prisma.master_product.findMany({
+      where: {
+        is_active: true,
+        master_product_group: {
+          category,
+        },
+      },
+      include: {
+        master_brand: true,
+        master_product_type: true,
+        master_packaging_type: true,
+        master_product_group: true,
+      },
+      orderBy: [
+        {
+          master_brand: {
+            name: 'asc',
+          },
+        },
+        {
+          packaging_size: 'asc',
+        },
+      ],
+    });
+  }
+
   async getSheetItems(sheetId: number) {
     return this.prisma.order_sheet_items.findMany({
       where: {
@@ -117,24 +167,32 @@ export class OrdersRepository {
             master_product_type: true,
           },
         },
+        product_link: {
+          include: {
+            distributor: true,
+          },
+        },
       },
     });
   }
 
-  async findSheetItem(sheetId: number, clientId: number, productId: number) {
-    return this.prisma.order_sheet_items.findUnique({
+  async findSheetItem(
+    sheetId: number,
+    clientId: number,
+    productLinkId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    return prismaClient.order_sheet_items.findUnique({
       where: {
-        order_sheet_id_client_id_product_id: {
+        order_sheet_id_client_id_product_link_id: {
           order_sheet_id: sheetId,
-
           client_id: clientId,
-
-          product_id: productId,
+          product_link_id: productLinkId,
         },
       },
-
       include: {
         master_product: true,
+        product_link: true,
       },
     });
   }
@@ -180,37 +238,25 @@ export class OrdersRepository {
 
   async upsertSheetEntry(data: {
     order_sheet_id: number;
-
     client_id: number;
-
     product_id: number;
-
+    product_link_id: number;
     ordered_qty?: number;
-
     delivered_qty?: number;
-
     night_selling_rate?: number;
-
     night_bill_amount?: number;
-
     final_selling_rate?: number;
-
     final_gst_percentage?: number;
-
     final_gst_amount?: number;
-
     final_taxable_amount?: number;
-
     final_bill_amount?: number;
   }) {
     return this.prisma.order_sheet_items.upsert({
       where: {
-        order_sheet_id_client_id_product_id: {
+        order_sheet_id_client_id_product_link_id: {
           order_sheet_id: data.order_sheet_id,
-
           client_id: data.client_id,
-
-          product_id: data.product_id,
+          product_link_id: data.product_link_id,
         },
       },
 
@@ -259,6 +305,8 @@ export class OrdersRepository {
 
         product_id: data.product_id,
 
+        product_link_id: data.product_link_id,
+
         ordered_qty: data.ordered_qty ?? 0,
 
         delivered_qty: data.delivered_qty ?? 0,
@@ -289,6 +337,8 @@ export class OrdersRepository {
 
       product_id: number;
 
+      product_link_id: number;
+
       ordered_qty?: number;
 
       delivered_qty?: number;
@@ -310,12 +360,10 @@ export class OrdersRepository {
   ) {
     return tx.order_sheet_items.upsert({
       where: {
-        order_sheet_id_client_id_product_id: {
+        order_sheet_id_client_id_product_link_id: {
           order_sheet_id: data.order_sheet_id,
-
           client_id: data.client_id,
-
-          product_id: data.product_id,
+          product_link_id: data.product_link_id,
         },
       },
 
@@ -333,6 +381,8 @@ export class OrdersRepository {
         client_id: data.client_id,
 
         product_id: data.product_id,
+
+        product_link_id: data.product_link_id,
 
         ordered_qty: data.ordered_qty,
 
@@ -353,6 +403,75 @@ export class OrdersRepository {
         final_bill_amount: 0,
       },
     });
+  }
+
+  async getProductCategory(
+    productId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ): Promise<SupplyCategory> {
+    const product = await prismaClient.master_product.findUnique({
+      where: { id: productId },
+      select: {
+        master_product_group: {
+          select: {
+            category: true,
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new BadRequestException(`Product ${productId} not found`);
+    }
+
+    return product.master_product_group.category;
+  }
+
+  async getGroupSupplyRules(groupId: number) {
+    const rules = await this.prisma.master_group_supply_rule.findMany({
+      where: {
+        group_id: groupId,
+        is_active: true,
+      },
+      select: {
+        category: true,
+        distributor_id: true,
+      },
+    });
+
+    const milkRule = rules.find((r) => r.category === SupplyCategory.MILK);
+
+    const nonMilkRule = rules.find(
+      (r) => r.category === SupplyCategory.NON_MILK,
+    );
+
+    return {
+      milkDistributorId: milkRule?.distributor_id ?? null,
+      nonMilkDistributorId: nonMilkRule?.distributor_id ?? null,
+    };
+  }
+
+  async getProductWithGroup(
+    productId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    const product = await prismaClient.master_product.findUnique({
+      where: { id: productId },
+      include: {
+        master_product_group: {
+          select: {
+            name: true,
+            category: true,
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new BadRequestException(`Product ${productId} not found`);
+    }
+
+    return product;
   }
 
   /**
@@ -392,89 +511,219 @@ export class OrdersRepository {
    */
   async getSellingRate(
     clientId: number,
-    productId: number,
-    effectiveDate: Date, // ← CRITICAL: Use sale date, not current date
+    productLinkId: number,
+    effectiveDate: Date,
+    prismaClient: PrismaOrTransaction = this.prisma,
   ) {
-    const clientRate = await this.prisma.master_client_rate_product.findFirst({
+    const clientRate = await prismaClient.master_client_rate_product.findFirst({
       where: {
         client_id: clientId,
-        product_id: productId,
+        product_link_id: productLinkId,
         is_active: true,
-
-        effective_from: {
-          lte: effectiveDate,
-        },
-
-        OR: [
-          {
-            effective_to: null,
-          },
-          {
-            effective_to: {
-              gte: effectiveDate,
-            },
-          },
-        ],
+        effective_from: { lte: effectiveDate },
+        OR: [{ effective_to: null }, { effective_to: { gte: effectiveDate } }],
       },
-
-      // Get most recent applicable rate
       orderBy: {
         effective_from: 'desc',
       },
     });
 
+    // Get most recent applicable rate
+
     if (clientRate) {
       return clientRate.selling_rate;
     }
 
-    const client = await this.prisma.master_client.findUnique({
-      where: {
-        id: clientId,
-      },
-      select: {
-        distributor_id: true,
-      },
-    });
-
-    if (!client) {
-      throw new BadRequestException(`Client ${clientId} not found`);
-    }
-
     const distributorRate =
-      await this.prisma.distributor_product_rate.findFirst({
+      await prismaClient.distributor_product_rate.findFirst({
         where: {
-          distributor_id: client.distributor_id,
-
-          product_id: productId,
-
+          product_link_id: productLinkId,
           is_active: true,
-
-          effective_from: {
-            lte: effectiveDate,
-          },
-
+          effective_from: { lte: effectiveDate },
           OR: [
-            {
-              effective_to: null,
-            },
-            {
-              effective_to: {
-                gte: effectiveDate,
-              },
-            },
+            { effective_to: null },
+            { effective_to: { gte: effectiveDate } },
           ],
         },
-
         orderBy: {
           effective_from: 'desc',
         },
       });
     if (!distributorRate) {
       throw new BadRequestException(
-        `No active distributor rate found for ${client.distributor_id} and ${productId} on ${effectiveDate.toISOString()}`,
+        `No active distributor rate found for product link ${productLinkId} on ${effectiveDate.toISOString()}`,
       );
     }
 
     return distributorRate.selling_rate;
+  }
+
+  async getSellingRateForDistributor(
+    clientId: number,
+    productId: number,
+    distributorId: number,
+    effectiveDate: Date,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    const productLink = await this.getProductLink(
+      distributorId,
+      productId,
+      prismaClient,
+    );
+
+    if (!productLink) {
+      throw new BadRequestException(
+        `No product link found for distributor ${distributorId} and product ${productId}`,
+      );
+    }
+
+    return this.getSellingRate(
+      clientId,
+      productLink.id,
+      effectiveDate,
+      prismaClient,
+    );
+  }
+
+  async getOrderItemsWithSupplyContextByPaperId(paperId: number) {
+    const items = await this.prisma.order_sheet_items.findMany({
+      where: {
+        order_sheet: {
+          order_paper_id: paperId,
+        },
+      },
+      include: {
+        order_sheet: {
+          include: {
+            master_group: true,
+          },
+        },
+        master_product: {
+          include: {
+            master_brand: true,
+            master_product_group: true,
+            master_product_type: true,
+            master_packaging_type: true,
+          },
+        },
+      },
+    });
+
+    const groupIds = [
+      ...new Set(items.map((item) => item.order_sheet.group_id)),
+    ];
+
+    const rules = await this.prisma.master_group_supply_rule.findMany({
+      where: {
+        group_id: { in: groupIds },
+        is_active: true,
+      },
+    });
+
+    const rulesMap = new Map<string, number>();
+
+    for (const rule of rules) {
+      rulesMap.set(`${rule.group_id}_${rule.category}`, rule.distributor_id);
+    }
+
+    return items.map((item) => {
+      const category = item.master_product.master_product_group.category;
+
+      const distributorId = rulesMap.get(
+        `${item.order_sheet.group_id}_${category}`,
+      );
+
+      if (!distributorId) {
+        throw new BadRequestException(
+          `Supply rule missing for group ${item.order_sheet.group_id} category ${category}`,
+        );
+      }
+
+      return {
+        sheetId: item.order_sheet_id,
+        groupId: item.order_sheet.group_id,
+        groupName: item.order_sheet.master_group.name,
+
+        clientId: item.client_id,
+
+        distributorId,
+        category,
+
+        productId: item.product_id,
+        orderedQty: Number(item.ordered_qty ?? 0),
+
+        brandId: item.master_product.master_brand.id,
+        brandName: item.master_product.master_brand.name,
+
+        productGroupId: item.master_product.master_product_group.id,
+        productGroupName: item.master_product.master_product_group.name,
+
+        productTypeId: item.master_product.master_product_type?.id ?? null,
+        productTypeName: item.master_product.master_product_type?.name ?? null,
+
+        packagingTypeId: item.master_product.master_packaging_type?.id ?? null,
+        packagingTypeName:
+          item.master_product.master_packaging_type?.name ?? null,
+      };
+    });
+  }
+
+  async getProductLink(
+    distributorId: number,
+    productId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    return prismaClient.master_product_link.findUnique({
+      where: {
+        distributor_id_product_id: {
+          distributor_id: distributorId,
+          product_id: productId,
+        },
+      },
+      select: {
+        id: true,
+        distributor_id: true,
+        product_id: true,
+      },
+    });
+  }
+
+  async canDistributorProcureProduct(
+    distributorId: number,
+    brandId: number,
+    productGroupId: number,
+    category: SupplyCategory,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    return prismaClient.distributor_procurement_rule.findFirst({
+      where: {
+        distributor_id: distributorId,
+        brand_id: brandId,
+        product_group_id: productGroupId,
+        category,
+        is_active: true,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+
+  async getSheetCommercialContext(
+    sheetId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    return prismaClient.order_sheet.findUnique({
+      where: { id: sheetId },
+      select: {
+        id: true,
+        group_id: true,
+        order_paper: {
+          select: {
+            sale_date: true,
+          },
+        },
+      },
+    });
   }
 }

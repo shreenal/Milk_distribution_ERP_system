@@ -5,6 +5,7 @@ import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { VehicleAllocationValidationService } from './vehicle-allocation-validation.service.js';
 import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
+import { SupplyCategory } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class VehicleAllocationService {
@@ -28,21 +29,12 @@ export class VehicleAllocationService {
       );
     }
 
-    const sheets =
-      await this.vehicleAllocationRepository.findOrderSheetsByPaperId(paperId);
+    const orderItems =
+      await this.vehicleAllocationRepository.findOrderItemsWithSupplyContextByPaperId(
+        paperId,
+      );
 
-    const sheetItems =
-      await this.vehicleAllocationRepository.findSheetItemsByPaperId(paperId);
-
-    const products = await this.vehicleAllocationRepository.findProducts();
-
-    return this.vehicleAllocationBuilder.buildGroupSummary(
-      sheets,
-
-      sheetItems,
-
-      products,
-    );
+    return this.vehicleAllocationBuilder.buildGroupSummary(orderItems);
   }
 
   async getVehicleAllocations(paperId: number) {
@@ -114,7 +106,6 @@ export class VehicleAllocationService {
   async saveVehicleAllocations(paperId: number, dto: SaveVehicleAllocationDto) {
     const paper =
       await this.vehicleAllocationRepository.findOrderPaperById(paperId);
-
     if (!paper) {
       throw new BadRequestException(
         VEHICLE_ALLOCATION_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
@@ -122,19 +113,23 @@ export class VehicleAllocationService {
     }
 
     const status = paper.status;
-
     if (!this.workflowState.canEditVehicleAllocations(status)) {
       throw new BadRequestException(
         VEHICLE_ALLOCATION_ERROR_MESSAGES.EDIT_NOT_ALLOWED,
       );
     }
+
     await this.vehicleAllocationValidationService.validateVehicleAllocations(
       paperId,
       dto,
     );
-
     await this.vehicleAllocationValidationService.validateVehicleAssignments(
       paperId,
+      dto,
+    );
+
+    // ✓ NEW: Validate all product links exist before saving
+    await this.vehicleAllocationValidationService.validateAllocationProductLinks(
       dto,
     );
 
@@ -150,37 +145,54 @@ export class VehicleAllocationService {
         );
     }
 
+    const assignmentRows = dto.assignments.flatMap((assignment) => {
+      const rows: {
+        vehicle_allocation_paper_id: number;
+        vehicle_id: number;
+        category: SupplyCategory;
+        distributor_id: number;
+      }[] = [];
+
+      if (assignment.milkDistributorId) {
+        rows.push({
+          vehicle_allocation_paper_id: vehicleAllocationPaper.id,
+          vehicle_id: assignment.vehicleId,
+          category: SupplyCategory.MILK,
+          distributor_id: assignment.milkDistributorId,
+        });
+      }
+
+      if (assignment.nonMilkDistributorId) {
+        rows.push({
+          vehicle_allocation_paper_id: vehicleAllocationPaper.id,
+          vehicle_id: assignment.vehicleId,
+          category: SupplyCategory.NON_MILK,
+          distributor_id: assignment.nonMilkDistributorId,
+        });
+      }
+
+      return rows;
+    });
+
+    await this.vehicleAllocationRepository.replaceVehicleAssignments(
+      vehicleAllocationPaper.id,
+      assignmentRows,
+    );
+
     const allocations = dto.allocations.filter(
       (allocation) => allocation.allocatedQty > 0,
     );
 
+    // ✓ Now safe to save - product links validated above
     await this.vehicleAllocationRepository.replaceVehicleAllocations(
       vehicleAllocationPaper.id,
-
       allocations.map((allocation) => ({
         vehicle_allocation_paper_id: vehicleAllocationPaper.id,
-
         vehicle_id: allocation.vehicleId,
-
+        distributor_id: allocation.distributorId,
+        category: allocation.category,
         product_id: allocation.productId,
-
         allocated_qty: allocation.allocatedQty,
-      })),
-    );
-
-    const assignments = dto.assignments.filter(
-      (assignment) => assignment.distributorId,
-    );
-
-    await this.vehicleAllocationRepository.replaceVehicleAssignments(
-      vehicleAllocationPaper.id,
-
-      assignments.map((assignment) => ({
-        vehicle_allocation_paper_id: vehicleAllocationPaper.id,
-
-        vehicle_id: assignment.vehicleId,
-
-        distributor_id: assignment.distributorId,
       })),
     );
 

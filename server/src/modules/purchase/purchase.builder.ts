@@ -8,66 +8,20 @@ import {
 import {
   VehicleAssignment,
   ProcurementRule,
+  PurchaseEntry,
+  PurchaseGrid,
+  PurchaseGridItem,
+  PurchaseRateDefault,
+  VehicleAllocation,
 } from '../../types/purchase.types.js';
-import { Prisma } from '../../generated/prisma/client.js';
-
-type Product = Prisma.master_productGetPayload<{
-  include: {
-    master_brand: true;
-    master_product_group: true;
-    master_product_type: true;
-    master_packaging_type: true;
-  };
-}>;
-
-type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
-  include: {
-    master_vehicle: true;
-    master_product: {
-      include: {
-        master_brand: true;
-        master_product_group: true;
-      };
-    };
-  };
-}>;
-
-type PurchaseEntry = Prisma.purchase_entryGetPayload<{}>;
-
-type PurchaseRow = {
-  vehicleId: number;
-  vehicleName: string | null;
-  [key: string]: string | number | null;
-};
-
-type PurchaseGridItem = {
-  purchaseKey: string;
-  distributorId: number;
-  distributorName: string;
-  brandId: number;
-  brandName: string;
-  productGroupId: number;
-  productGroupName: string;
-  columns: ProductColumnNode[];
-  rows: PurchaseRow[];
-};
-
-type PurchaseGrid = {
-  purchases: PurchaseGridItem[];
-};
-
-
-type PurchaseRateDefault = {
-  distributorId: number;
-  vehicleId: number;
-  productId: number;
-  purchaseRate: number;
-};
+import { SupplyCategory } from '../../generated/prisma/client.js';
+import { QUANTITY_PRECISION } from './purchase.constants.js';
+import { Product } from '../../types/purchase.types.js';
 
 
 @Injectable()
 export class PurchaseBuilder {
-  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
+  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) { }
 
   buildPurchaseGrids(
     procurementRules: ProcurementRule[],
@@ -89,16 +43,19 @@ export class PurchaseBuilder {
         continue;
       }
 
+      const category = rule.category;
+
       const columns = this.buildPurchaseColumns(
         gridProducts,
-
-        rule.master_product_group.name !== 'Milk',
+        category === SupplyCategory.NON_MILK,
       );
 
       const productFields = initializeProductFields(columns);
 
       const assignedVehicles = vehicleAssignments.filter(
-        (assignment) => assignment.distributor_id === rule.distributor_id,
+        (assignment) =>
+          assignment.distributor_id === rule.distributor_id &&
+          assignment.category === category,
       );
 
       if (assignedVehicles.length === 0) {
@@ -113,22 +70,15 @@ export class PurchaseBuilder {
         ...structuredClone(productFields),
       }));
       purchaseGrids.push({
-        purchaseKey: `${rule.distributor_id}_${rule.brand_id}_${rule.product_group_id}`,
-
+        purchaseKey: `${rule.distributor_id}_${category}_${rule.brand_id}_${rule.product_group_id}`,
         distributorId: rule.distributor_id,
-
         distributorName: rule.master_distributor.name,
-
+        category,
         brandId: rule.brand_id,
-
         brandName: rule.master_brand.name,
-
         productGroupId: rule.product_group_id,
-
         productGroupName: rule.master_product_group.name,
-
         columns,
-
         rows,
       });
     }
@@ -203,117 +153,124 @@ export class PurchaseBuilder {
   }
 
   applyVehicleAllocations(
-  purchaseGrids: PurchaseGrid,
-  allocations: VehicleAllocation[],
-) {
-  const result = structuredClone(purchaseGrids);
+    purchaseGrids: PurchaseGrid,
+    allocations: VehicleAllocation[],
+  ) {
+    const result = structuredClone(purchaseGrids);
 
-  for (const allocation of allocations) {
-    const allocatedField = `product_${allocation.product_id}_allocated`;
-    const purchasedField = `product_${allocation.product_id}_purchased`;
+    for (const allocation of allocations) {
+      const allocatedField = `product_${allocation.product_id}_allocated`;
+      const purchasedField = `product_${allocation.product_id}_purchased`;
 
-    const grid = result.purchases.find(
-      (purchase) =>
-        purchase.rows.some((row) => allocatedField in row),
-    );
+      const grid = result.purchases.find(
+        (purchase) =>
+          purchase.distributorId === allocation.distributor_id &&
+          purchase.category === allocation.category &&
+          purchase.rows.some((row) => allocatedField in row),
+      );
 
-    if (!grid) {
-      continue;
+      if (!grid) {
+        continue;
+      }
+
+      const row = grid.rows.find(
+        (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
+      );
+
+      if (!row) {
+        continue;
+      }
+
+      row[allocatedField] = Number(allocation.allocated_qty);
+      row[purchasedField] = Number(allocation.allocated_qty);
     }
 
-    const row = grid.rows.find(
-      (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
-    );
-
-    if (!row) {
-      continue;
-    }
-
-    row[allocatedField] = Number(allocation.allocated_qty);
-    row[purchasedField] = Number(allocation.allocated_qty);
+    return result;
   }
-
-  return result;
-}
-
   applyPurchaseEntries(
-  purchaseGrids: PurchaseGrid,
-  purchaseEntries: PurchaseEntry[],
-) {
-  const result = structuredClone(purchaseGrids);
+    purchaseGrids: PurchaseGrid,
+    purchaseEntries: PurchaseEntry[],
+  ) {
+    const result = structuredClone(purchaseGrids);
 
-  for (const entry of purchaseEntries) {
-    const purchasedField = `product_${entry.product_id}_purchased`;
-    const rateField = `product_${entry.product_id}_rate`;
-    const amountField = `product_${entry.product_id}_amount`;
-    const allocatedField = `product_${entry.product_id}_allocated`;
+    for (const entry of purchaseEntries) {
+      const purchasedField = `product_${entry.product_id}_purchased`;
+      const rateField = `product_${entry.product_id}_rate`;
+      const amountField = `product_${entry.product_id}_amount`;
+      const allocatedField = `product_${entry.product_id}_allocated`;
 
-    const grid = result.purchases.find(
-      (purchase) =>
-        purchase.distributorId === entry.distributor_id &&
-        purchase.rows.some((row) => purchasedField in row),
-    );
+      const grid = result.purchases.find(
+        (purchase) =>
+          purchase.distributorId === entry.distributor_id &&
+          purchase.category === entry.category &&
+          purchase.rows.some((row) => purchasedField in row),
+      );
 
-    if (!grid) {
-      continue;
+      if (!grid) {
+        continue;
+      }
+
+      const row = grid.rows.find(
+        (vehicle) => vehicle.vehicleId === entry.vehicle_id,
+      );
+
+      if (!row) {
+        continue;
+      }
+
+      row[allocatedField] = Number(entry.allocated_qty ?? 0);
+      row[purchasedField] = Number(entry.purchased_qty);
+      row[rateField] = Number(entry.purchase_rate);
+      row[amountField] = Number(entry.purchase_amount);
     }
 
-    const row = grid.rows.find(
-      (vehicle) => vehicle.vehicleId === entry.vehicle_id,
-    );
-
-    if (!row) {
-      continue;
-    }
-
-    row[allocatedField] = Number(entry.allocated_qty ?? 0);
-    row[purchasedField] = Number(entry.purchased_qty);
-    row[rateField] = Number(entry.purchase_rate);
-    row[amountField] = Number(entry.purchase_amount);
+    return result;
   }
 
-  return result;
-}
+  applyPurchaseRates(
+    purchaseGrids: PurchaseGrid,
+    rateDefaults: PurchaseRateDefault[],
+  ) {
+    const result = structuredClone(purchaseGrids);
 
-applyPurchaseRates(
-  purchaseGrids: PurchaseGrid,
-  rateDefaults: PurchaseRateDefault[],
-) {
-  const result = structuredClone(purchaseGrids);
+    for (const rate of rateDefaults) {
+      const purchasedField = `product_${rate.productId}_purchased`;
+      const rateField = `product_${rate.productId}_rate`;
+      const amountField = `product_${rate.productId}_amount`;
 
-  for (const rate of rateDefaults) {
-    const purchasedField = `product_${rate.productId}_purchased`;
-    const rateField = `product_${rate.productId}_rate`;
-    const amountField = `product_${rate.productId}_amount`;
+      const grid = result.purchases.find(
+        (purchase) =>
+          purchase.distributorId === rate.distributorId &&
+          purchase.category === rate.category &&
+          purchase.rows.some((row) => purchasedField in row),
+      );
 
-    const grid = result.purchases.find(
-      (purchase) =>
-        purchase.distributorId === rate.distributorId &&
-        purchase.rows.some((row) => purchasedField in row),
-    );
+      if (!grid) {
+        continue;
+      }
 
-    if (!grid) {
-      continue;
+      const row = grid.rows.find(
+        (vehicle) => vehicle.vehicleId === rate.vehicleId,
+      );
+
+      if (!row) {
+        continue;
+      }
+
+      row[rateField] = Number(rate.purchaseRate);
+
+      const litres =
+        Number(row[purchasedField] ?? 0) *
+        QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
+
+      const amount =
+        litres * Number(rate.purchaseRate);
+
+      row[amountField] = Number(amount.toFixed(2));
     }
 
-    const row = grid.rows.find(
-      (vehicle) => vehicle.vehicleId === rate.vehicleId,
-    );
-
-    if (!row) {
-      continue;
-    }
-
-    row[rateField] = Number(rate.purchaseRate);
-
-    const amount =
-      Number(row[purchasedField] ?? 0) * Number(rate.purchaseRate);
-
-    row[amountField] = Number(amount.toFixed(2));
+    return result;
   }
-
-  return result;
-}
 }
 
 const initializeProductFields = (
@@ -337,4 +294,3 @@ const initializeProductFields = (
 
   return row;
 };
-

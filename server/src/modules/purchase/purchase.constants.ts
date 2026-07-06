@@ -18,7 +18,7 @@ export const PURCHASE_ERROR_MESSAGES = {
     `Invalid distributor ${distributorId}`,
 
   VEHICLE_DISTRIBUTOR_MISMATCH: (vehicleId: number, distributorId: number) =>
-    `Vehicle ${vehicleId} is not assigned to distributor ${distributorId}`,
+    `Vehicle ${vehicleId} is not assigned to distributor ${distributorId} for this product category`,
 
   PROCUREMENT_RULE_MISSING: (distributorId: number, productId: number) =>
     `Distributor ${distributorId} cannot procure product ${productId}`,
@@ -37,10 +37,13 @@ export const PURCHASE_ERROR_MESSAGES = {
   PURCHASE_MISSING: (vehicleId: number, productId: number) =>
     `Purchase missing for vehicle ${vehicleId} product ${productId}`,
 
-  INVALID_RATE_IDENTIFIERS:
-  'Distributor rate contains invalid identifiers',
+  INVALID_RATE_IDENTIFIERS: 'Distributor rate contains invalid identifiers',
 
   VEHICLE_ASSIGNMENT_NOT_FOUND: (vehicleId: number) =>
-  `Vehicle assignment not found for vehicle ${vehicleId}`
+    `Vehicle assignment not found for vehicle ${vehicleId}`,
+} as const;
 
+
+export const QUANTITY_PRECISION = {
+  OPERATIONAL_UNIT_LITRES: 10,
 } as const;

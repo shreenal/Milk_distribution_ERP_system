@@ -8,9 +8,11 @@ import { MorningCollectionEntryDto } from './dto/save-morning-collection.dto.js'
 
 import { AdminCollectionEntryDto } from './dto/save-admin-collection.dto.js';
 
+import { SupplyCategory } from '../../generated/prisma/client.js';
+
 @Injectable()
 export class CollectionsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async getOrderSheetById(sheetId: number) {
     return this.prisma.order_sheet.findUnique({
@@ -40,6 +42,28 @@ export class CollectionsRepository {
     });
   }
 
+
+  async getClientsByGroupAndCategory(
+  groupId: number,
+  category: SupplyCategory,
+) {
+  return this.prisma.master_client.findMany({
+    where: {
+      delivery_group_id: groupId,
+      is_active: true,
+      categories: {
+        some: {
+          category,
+        },
+      },
+    },
+
+    orderBy: {
+      code: 'asc',
+    },
+  });
+}
+
   async getCollectionsForValidation(sheetId: number) {
     return this.prisma.client_collection.findMany({
       where: {
@@ -66,21 +90,24 @@ export class CollectionsRepository {
 
   async replaceNightCollections(
     sheetId: number,
+    category: SupplyCategory,
     entries: NightCollectionEntryDto[],
   ) {
     await this.prisma.$transaction(async (tx) => {
       for (const entry of entries) {
         await tx.client_collection.upsert({
           where: {
-            order_sheet_id_client_id: {
+            order_sheet_id_client_id_category: {
               order_sheet_id: sheetId,
               client_id: entry.clientId,
+              category,
             },
           },
 
           create: {
             order_sheet_id: sheetId,
             client_id: entry.clientId,
+            category,
             office_amount_given: entry.officeAmountGiven,
           },
 
@@ -94,21 +121,24 @@ export class CollectionsRepository {
 
   async replaceMorningCollections(
     sheetId: number,
+    category: SupplyCategory,
     entries: MorningCollectionEntryDto[],
   ) {
     await this.prisma.$transaction(async (tx) => {
       for (const entry of entries) {
         await tx.client_collection.upsert({
           where: {
-            order_sheet_id_client_id: {
+            order_sheet_id_client_id_category: {
               order_sheet_id: sheetId,
               client_id: entry.clientId,
+              category,
             },
           },
 
           create: {
             order_sheet_id: sheetId,
             client_id: entry.clientId,
+            category,
             cash_collection: entry.cashCollection,
             cheque_collection: entry.chequeCollection,
             employee_remarks: entry.employeeRemarks,
@@ -126,21 +156,24 @@ export class CollectionsRepository {
 
   async replaceAdminCollections(
     sheetId: number,
+    category: SupplyCategory,
     entries: AdminCollectionEntryDto[],
   ) {
     await this.prisma.$transaction(async (tx) => {
       for (const entry of entries) {
         await tx.client_collection.upsert({
           where: {
-            order_sheet_id_client_id: {
+            order_sheet_id_client_id_category: {
               order_sheet_id: sheetId,
               client_id: entry.clientId,
+              category,
             },
           },
 
           create: {
             order_sheet_id: sheetId,
             client_id: entry.clientId,
+            category,
             online_collection: entry.onlineCollection,
             bank_deposit: entry.bankDeposit,
             admin_remarks: entry.adminRemarks,

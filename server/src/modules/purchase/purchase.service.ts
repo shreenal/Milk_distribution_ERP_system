@@ -10,9 +10,12 @@ import {
   VehicleAssignment,
   ProcurementRule,
 } from '../../types/purchase.types.js';
-import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
+import { PURCHASE_ERROR_MESSAGES, QUANTITY_PRECISION } from './purchase.constants.js';
 
-import { GatepassDatePolicy } from '../../generated/prisma/client.js'
+import {
+  GatepassDatePolicy,
+  SupplyCategory,
+} from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseService {
@@ -55,6 +58,8 @@ export class PurchaseService {
       );
     }
 
+    const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
+
     const products = await this.purchaseRepository.findProducts();
 
     const procurementRules: ProcurementRule[] =
@@ -82,15 +87,28 @@ export class PurchaseService {
           );
         }
 
-        const assignment = vehicleAssignments.find(
-          (vehicleAssignment) =>
-            vehicleAssignment.vehicle_id === allocation.vehicle_id,
+        const productLink = await this.purchaseRepository.getProductLink(
+          allocation.distributor_id,
+          allocation.product_id,
         );
 
-        if (!assignment) {
+        if (!productLink) {
+          throw new BadRequestException(
+            `No product link found for distributor ${allocation.distributor_id} and product ${allocation.product_id}`,
+          );
+        }
+
+        const assignment = assignmentMap.get(
+          `${allocation.vehicle_id}_${allocation.category}`,
+        );
+
+        if (
+          !assignment ||
+          assignment.distributor_id !== allocation.distributor_id
+        ) {
           throw new BadRequestException(
             PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(
-              allocation.vehicle_id
+              allocation.vehicle_id,
             ),
           );
         }
@@ -100,21 +118,20 @@ export class PurchaseService {
           allocation.master_product.master_brand.gatepass_date_policy,
         );
 
-        const rate =
-          await this.purchaseRepository.findDistributorProductRateForDate(
-            assignment.distributor_id,
-            allocation.product_id,
-            gatepassDate,
-          );
+        const rate = await this.purchaseRepository.findProductLinkRateForDate(
+          productLink.id,
+          gatepassDate,
+        );
 
         if (!rate) {
           throw new BadRequestException(
-            `Rate not found for distributor ${assignment.distributor_id} product ${allocation.product_id} on ${gatepassDate.toISOString().slice(0, 10)}`,
+            `Rate not found for distributor ${allocation.distributor_id} product ${allocation.product_id} on ${gatepassDate.toISOString().slice(0, 10)}`,
           );
         }
 
         return {
-          distributorId: assignment.distributor_id,
+          distributorId: allocation.distributor_id,
+          category: allocation.category,
           vehicleId: allocation.vehicle_id,
           productId: allocation.product_id,
           purchaseRate: Number(rate.purchase_rate),
@@ -172,6 +189,11 @@ export class PurchaseService {
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
 
+    const vehicleAssignments: VehicleAssignment[] =
+      await this.purchaseRepository.findVehicleAssignmentsByPaperId(paperId);
+
+    const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
+
     const allocationMap = new Map<string, (typeof allocations)[number]>();
 
     for (const allocation of allocations) {
@@ -182,7 +204,7 @@ export class PurchaseService {
       }
 
       allocationMap.set(
-        `${allocation.vehicle_id}_${allocation.product_id}`,
+        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}`,
         allocation,
       );
     }
@@ -190,7 +212,7 @@ export class PurchaseService {
     const purchaseRows = await Promise.all(
       entries.map(async (entry) => {
         const allocation = allocationMap.get(
-          `${entry.vehicleId}_${entry.productId}`,
+          `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}`,
         );
 
         if (!allocation) {
@@ -202,17 +224,38 @@ export class PurchaseService {
           );
         }
 
+        const productLink = await this.purchaseRepository.getProductLink(
+          entry.distributorId,
+          entry.productId,
+        );
+
+        if (!productLink) {
+          throw new BadRequestException(
+            `No product link found for distributor ${entry.distributorId} and product ${entry.productId}`,
+          );
+        }
+
+        const assignment = assignmentMap.get(
+          `${entry.vehicleId}_${entry.category}`,
+        );
+
+        if (!assignment || assignment.distributor_id !== entry.distributorId) {
+          throw new BadRequestException(
+            PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(
+              entry.vehicleId,
+            ),
+          );
+        }
+
         const gatepassDate = resolveGatepassDate(
           paper.sale_date,
           allocation.master_product.master_brand.gatepass_date_policy,
         );
 
-        const rate =
-          await this.purchaseRepository.findDistributorProductRateForDate(
-            entry.distributorId,
-            entry.productId,
-            gatepassDate,
-          );
+        const rate = await this.purchaseRepository.findProductLinkRateForDate(
+          productLink.id,
+          gatepassDate,
+        );
 
         if (!rate) {
           throw new BadRequestException(
@@ -220,16 +263,24 @@ export class PurchaseService {
           );
         }
 
+        const litres =
+          Number(entry.purchasedQty) *
+          QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
+
+        const purchaseAmount =
+          litres * Number(rate.purchase_rate);
+
         return {
           purchase_paper_id: purchasePaper.id,
           distributor_id: entry.distributorId,
+          category: entry.category,
           vehicle_id: entry.vehicleId,
           product_id: entry.productId,
+          product_link_id: productLink.id,
           allocated_qty: allocation.allocated_qty,
           purchased_qty: entry.purchasedQty,
           purchase_rate: rate.purchase_rate,
-          purchase_amount:
-            Number(entry.purchasedQty) * Number(rate.purchase_rate),
+          purchase_amount: Number(purchaseAmount.toFixed(2)),
           gatepass_date: gatepassDate,
         };
       }),
@@ -244,10 +295,7 @@ export class PurchaseService {
   }
 }
 
-function resolveGatepassDate(
-  saleDate: Date,
-  policy: GatepassDatePolicy,
-): Date {
+function resolveGatepassDate(saleDate: Date, policy: GatepassDatePolicy): Date {
   const gatepassDate = new Date(saleDate);
 
   if (policy === GatepassDatePolicy.PREVIOUS_DAY) {
@@ -255,4 +303,16 @@ function resolveGatepassDate(
   }
 
   return gatepassDate;
+}
+
+function buildVehicleAssignmentMap(
+  assignments: VehicleAssignment[],
+): Map<string, VehicleAssignment> {
+  const map = new Map<string, VehicleAssignment>();
+
+  for (const assignment of assignments) {
+    map.set(`${assignment.vehicle_id}_${assignment.category}`, assignment);
+  }
+
+  return map;
 }

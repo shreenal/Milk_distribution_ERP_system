@@ -12,6 +12,8 @@ import { TraysService } from '../trays/trays.service.js';
 
 import { OrdersValidationService } from './orders-validation.service.js';
 
+import { Prisma, SupplyCategory } from '../../generated/prisma/client.js';
+
 import {
   TRANSACTION_CONFIG,
   ERROR_MESSAGES,
@@ -66,7 +68,7 @@ export class OrdersService {
     private readonly collectionsService: CollectionsService,
 
     private readonly workflowState: WorkflowStateService,
-  ) {}
+  ) { }
 
   async getSheetService(sheetId: number) {
     try {
@@ -80,8 +82,39 @@ export class OrdersService {
         throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
       }
 
-      const orderBilling =
-        await this.ordersBillingBuilder.buildOrderBillingSection(sheet);
+      const milkProducts =
+    await this.ordersRepository.getProductsByCategory(
+        SupplyCategory.MILK,
+    );
+
+const nonMilkProducts =
+    await this.ordersRepository.getProductsByCategory(
+        SupplyCategory.NON_MILK,
+    );
+
+const milkClients =
+    await this.ordersRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        SupplyCategory.MILK,
+    );
+
+const nonMilkClients =
+    await this.ordersRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
+        SupplyCategory.NON_MILK,
+    );
+
+const sheetItems =
+    await this.ordersRepository.getSheetItems(sheet.id);
+
+const orderBilling =
+    this.ordersBillingBuilder.buildOrderBillingSection({
+        milkProducts,
+        nonMilkProducts,
+        milkClients,
+        nonMilkClients,
+        sheetItems,
+    });
 
       const traySheet = await this.traysService.getTraySheetService(sheetId);
 
@@ -147,6 +180,10 @@ export class OrdersService {
         throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
       }
 
+      const supplyRules = await this.ordersRepository.getGroupSupplyRules(
+        sheet.group_id,
+      );
+
       if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
         throw new BadRequestException(
           ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
@@ -176,11 +213,34 @@ export class OrdersService {
 
             this.validationService.validateQuantity(Number(entry.orderedQty));
 
-            const sellingRate = await this.ordersRepository.getSellingRate(
-              entry.clientId,
+            const commercialContext =
+              await this.resolveOrderLineCommercialContext(
+                sheet.group_id,
+                entry.productId,
+                supplyRules,
+                tx,
+              );
+
+            const productLink = await this.ordersRepository.getProductLink(
+              commercialContext.distributorId,
               entry.productId,
-              sheet.order_paper.sale_date, // ← FIXED
+              tx,
             );
+
+            if (!productLink) {
+              throw new BadRequestException(
+                `Distributor ${commercialContext.distributorId} does not source product ${entry.productId}`,
+              );
+            }
+
+            const sellingRate =
+              await this.ordersRepository.getSellingRateForDistributor(
+                entry.clientId,
+                entry.productId,
+                commercialContext.distributorId,
+                sheet.order_paper.sale_date,
+                tx,
+              );
 
             if (sellingRate === null || sellingRate === undefined) {
               throw new BadRequestException(
@@ -198,15 +258,11 @@ export class OrdersService {
 
             await this.ordersRepository.upsertSheetEntryTx(tx, {
               order_sheet_id: sheetId,
-
               client_id: entry.clientId,
-
               product_id: entry.productId,
-
+              product_link_id: commercialContext.productLinkId,
               ordered_qty: entry.orderedQty,
-
               night_selling_rate: Number(sellingRate),
-
               night_bill_amount: Number(nightBillAmount.toFixed(2)),
             });
           }
@@ -247,6 +303,10 @@ export class OrdersService {
         throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
       }
 
+      const supplyRules = await this.ordersRepository.getGroupSupplyRules(
+        sheet.group_id,
+      );
+
       const status = sheet.order_paper.status;
 
       if (!this.workflowState.canEditMorningEntries(status)) {
@@ -283,21 +343,20 @@ export class OrdersService {
 
             await this.validationService.validateProduct(entry.productId, tx);
 
-            const existingItem = await tx.order_sheet_items.findUnique({
-              where: {
-                order_sheet_id_client_id_product_id: {
-                  order_sheet_id: sheetId,
+            const commercialContext =
+              await this.resolveOrderLineCommercialContext(
+                sheet.group_id,
+                entry.productId,
+                supplyRules,
+                tx,
+              );
 
-                  client_id: entry.clientId,
-
-                  product_id: entry.productId,
-                },
-              },
-
-              include: {
-                master_product: true,
-              },
-            });
+            const existingItem = await this.ordersRepository.findSheetItem(
+              sheetId,
+              entry.clientId,
+              commercialContext.productLinkId,
+              tx,
+            );
 
             if (!existingItem) {
               throw new BadRequestException(
@@ -310,13 +369,14 @@ export class OrdersService {
 
             const product = existingItem.master_product;
 
-            // CRITICAL FIX: Use sale_date for historical accuracy
-            const sellingRate = await this.ordersRepository.getSellingRate(
-              entry.clientId,
-              entry.productId,
-              sheet.order_paper.sale_date, // ← FIXED
-            );
-
+            const sellingRate =
+              await this.ordersRepository.getSellingRateForDistributor(
+                entry.clientId,
+                entry.productId,
+                commercialContext.distributorId,
+                sheet.order_paper.sale_date,
+                tx,
+              );
             if (sellingRate === null || sellingRate === undefined) {
               throw new BadRequestException(
                 `No rate configured for client ${entry.clientId} product ${entry.productId}`,
@@ -358,26 +418,18 @@ export class OrdersService {
 
             await tx.order_sheet_items.update({
               where: {
-                order_sheet_id_client_id_product_id: {
+                order_sheet_id_client_id_product_link_id: {
                   order_sheet_id: sheetId,
-
                   client_id: entry.clientId,
-
-                  product_id: entry.productId,
+                  product_link_id: commercialContext.productLinkId,
                 },
               },
-
               data: {
                 delivered_qty: deliveredQty,
-
                 final_selling_rate: Number(sellingRate),
-
                 final_gst_percentage: gstPercentage,
-
                 final_gst_amount: gstAmount,
-
                 final_taxable_amount: taxableAmount,
-
                 final_bill_amount: finalBillAmount,
               },
             });
@@ -402,5 +454,71 @@ export class OrdersService {
 
       throw error;
     }
+  }
+
+  private async resolveOrderLineCommercialContext(
+    sheetGroupId: number,
+    productId: number,
+    supplyRules: {
+      milkDistributorId: number | null;
+      nonMilkDistributorId: number | null;
+    },
+    tx: Prisma.TransactionClient,
+  ) {
+    const product = await this.ordersRepository.getProductWithGroup(
+      productId,
+      tx,
+    );
+    const category = product.master_product_group.category;
+
+    let distributorId: number | null = null;
+
+    if (category === SupplyCategory.MILK) {
+      distributorId = supplyRules.milkDistributorId;
+    }
+
+    if (category === SupplyCategory.NON_MILK) {
+      distributorId = supplyRules.nonMilkDistributorId;
+    }
+
+    if (!distributorId) {
+      throw new BadRequestException(
+        `Missing ${category} distributor supply rule for group ${sheetGroupId}`,
+      );
+    }
+
+    const canProcure =
+      await this.ordersRepository.canDistributorProcureProduct(
+        distributorId,
+        product.brand_id,
+        product.product_group_id,
+        category,
+        tx,
+      );
+
+    if (!canProcure) {
+      throw new BadRequestException(
+        `Distributor ${distributorId} cannot procure product ${productId}`,
+      );
+    }
+
+    const productLink = await this.ordersRepository.getProductLink(
+      distributorId,
+      productId,
+      tx,
+    );
+
+    if (!productLink) {
+      throw new BadRequestException(
+        `No product link found for distributor ${distributorId} and product ${productId}`,
+      );
+    }
+
+    return {
+      product,
+      category,
+      distributorId,
+      productLinkId: productLink.id,
+    };
   }
 }

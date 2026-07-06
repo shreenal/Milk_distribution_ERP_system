@@ -1,13 +1,22 @@
-import { IsArray, IsInt, IsNumber, ValidateNested } from 'class-validator';
-
+import {
+  IsArray,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
+import { SupplyCategory } from '../../../generated/prisma/client.js';
 
 class PurchaseEntryDto {
   @IsInt()
-  distributorId!: number;
+  vehicleId!: number;
 
   @IsInt()
-  vehicleId!: number;
+  distributorId!: number;
+
+  @IsEnum(SupplyCategory)
+  category!: SupplyCategory;
 
   @IsInt()
   productId!: number;
@@ -18,9 +27,7 @@ class PurchaseEntryDto {
 
 export class SavePurchaseDto {
   @IsArray()
-  @ValidateNested({
-    each: true,
-  })
+  @ValidateNested({ each: true })
   @Type(() => PurchaseEntryDto)
   entries!: PurchaseEntryDto[];
 }

@@ -4,6 +4,7 @@ import { PaperValidationService } from './paper-validation.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { PaperRepository } from './paper.repository.js';
 import { OrderPaperStatus } from '../../generated/prisma/client.js';
+import { DistributorTransferService } from '../distributor-transfer/distributor-transfer.service.js';
 
 @Injectable()
 export class PaperService {
@@ -12,7 +13,8 @@ export class PaperService {
     private readonly paperRepository: PaperRepository,
     private readonly paperValidationService: PaperValidationService,
     private readonly workflowState: WorkflowStateService,
-  ) { }
+    private readonly distributorTransferService: DistributorTransferService,
+  ) {}
 
   async generatePaperService(date: string) {
     try {
@@ -61,7 +63,6 @@ export class PaperService {
         );
       }
 
-
       const existingPaper = await this.paperRepository.findPaperBySaleDate(
         saleDate,
         tomorrowSale,
@@ -71,7 +72,8 @@ export class PaperService {
         return existingPaper;
       }
 
-      const paper = await this.paperRepository.generatePaperFromOrderDate(orderDate);
+      const paper =
+        await this.paperRepository.generatePaperFromOrderDate(orderDate);
 
       const groups = await this.paperRepository.getActiveGroups();
 
@@ -152,6 +154,8 @@ export class PaperService {
       paper.status,
       OrderPaperStatus.MORNING_SUBMITTED,
     );
+
+    await this.distributorTransferService.generateTransfer(paperId);
 
     return this.paperRepository.submitMorningEntry(paperId);
   }

@@ -1,0 +1,1 @@
+export const DISTRIBUTOR_TRANSFER_ERRORS = {};

@@ -11,7 +11,7 @@ export class DeliverySummaryService {
     private readonly deliverySummaryRepository: DeliverySummaryRepository,
 
     private readonly deliverySummaryBuilder: DeliverySummaryBuilder,
-  ) {}
+  ) { }
 
   async getBillingGroupSummary(paperId: number) {
     const paper =
@@ -23,14 +23,13 @@ export class DeliverySummaryService {
       );
     }
 
-    const products = await this.deliverySummaryRepository.findProducts();
-
     const deliveredItems =
-      await this.deliverySummaryRepository.findDeliveredItemsByPaperId(paperId);
+      await this.deliverySummaryRepository.findDeliveredItemsWithSupplyContextByPaperId(
+        paperId,
+      );
 
     return this.deliverySummaryBuilder.buildBillingGroupSummary(
       deliveredItems,
-      products,
     );
   }
 }

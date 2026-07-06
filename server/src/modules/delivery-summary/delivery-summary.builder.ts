@@ -1,158 +1,108 @@
 import { Injectable } from '@nestjs/common';
 
-import { Prisma } from '../../generated/prisma/client.js';
+import { SupplyCategory } from '../../generated/prisma/client.js';
 
 import {
   ProductColumnsBuilder,
   ProductColumnNode,
 } from '../../common/builders/product-columns.builder.js';
 
-type DeliveredItem = Prisma.order_sheet_itemsGetPayload<{
-  include: {
-    master_client: {
-      include: {
-        billing_group: true;
-      };
-    };
-    master_product: {
-      include: {
-        master_brand: true;
-        master_product_group: true;
-        master_product_type: true;
-        master_packaging_type: true;
-      };
-    };
-  };
-}>;
-
-type Product = Prisma.master_productGetPayload<{
-  include: {
-    master_brand: true;
-    master_product_group: true;
-    master_product_type: true;
-    master_packaging_type: true;
-  };
-}>;
-
-type SummaryRow = {
-  groupId: number;
-  groupName: string;
-  [key: string]: string | number;
-};
-
-type Summary = {
-  summaryKey: string;
-  brandId: number;
-  brandName: string;
-  productGroupId: number;
-  productGroupName: string;
-  columns: ProductColumnNode[];
-  rows: SummaryRow[];
-};
+import {
+  DeliveredItemWithSupplyContext,
+  Product,
+  Summary,
+} from '../../types/delivery-summary.types.js';
 
 @Injectable()
 export class DeliverySummaryBuilder {
   constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
 
   buildBillingGroupSummary(
-    deliveredItems: DeliveredItem[],
-    products: Product[],
-  ) {
-    type SummaryBuilder = Summary & {
-      products: Product[];
-    };
+  deliveredItems: DeliveredItemWithSupplyContext[],
+) {
+  type SummaryBuilder = Summary & {
+    products: Product[];
+  };
 
-    const summariesMap = new Map<string, SummaryBuilder>();
+  const summariesMap = new Map<string, SummaryBuilder>();
 
-    for (const product of products) {
-      const key = `${product.master_brand.id}_${product.master_product_group.id}`;
+  for (const item of deliveredItems) {
+    const product = item.master_product;
 
-      if (!summariesMap.has(key)) {
-        summariesMap.set(key, {
-          summaryKey: key,
+    const brandId = product.master_brand.id;
+    const brandName = product.master_brand.name;
+    const productGroupId = product.master_product_group.id;
+    const productGroupName = product.master_product_group.name;
 
-          brandId: product.master_brand.id,
-          brandName: product.master_brand.name,
+    const summaryKey = `${item.distributorId}_${item.category}_${brandId}_${productGroupId}`;
 
-          productGroupId: product.master_product_group.id,
-          productGroupName: product.master_product_group.name,
+    let summary = summariesMap.get(summaryKey);
 
-          products: [],
-          rows: [],
-          columns: [],
-        });
-      }
+    if (!summary) {
+      summary = {
+        summaryKey,
+        distributorId: item.distributorId,
+        category: item.category,
+        brandId,
+        brandName,
+        productGroupId,
+        productGroupName,
+        columns: [],
+        rows: [],
+        products: [],
+      };
 
-      summariesMap.get(key)?.products.push(product);
+      summariesMap.set(summaryKey, summary);
     }
 
-    const summaryRowsMap = new Map<string, SummaryRow>();
-
-    for (const item of deliveredItems) {
-      const billingGroup = item.master_client.billing_group;
-
-      const summaryKey = `${item.master_product.master_brand.id}_${item.master_product.master_product_group.id}`;
-
-      const rowKey = `${summaryKey}_${billingGroup.id}`;
-
-      if (!summaryRowsMap.has(rowKey)) {
-        summaryRowsMap.set(rowKey, {
-          groupId: billingGroup.id,
-
-          groupName: billingGroup.name,
-        });
-      }
-
-      const row = summaryRowsMap.get(rowKey);
-
-      if (!row) {
-        continue;
-      }
-
-      const field = `product_${item.product_id}`;
-
-      const currentValue = typeof row[field] === 'number' ? row[field] : 0;
-
-      row[field] = currentValue + Number(item.delivered_qty ?? 0);
+    if (!summary.products.some((p) => p.id === product.id)) {
+      summary.products.push(product);
     }
 
-    for (const [rowKey, row] of summaryRowsMap) {
-      const summaryKey = rowKey.split('_').slice(0, 2).join('_');
+    let row = summary.rows.find(
+      (r) => r.groupId === item.billingGroupId,
+    );
 
-      const summary = summariesMap.get(summaryKey);
-
-      if (!summary) {
-        continue;
-      }
+    if (!row) {
+      row = {
+        groupId: item.billingGroupId,
+        groupName: item.billingGroupName,
+      };
 
       summary.rows.push(row);
     }
 
-    const summaries: Summary[] = [];
+    const field = `product_${item.productId}`;
 
-    for (const summary of summariesMap.values()) {
-      summaries.push({
-        summaryKey: summary.summaryKey,
+    const currentValue =
+      typeof row[field] === 'number' ? row[field] : 0;
 
-        brandId: summary.brandId,
-        brandName: summary.brandName,
-
-        productGroupId: summary.productGroupId,
-        productGroupName: summary.productGroupName,
-
-        columns: this.buildColumns(
-          summary.products,
-          summary.productGroupName !== 'Milk',
-        ),
-
-        rows: summary.rows,
-      });
-    }
-
-    return {
-      summaries,
-    };
+    row[field] = currentValue + item.deliveredQty;
   }
+
+  const summaries: Summary[] = [];
+
+  for (const summary of summariesMap.values()) {
+    summaries.push({
+      summaryKey: summary.summaryKey,
+      distributorId: summary.distributorId,
+      category: summary.category,
+      brandId: summary.brandId,
+      brandName: summary.brandName,
+      productGroupId: summary.productGroupId,
+      productGroupName: summary.productGroupName,
+      columns: this.buildColumns(
+        summary.products,
+        summary.category === SupplyCategory.NON_MILK,
+      ),
+      rows: summary.rows,
+    });
+  }
+
+  return {
+    summaries,
+  };
+}
 
   private buildColumns(
     products: Product[],

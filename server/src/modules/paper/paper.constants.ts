@@ -29,6 +29,7 @@ export const ERROR_MESSAGES = {
     `Cannot generate paper more than ${maxDays} days ahead`,
   MISSING_REQUIRED_FIELD: (fieldName: string) =>
     `Required field "${fieldName}" is missing`,
+  PAPER_NOT_IN_DRAFT_STATUS: 'Paper not in DRAFT status',
 } as const;
 
 export const SUCCESS_MESSAGES = {

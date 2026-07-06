@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service.js';
 import { TrayTransactionEntry } from '../../types/transaction.types.js';
+import { SupplyCategory } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class TraysRepository {
@@ -56,6 +57,26 @@ export class TraysRepository {
       },
     });
   }
+
+  async getClientsByGroupAndCategory(
+  groupId: number,
+  category: SupplyCategory,
+) {
+  return this.prisma.master_client.findMany({
+    where: {
+      delivery_group_id: groupId,
+      is_active: true,
+      categories: {
+        some: {
+          category,
+        },
+      },
+    },
+    orderBy: {
+      name: 'asc',
+    },
+  });
+}
 
   async getSheetItems(sheetId: number) {
     return this.prisma.order_sheet_items.findMany({
@@ -148,22 +169,22 @@ export class TraysRepository {
   }
 
   async getPreviousSheet(groupId: number, saleDate: Date) {
-  return this.prisma.order_sheet.findFirst({
-    where: {
-      group_id: groupId,
-      order_paper: {
-        sale_date: {
-          lt: saleDate,
+    return this.prisma.order_sheet.findFirst({
+      where: {
+        group_id: groupId,
+        order_paper: {
+          sale_date: {
+            lt: saleDate,
+          },
         },
       },
-    },
-    orderBy: {
-      order_paper: {
-        sale_date: 'desc',
+      orderBy: {
+        order_paper: {
+          sale_date: 'desc',
+        },
       },
-    },
-  });
-}
+    });
+  }
 
   async getPreviousTrayBalances(orderSheetId: number) {
     return this.prisma.client_tray_transaction.findMany({

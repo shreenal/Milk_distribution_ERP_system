@@ -87,31 +87,30 @@ export class WorkflowStateService {
     );
   }
 
-canEditRouteExpenses(
-  status: OrderPaperStatus,
-): boolean {
+  canEditRouteExpenses(status: OrderPaperStatus): boolean {
+    return (
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
+  }
+
+  canEditRouteDenominations(status: OrderPaperStatus): boolean {
+    return status === OrderPaperStatus.NIGHT_SUBMITTED;
+  }
+
+  canEditDirectCollections(status: OrderPaperStatus): boolean {
+    return status === OrderPaperStatus.NIGHT_SUBMITTED;
+  }
+
+  canEditBankDeposits(status: OrderPaperStatus): boolean {
+    return status === OrderPaperStatus.NIGHT_SUBMITTED;
+  }
+
+  canEditDairyTrayTracking(status: OrderPaperStatus): boolean {
   return (
     status === OrderPaperStatus.NIGHT_SUBMITTED ||
     status === OrderPaperStatus.REOPENED
   );
-}
-
-canEditRouteDenominations(
-  status: OrderPaperStatus,
-): boolean {
-  return status === OrderPaperStatus.NIGHT_SUBMITTED;
-}
-
-canEditDirectCollections(
-  status: OrderPaperStatus,
-): boolean {
-  return status === OrderPaperStatus.NIGHT_SUBMITTED;
-}
-
-canEditBankDeposits(
-  status: OrderPaperStatus,
-): boolean {
-  return status === OrderPaperStatus.NIGHT_SUBMITTED;
 }
 
   canFinalize(status: OrderPaperStatus): boolean {

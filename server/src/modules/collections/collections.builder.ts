@@ -1,31 +1,73 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '../../generated/prisma/client.js';
-import { OrderPaperStatus } from '../../generated/prisma/client.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import { SupplyCategory } from '../../generated/prisma/client.js';
+import { CollectionSheet, CollectionClient, SavedCollection, CollectionGrid } from '../../types/collection.types.js';
 
-type CollectionSheet = Prisma.order_sheetGetPayload<{
-  include: {
-    master_group: true;
-    order_paper: true;
-  };
-}>;
 
-type CollectionClient = Prisma.master_clientGetPayload<{}>;
-
-type SavedCollection = Prisma.client_collectionGetPayload<{}>;
 @Injectable()
 export class CollectionBuilder {
-  private readonly logger = new Logger(CollectionBuilder.name);
 
-  constructor(private readonly workflowState: WorkflowStateService) {}
+  constructor(private readonly workflowState: WorkflowStateService) { }
 
-  buildCollectionGrid(
+  buildCollectionSection(
+    sheet: CollectionSheet,
+    milkClients: CollectionClient[],
+    nonMilkClients: CollectionClient[],
+    savedCollections: SavedCollection[],
+  ) {
+
+    const status = sheet.order_paper?.status;
+
+    const permissions = {
+      canEditNightCollections:
+        this.workflowState.canEditNightCollections(status),
+
+      canEditMorningCollections:
+        this.workflowState.canEditMorningCollections(status),
+
+      canEditAdminCollections:
+        this.workflowState.canAdminEditCollections(status),
+
+      canFinalize: this.workflowState.canFinalize(status),
+    };
+
+    const milkCollections = savedCollections.filter(
+      (collection) => collection.category === SupplyCategory.MILK,
+    );
+
+    const nonMilkCollections = savedCollections.filter(
+      (collection) => collection.category === SupplyCategory.NON_MILK,
+    );
+
+
+    const milkCollectionGrid = this.buildGrid(
+      sheet,
+      milkClients,
+      milkCollections,
+    );
+
+    const nonMilkCollectionGrid = this.buildGrid(
+      sheet,
+      nonMilkClients,
+      nonMilkCollections,
+    );
+
+    return {
+      orderSheetId: sheet.id,
+      groupId: sheet.group_id,
+      groupName: sheet.master_group?.name,
+      paperStatus: sheet.order_paper?.status,
+      permissions,
+      milkCollectionGrid,
+      nonMilkCollectionGrid,
+    };
+  }
+
+  private buildGrid(
     sheet: CollectionSheet,
     clients: CollectionClient[],
     savedCollections: SavedCollection[],
-  ) {
-    this.logger.debug(`Building collection grid for sheet ${sheet.id}`);
-
+  ): CollectionGrid {
     const columns = [
       {
         field: 'clientCode',
@@ -116,21 +158,6 @@ export class CollectionBuilder {
         editable: false,
       },
     ];
-
-    const status = sheet.order_paper?.status;
-
-    const permissions = {
-      canEditNightCollections:
-        this.workflowState.canEditNightCollections(status),
-
-      canEditMorningCollections:
-        this.workflowState.canEditMorningCollections(status),
-
-      canEditAdminCollections:
-        this.workflowState.canAdminEditCollections(status),
-
-      canFinalize: this.workflowState.canFinalize(status),
-    };
 
     const rows = clients.map((client) => {
       const saved = savedCollections.find(
@@ -268,22 +295,9 @@ export class CollectionBuilder {
           .toFixed(2),
       ),
     };
-
     return {
-      orderSheetId: sheet.id,
-
-      groupId: sheet.group_id,
-
-      groupName: sheet.master_group?.name,
-
-      paperStatus: sheet.order_paper?.status,
-
-      permissions,
-
       columns,
-
       rows,
-
       totals,
     };
   }

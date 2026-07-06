@@ -6,8 +6,9 @@ import { CollectionsValidationService } from '../collections/collections-validat
 import { OrdersValidationService } from '../orders/orders-validation.service.js';
 import { PaperRepository } from './paper.repository.js';
 import { PurchaseValidationService } from '../purchase/purchase-validation.service.js';
-import { CashSettlementValidationService }
-    from '../cash-settlement/cash-settlement-validation.service.js';
+import { CashSettlementValidationService } from '../cash-settlement/cash-settlement-validation.service.js';
+import { DistributorTransferValidationService } from '../distributor-transfer/distributor-transfer-validation.service.js';
+import { DairyTrayTrackingValidationService } from '../dairy-tray-tracking/dairy-tray-tracking-validation.service.js';
 
 @Injectable()
 export class PaperValidationService {
@@ -18,7 +19,9 @@ export class PaperValidationService {
     private readonly traysValidationService: TraysValidationService,
     private readonly collectionsValidationService: CollectionsValidationService,
     private readonly purchaseValidationService: PurchaseValidationService,
-    private readonly cashSettlementValidationService:CashSettlementValidationService,
+    private readonly cashSettlementValidationService: CashSettlementValidationService,
+    private readonly distributorTransferValidationService: DistributorTransferValidationService,
+    private readonly dairyTrayTrackingValidationService: DairyTrayTrackingValidationService,
   ) {}
 
   async validateNightSubmitReadiness(paperId: number) {
@@ -28,6 +31,9 @@ export class PaperValidationService {
       throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
     }
 
+    if (paper.status !== 'DRAFT') {
+      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_IN_DRAFT_STATUS);
+    }
     const sheets = await this.paperRepository.getPaperSheets(paperId);
 
     await this.vehicleAllocationValidationService.validateVehicleAllocationsForNightSubmit(
@@ -77,8 +83,14 @@ export class PaperValidationService {
       );
     }
     await this.purchaseValidationService.validatePurchasesComplete(paperId);
-    await this.cashSettlementValidationService.validateMorningSubmitReadiness(paperId);
+    await this.dairyTrayTrackingValidationService
+  .validateDairyTrayTrackingComplete(paperId);
+    await this.cashSettlementValidationService.validateMorningSubmitReadiness(
+      paperId,
+    );
 
+    await this.distributorTransferValidationService
+    .validateGenerationReadiness(paperId);
     return paper;
   }
 

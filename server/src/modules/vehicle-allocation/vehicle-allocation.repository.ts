@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Prisma } from '../../generated/prisma/client.js';
+import { Prisma} from '../../generated/prisma/client.js';
 
 @Injectable()
 export class VehicleAllocationRepository {
@@ -139,12 +139,10 @@ export class VehicleAllocationRepository {
       },
 
       orderBy: [
-        {
-          vehicle_id: 'asc',
-        },
-        {
-          product_id: 'asc',
-        },
+        { vehicle_id: 'asc' },
+        { distributor_id: 'asc' },
+        { category: 'asc' },
+        { product_id: 'asc' },
       ],
     });
   }
@@ -174,12 +172,10 @@ export class VehicleAllocationRepository {
       },
 
       orderBy: [
-        {
-          vehicle_id: 'asc',
-        },
-        {
-          product_id: 'asc',
-        },
+        { vehicle_id: 'asc' },
+        { distributor_id: 'asc' },
+        { category: 'asc' },
+        { product_id: 'asc' },
       ],
     });
   }
@@ -215,8 +211,23 @@ export class VehicleAllocationRepository {
         master_distributor: true,
       },
 
-      orderBy: {
-        vehicle_id: 'asc',
+      orderBy: [{ vehicle_id: 'asc' }, { category: 'asc' }],
+    });
+  }
+
+  
+  async getProductLink(distributorId: number, productId: number) {
+    return this.prisma.master_product_link.findUnique({
+      where: {
+        distributor_id_product_id: {
+          distributor_id: distributorId,
+          product_id: productId,
+        },
+      },
+      select: {
+        id: true,
+        distributor_id: true,
+        product_id: true,
       },
     });
   }
@@ -254,6 +265,58 @@ export class VehicleAllocationRepository {
           data,
         });
       }
+    });
+  }
+
+  async findOrderItemsWithSupplyContextByPaperId(paperId: number) {
+    const items = await this.prisma.order_sheet_items.findMany({
+      where: {
+        order_sheet: {
+          order_paper_id: paperId,
+        },
+      },
+      include: {
+        order_sheet: {
+          include: {
+            master_group: {
+              include: {
+                supply_rules: true,
+              },
+            },
+          },
+        },
+        master_product: {
+          include: {
+            master_brand: true,
+            master_product_group: true,
+            master_product_type: true,
+            master_packaging_type: true,
+          },
+        },
+      },
+    });
+
+    return items.map((item) => {
+      const category = item.master_product.master_product_group.category;
+      const supplyRule = item.order_sheet.master_group.supply_rules.find(
+        (rule) => rule.category === category,
+      );
+
+      if (!supplyRule) {
+        throw new Error(
+          `Missing supply rule for group ${item.order_sheet.master_group.name} and category ${category}`,
+        );
+      }
+
+      return {
+        groupId: item.order_sheet.group_id,
+        groupName: item.order_sheet.master_group.name,
+        productId: item.product_id,
+        orderedQty: Number(item.ordered_qty ?? 0),
+        distributorId: supplyRule.distributor_id,
+        category,
+        master_product: item.master_product,
+      };
     });
   }
 }

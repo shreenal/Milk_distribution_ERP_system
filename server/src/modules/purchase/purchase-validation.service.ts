@@ -4,6 +4,8 @@ import { SavePurchaseDto } from './dto/purchase.dto.js';
 
 import { PurchaseRepository } from './purchase.repository.js';
 
+import { SupplyCategory } from '../../generated/prisma/client.js';
+
 import {
   VehicleAssignment,
   ProcurementRule,
@@ -30,20 +32,15 @@ export class PurchaseValidationService {
       vehicleAssignments.map((assignment) => assignment.vehicle_id),
     );
 
-    const validDistributors = new Set(
-      procurementRules.map((rule) => rule.distributor_id),
-    );
-
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
 
-    const vehicleDistributorMap = new Map<number, number>();
+    const assignmentMap = new Map<string, VehicleAssignment>();
 
     for (const assignment of vehicleAssignments) {
-      vehicleDistributorMap.set(
-        assignment.vehicle_id,
-
-        assignment.distributor_id,
+      assignmentMap.set(
+        `${assignment.vehicle_id}_${assignment.category}`,
+        assignment,
       );
     }
 
@@ -56,8 +53,7 @@ export class PurchaseValidationService {
         );
       }
       allocationMap.set(
-        `${allocation.vehicle_id}_${allocation.product_id}`,
-
+        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}`,
         Number(allocation.allocated_qty),
       );
     }
@@ -82,7 +78,9 @@ export class PurchaseValidationService {
         ) ?? [];
 
       for (const product of matchingProducts) {
-        validProcurementRules.add(`${rule.distributor_id}_${product.id}`);
+        validProcurementRules.add(
+          `${rule.distributor_id}_${rule.category}_${product.id}`,
+        );
       }
     }
 
@@ -109,25 +107,20 @@ export class PurchaseValidationService {
         );
       }
 
-      if (!validDistributors.has(entry.distributorId)) {
-        throw new BadRequestException(
-          PURCHASE_ERROR_MESSAGES.INVALID_DISTRIBUTOR(entry.distributorId),
-        );
-      }
+      const assignment = assignmentMap.get(
+        `${entry.vehicleId}_${entry.category}`,
+      );
 
-      const assignedDistributor = vehicleDistributorMap.get(entry.vehicleId);
-
-      if (assignedDistributor !== entry.distributorId) {
+      if (!assignment || assignment.distributor_id !== entry.distributorId) {
         throw new BadRequestException(
-          PURCHASE_ERROR_MESSAGES.VEHICLE_DISTRIBUTOR_MISMATCH(
-            entry.vehicleId,
-            entry.distributorId,
-          ),
+          PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(entry.vehicleId),
         );
       }
 
       if (
-        !validProcurementRules.has(`${entry.distributorId}_${entry.productId}`)
+        !validProcurementRules.has(
+          `${entry.distributorId}_${entry.category}_${entry.productId}`,
+        )
       ) {
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.PROCUREMENT_RULE_MISSING(
@@ -138,7 +131,7 @@ export class PurchaseValidationService {
       }
 
       const allocatedQty = allocationMap.get(
-        `${entry.vehicleId}_${entry.productId}`,
+        `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}`,
       );
 
       if (allocatedQty === undefined) {
@@ -159,25 +152,8 @@ export class PurchaseValidationService {
   }
 
   async validatePurchasesComplete(paperId: number) {
-    const purchasePaper =
-      await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
-
-    if (!purchasePaper) {
-      throw new BadRequestException(
-        PURCHASE_ERROR_MESSAGES.PURCHASES_NOT_COMPLETED,
-      );
-    }
-
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
-
-    const purchaseEntries = await this.purchaseRepository.findPurchaseEntries(
-      purchasePaper.id,
-    );
-
-    const purchaseKeys = new Set(
-      purchaseEntries.map((entry) => `${entry.vehicle_id}_${entry.product_id}`),
-    );
 
     if (allocations.length === 0) {
       throw new BadRequestException(
@@ -185,8 +161,71 @@ export class PurchaseValidationService {
       );
     }
 
-    for (const allocation of allocations) {
-      const key = `${allocation.vehicle_id}_${allocation.product_id}`;
+    const requiredAllocations = allocations.filter(
+      (allocation) => Number(allocation.allocated_qty) > 0,
+    );
+
+    const vehicleAssignments: VehicleAssignment[] =
+      await this.purchaseRepository.findVehicleAssignmentsByPaperId(paperId);
+
+    const assignmentMap = new Map<string, VehicleAssignment>();
+
+    for (const assignment of vehicleAssignments) {
+      assignmentMap.set(
+        `${assignment.vehicle_id}_${assignment.category}`,
+        assignment,
+      );
+    }
+
+    const purchasePaper =
+      await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
+
+    console.log('purchasePaper =', purchasePaper);
+    if (!purchasePaper) {
+      console.log('purchasePaper is null -> throwing PURCHASES_NOT_COMPLETED');
+      if (requiredAllocations.length === 0) {
+        return;
+      }
+
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.PURCHASES_NOT_COMPLETED,
+      );
+    }
+
+    const purchaseEntries = await this.purchaseRepository.findPurchaseEntries(
+      purchasePaper.id,
+    );
+
+    const purchaseKeys = new Set(
+      purchaseEntries.map(
+        (entry) =>
+          `${entry.distributor_id}_${entry.category}_${entry.vehicle_id}_${entry.product_id}`,
+      ),
+    );
+
+    for (const allocation of requiredAllocations) {
+      if (allocation.vehicle_id == null || allocation.product_id == null) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.INVALID_ALLOCATION_IDENTIFIERS,
+        );
+      }
+
+      const assignment = assignmentMap.get(
+        `${allocation.vehicle_id}_${allocation.category}`,
+      );
+
+      if (
+        !assignment ||
+        assignment.distributor_id !== allocation.distributor_id
+      ) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(
+            allocation.vehicle_id,
+          ),
+        );
+      }
+
+      const key = `${allocation.distributor_id}_${allocation.category}_${allocation.vehicle_id}_${allocation.product_id}`;
 
       if (!purchaseKeys.has(key)) {
         throw new BadRequestException(

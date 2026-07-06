@@ -1,274 +1,146 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-
-import { CashSettlementRepository }
-    from './cash-settlement.repository.js';
-
-import { CashSettlementBuilder }
-    from './cash-settlement.builder.js';
-
 import {
-    SaveRouteExpensesDto,
-} from './dto/save-route-expense.dto.js';
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+
+import { CashSettlementRepository } from './cash-settlement.repository.js';
+
+import { CashSettlementBuilder } from './cash-settlement.builder.js';
+
+import { SaveRouteExpensesDto } from './dto/save-route-expense.dto.js';
 import { SaveRouteDenominationsDto } from './dto/save-route-denominations.dto.js';
 
-import {
-    SaveDirectCollectionsDto,
-} from './dto/save-direct-collections.dto.js';
+import { SaveDirectCollectionsDto } from './dto/save-direct-collections.dto.js';
 import { SaveBankDepositsDto } from './dto/save-bank-deposit.dto.js';
-import { WorkflowStateService }
-    from '../workflow/workflow-state.service.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
-import {
-    CASH_SETTLEMENT_ERRORS,
-} from './cash-settlement.constants.js';
+import { CASH_SETTLEMENT_ERRORS } from './cash-settlement.constants.js';
 @Injectable()
 export class CashSettlementService {
+  constructor(
+    private readonly repository: CashSettlementRepository,
 
-    constructor(
-        private readonly repository:
-            CashSettlementRepository,
+    private readonly builder: CashSettlementBuilder,
 
-        private readonly builder:
-            CashSettlementBuilder,
+    private readonly workflowStateService: WorkflowStateService,
+  ) {}
 
-        private readonly workflowStateService:
-            WorkflowStateService,
-    ) { }
+  async getCashSettlementService(paperId: number) {
+    const paper = await this.getCashSettlementPaper(paperId);
 
-    async getCashSettlementService(
-        paperId: number,
-    ) {
-        const paper =
-            await this.getCashSettlementPaper(
-                paperId,
-            );
+    return this.builder.buildCashSettlement(paper);
+  }
 
-        return this.builder
-            .buildCashSettlement(
-                paper,
-            );
+  async saveRouteExpensesService(paperId: number, dto: SaveRouteExpensesDto) {
+    await this.validateRouteExpenseEditing(paperId);
+
+    const expensesBySheet = new Map<number, typeof dto.expenses>();
+
+    for (const expense of dto.expenses) {
+      const existing = expensesBySheet.get(expense.sheetId) ?? [];
+
+      existing.push(expense);
+
+      expensesBySheet.set(expense.sheetId, existing);
     }
 
-    async saveRouteExpensesService(
-        paperId: number,
-        dto: SaveRouteExpensesDto,
-    ) {
+    for (const [sheetId, expenses] of expensesBySheet) {
+      await this.repository.replaceRouteExpenses(sheetId, expenses);
+    }
+    return {
+      success: true,
+    };
+  }
 
-        await this.validateRouteExpenseEditing(paperId);
+  async saveRouteDenominationsService(
+    paperId: number,
+    dto: SaveRouteDenominationsDto,
+  ) {
+    await this.validateRouteDenominationEditing(paperId);
 
-        const expensesBySheet =
-            new Map<
-                number,
-                typeof dto.expenses
-            >();
-
-
-        for (
-            const expense of dto.expenses
-        ) {
-
-            const existing =
-                expensesBySheet.get(
-                    expense.sheetId,
-                ) ?? [];
-
-            existing.push(
-                expense,
-            );
-
-            expensesBySheet.set(
-                expense.sheetId,
-                existing,
-            );
-        }
-
-        for (
-            const [
-                sheetId,
-                expenses,
-            ] of expensesBySheet
-        ) {
-
-            await this.repository
-                .replaceRouteExpenses(
-                    sheetId,
-                    expenses,
-                );
-        }
-        return {
-            success: true,
-        };
+    for (const denomination of dto.denominations) {
+      await this.repository.saveRouteDenomination(denomination);
     }
 
-    async saveRouteDenominationsService(
-        paperId: number,
-        dto: SaveRouteDenominationsDto,
-    ) {
+    return {
+      success: true,
+    };
+  }
 
-        await this.validateRouteDenominationEditing(paperId);
+  async saveDirectCollectionsService(
+    paperId: number,
+    dto: SaveDirectCollectionsDto,
+  ) {
+    await this.validateDirectCollectionEditing(paperId);
 
-        for (
-            const denomination of
-            dto.denominations
-        ) {
+    await this.repository.replaceDirectCollections(
+      paperId,
+      dto.directCollections,
+    );
 
-            await this.repository
-                .saveRouteDenomination(
-                    denomination,
-                );
-        }
+    return {
+      success: true,
+    };
+  }
 
-        return {
-            success: true,
-        };
+  async saveBankDepositsService(paperId: number, dto: SaveBankDepositsDto) {
+    await this.validateBankDepositEditing(paperId);
+
+    await this.repository.replaceBankDeposits(paperId, dto.bankDeposits);
+
+    return {
+      success: true,
+    };
+  }
+
+  private async getCashSettlementPaper(paperId: number) {
+    const paper = await this.repository.getCashSettlementData(paperId);
+
+    if (!paper) {
+      throw new NotFoundException(CASH_SETTLEMENT_ERRORS.PAPER_NOT_FOUND);
     }
 
-    async saveDirectCollectionsService(
-        paperId: number,
-        dto: SaveDirectCollectionsDto,
-    ) {
+    return paper;
+  }
 
-        await this.validateDirectCollectionEditing(paperId);
+  private async validateRouteExpenseEditing(paperId: number) {
+    const paper = await this.getCashSettlementPaper(paperId);
 
-        await this.repository
-            .replaceDirectCollections(
-                paperId,
-                dto.directCollections,
-            );
-
-        return {
-            success: true,
-        };
+    if (!this.workflowStateService.canEditRouteExpenses(paper.status)) {
+      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
     }
 
-    async saveBankDepositsService(
-        paperId: number,
-        dto: SaveBankDepositsDto,
-    ) {
+    return paper;
+  }
 
-        await this.validateBankDepositEditing(paperId);
+  private async validateRouteDenominationEditing(paperId: number) {
+    const paper = await this.getCashSettlementPaper(paperId);
 
-        await this.repository
-            .replaceBankDeposits(
-                paperId,
-                dto.bankDeposits,
-            );
-
-        return {
-            success: true,
-        };
+    if (!this.workflowStateService.canEditRouteDenominations(paper.status)) {
+      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
     }
 
-    private async getCashSettlementPaper(
-        paperId: number,
-    ) {
-        const paper =
-            await this.repository
-                .getCashSettlementData(
-                    paperId,
-                );
+    return paper;
+  }
 
-        if (!paper) {
-            throw new NotFoundException(
-                CASH_SETTLEMENT_ERRORS
-                    .PAPER_NOT_FOUND,
-            );
-        }
+  private async validateDirectCollectionEditing(paperId: number) {
+    const paper = await this.getCashSettlementPaper(paperId);
 
-        return paper;
+    if (!this.workflowStateService.canEditDirectCollections(paper.status)) {
+      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
     }
 
-    private async validateRouteExpenseEditing(
-        paperId: number,
-    ) {
-        const paper =
-            await this.getCashSettlementPaper(
-                paperId,
-            );
+    return paper;
+  }
 
-        if (
-            !this.workflowStateService
-                .canEditRouteExpenses(
-                    paper.status,
-                )
-        ) {
-            throw new BadRequestException(
-                CASH_SETTLEMENT_ERRORS
-                    .EDITING_NOT_ALLOWED,
-            );
-        }
+  private async validateBankDepositEditing(paperId: number) {
+    const paper = await this.getCashSettlementPaper(paperId);
 
-        return paper;
+    if (!this.workflowStateService.canEditBankDeposits(paper.status)) {
+      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
     }
 
-    private async validateRouteDenominationEditing(
-        paperId: number,
-    ) {
-        const paper =
-            await this.getCashSettlementPaper(
-                paperId,
-            );
-
-        if (
-            !this.workflowStateService
-                .canEditRouteDenominations(
-                    paper.status,
-                )
-        ) {
-            throw new BadRequestException(
-                CASH_SETTLEMENT_ERRORS
-                    .EDITING_NOT_ALLOWED,
-            );
-        }
-
-        return paper;
-    }
-
-    private async validateDirectCollectionEditing(
-        paperId: number,
-    ) {
-        const paper =
-            await this.getCashSettlementPaper(
-                paperId,
-            );
-
-        if (
-            !this.workflowStateService
-                .canEditDirectCollections(
-                    paper.status,
-                )
-        ) {
-            throw new BadRequestException(
-                CASH_SETTLEMENT_ERRORS
-                    .EDITING_NOT_ALLOWED,
-            );
-        }
-
-        return paper;
-    }
-
-    private async validateBankDepositEditing(
-        paperId: number,
-    ) {
-        const paper =
-            await this.getCashSettlementPaper(
-                paperId,
-            );
-
-        if (
-            !this.workflowStateService
-                .canEditBankDeposits(
-                    paper.status,
-                )
-        ) {
-            throw new BadRequestException(
-                CASH_SETTLEMENT_ERRORS
-                    .EDITING_NOT_ALLOWED,
-            );
-        }
-
-        return paper;
-    }
-
-
+    return paper;
+  }
 }
