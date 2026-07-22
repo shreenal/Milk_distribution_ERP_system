@@ -10,9 +10,8 @@ import {
   TrayColumnNode,
   TrayGrid,
   TrayRow,
-  TrayTotals
+  TrayTotals,
 } from '../../types/trays.types.js';
-
 
 @Injectable()
 export class TrayBillingBuilder {
@@ -37,7 +36,6 @@ export class TrayBillingBuilder {
         SupplyCategory.NON_MILK,
     );
 
-
     const milkTrayTypes = this.getTrayTypesForItems(
       milkSheetItems,
       data.trayRules,
@@ -49,7 +47,6 @@ export class TrayBillingBuilder {
       data.trayRules,
       data.trayTypes,
     );
-
 
     const milkTrayGrid = this.buildGrid({
       ...data,
@@ -179,146 +176,143 @@ export class TrayBillingBuilder {
     // ROWS
     // =========================
 
-    const rows = clients.map((client) => {
-      const row: TrayRow = {
-        clientId: client.id,
-        clientName: client.name,
-      };
+    const rows = clients
+      .map((client) => {
+        const row: TrayRow = {
+          clientId: client.id,
+          clientName: client.name,
+        };
 
-      // =========================
-      // AUTO CALCULATE TRAYS TAKEN
-      // =========================
+        // =========================
+        // AUTO CALCULATE TRAYS TAKEN
+        // =========================
 
-      const clientItems = sheetItems.filter(
-        (item) => item.client_id === client.id,
-      );
+        const clientItems = sheetItems.filter(
+          (item) => item.client_id === client.id,
+        );
 
-      if (clientItems.length === 0) {
-        return null;
-      }
+        if (clientItems.length === 0) {
+          return null;
+        }
 
-      const expectedTrayMap = new Map<number, number>();
+        const expectedTrayMap = new Map<number, number>();
 
-      const trayTakenMap = new Map<number, number>();
+        const trayTakenMap = new Map<number, number>();
 
-      for (const item of clientItems) {
-        const matchingRules = trayRules.filter((rule) => {
-          const baseMatch =
-            (rule.brand_id === null ||
-              rule.brand_id === item.master_product.brand_id) &&
-            (rule.product_group_id === null ||
-              rule.product_group_id === item.master_product.product_group_id) &&
-            (rule.product_type_id === null ||
-              rule.product_type_id === item.master_product.product_type_id);
+        for (const item of clientItems) {
+          const matchingRules = trayRules.filter((rule) => {
+            const baseMatch =
+              (rule.brand_id === null ||
+                rule.brand_id === item.master_product.brand_id) &&
+              (rule.product_group_id === null ||
+                rule.product_group_id ===
+                  item.master_product.product_group_id) &&
+              (rule.product_type_id === null ||
+                rule.product_type_id === item.master_product.product_type_id);
 
-          if (!baseMatch) {
-            return false;
+            if (!baseMatch) {
+              return false;
+            }
+
+            if (rule.applies_to_packaging) {
+              return (
+                rule.packaging_type_id === item.master_product.packaging_type_id
+              );
+            }
+
+            return true;
+          });
+
+          if (matchingRules.length === 0) {
+            continue;
           }
+          // =========================
+          // MOST SPECIFIC RULE WINS
+          // =========================
 
-          if (rule.applies_to_packaging) {
-            return (
-              rule.packaging_type_id === item.master_product.packaging_type_id
-            );
-          }
+          matchingRules.sort((a, b) => {
+            const aSpecificity =
+              Number(a.brand_id !== null) +
+              Number(a.product_group_id !== null) +
+              Number(a.product_type_id !== null) +
+              Number(a.packaging_type_id !== null);
 
-          return true;
-        });
+            const bSpecificity =
+              Number(b.brand_id !== null) +
+              Number(b.product_group_id !== null) +
+              Number(b.product_type_id !== null) +
+              Number(b.packaging_type_id !== null);
 
-        if (matchingRules.length === 0) {
-          console.log(
-            'NO TRAY RULE',
-            item.product_id,
-            item.master_product.code,
+            return bSpecificity - aSpecificity;
+          });
+
+          const rule = matchingRules[0];
+
+          const trayTypeId = rule.tray_type_id;
+          const orderedQty = Number(item.ordered_qty ?? 0);
+
+          const deliveredQty = Number(item.delivered_qty ?? 0);
+
+          // ========================= // TRAY CALCULATION // ========================= // ordered_qty already represents // tray shorthand count
+          const expectedTraysTaken = orderedQty; // delivered_qty may contain // fractional tray shorthand // because of leakage
+          const traysTaken = Math.round(deliveredQty);
+
+          const existingExpected = expectedTrayMap.get(trayTypeId) ?? 0;
+
+          expectedTrayMap.set(
+            trayTypeId,
+
+            existingExpected + expectedTraysTaken,
           );
 
-          continue;
+          const existingActual = trayTakenMap.get(trayTypeId) ?? 0;
+
+          trayTakenMap.set(
+            trayTypeId,
+
+            existingActual + traysTaken,
+          );
         }
+
         // =========================
-        // MOST SPECIFIC RULE WINS
+        // BUILD TRAY COLUMNS
         // =========================
 
-        matchingRules.sort((a, b) => {
-          const aSpecificity =
-            Number(a.brand_id !== null) +
-            Number(a.product_group_id !== null) +
-            Number(a.product_type_id !== null) +
-            Number(a.packaging_type_id !== null);
+        for (const trayType of trayTypes) {
+          const trayTypeId = trayType.id;
 
-          const bSpecificity =
-            Number(b.brand_id !== null) +
-            Number(b.product_group_id !== null) +
-            Number(b.product_type_id !== null) +
-            Number(b.packaging_type_id !== null);
+          const savedTransaction = trayTransactions.find(
+            (transaction) =>
+              transaction.client_id === client.id &&
+              transaction.tray_type_id === trayTypeId,
+          );
 
-          return bSpecificity - aSpecificity;
-        });
+          const opening = Number(
+            openingBalanceMap.get(`${client.id}_${trayTypeId}`) ?? 0,
+          );
 
-        const rule = matchingRules[0];
+          const expected = Number(expectedTrayMap.get(trayTypeId) ?? 0);
 
-        const trayTypeId = rule.tray_type_id;
-        const orderedQty = Number(item.ordered_qty ?? 0);
+          const taken = Number(trayTakenMap.get(trayTypeId) ?? 0);
 
-        const deliveredQty = Number(item.delivered_qty ?? 0);
+          const returned = Number(savedTransaction?.trays_returned ?? 0);
 
-        // ========================= // TRAY CALCULATION // ========================= // ordered_qty already represents // tray shorthand count
-        const expectedTraysTaken = orderedQty; // delivered_qty may contain // fractional tray shorthand // because of leakage
-        const traysTaken = Math.round(deliveredQty);
+          const closing = opening + taken - returned;
 
-        const existingExpected = expectedTrayMap.get(trayTypeId) ?? 0;
+          row[`tray_${trayTypeId}_opening`] = opening;
 
-        expectedTrayMap.set(
-          trayTypeId,
+          row[`tray_${trayTypeId}_expected`] = expected;
 
-          existingExpected + expectedTraysTaken,
-        );
+          row[`tray_${trayTypeId}_taken`] = taken;
 
-        const existingActual = trayTakenMap.get(trayTypeId) ?? 0;
+          row[`tray_${trayTypeId}_returned`] = returned;
 
-        trayTakenMap.set(
-          trayTypeId,
+          row[`tray_${trayTypeId}_closing`] = closing;
+        }
 
-          existingActual + traysTaken,
-        );
-      }
-
-      // =========================
-      // BUILD TRAY COLUMNS
-      // =========================
-
-      for (const trayType of trayTypes) {
-        const trayTypeId = trayType.id;
-
-        const savedTransaction = trayTransactions.find(
-          (transaction) =>
-            transaction.client_id === client.id &&
-            transaction.tray_type_id === trayTypeId,
-        );
-
-        const opening = Number(
-          openingBalanceMap.get(`${client.id}_${trayTypeId}`) ?? 0,
-        );
-
-        const expected = Number(expectedTrayMap.get(trayTypeId) ?? 0);
-
-        const taken = Number(trayTakenMap.get(trayTypeId) ?? 0);
-
-        const returned = Number(savedTransaction?.trays_returned ?? 0);
-
-        const closing = opening + taken - returned;
-
-        row[`tray_${trayTypeId}_opening`] = opening;
-
-        row[`tray_${trayTypeId}_expected`] = expected;
-
-        row[`tray_${trayTypeId}_taken`] = taken;
-
-        row[`tray_${trayTypeId}_returned`] = returned;
-
-        row[`tray_${trayTypeId}_closing`] = closing;
-      }
-
-      return row;
-    }).filter((row): row is TrayRow => row !== null);;
+        return row;
+      })
+      .filter((row): row is TrayRow => row !== null);
 
     // =========================
     // TOTALS
@@ -355,7 +349,7 @@ export class TrayBillingBuilder {
 
           0,
         ),
-      }
+      };
     }
 
     return {
@@ -388,8 +382,7 @@ export class TrayBillingBuilder {
 
         if (rule.applies_to_packaging) {
           return (
-            rule.packaging_type_id ===
-            item.master_product.packaging_type_id
+            rule.packaging_type_id === item.master_product.packaging_type_id
           );
         }
 
@@ -419,8 +412,6 @@ export class TrayBillingBuilder {
       trayTypeIds.add(matchingRules[0].tray_type_id);
     }
 
-    return trayTypes.filter((trayType) =>
-      trayTypeIds.has(trayType.id),
-    );
+    return trayTypes.filter((trayType) => trayTypeIds.has(trayType.id));
   }
 }

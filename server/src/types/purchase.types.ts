@@ -1,5 +1,5 @@
-import {Prisma, SupplyCategory } from '../generated/prisma/client.js';
-import { ProductColumnNode} from '../common/builders/product-columns.builder.js';
+import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
+import { ProductColumnNode } from '../common/builders/product-columns.builder.js';
 
 export type Product = Prisma.master_productGetPayload<{
   include: {
@@ -9,6 +9,22 @@ export type Product = Prisma.master_productGetPayload<{
     master_packaging_type: true;
   };
 }>;
+
+export type OrderItemWithSupplyContext = {
+  groupId: number;
+  groupName: string;
+  productId: number;
+  orderedQty: number;
+  distributorId: number;
+  category: SupplyCategory;
+  master_product: Product;
+};
+
+export type SummaryRow = {
+  groupId: number;
+  groupName: string;
+  [key: string]: string | number;
+};
 
 export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
   include: {
@@ -37,8 +53,6 @@ export type PurchaseGridItem = {
   category: SupplyCategory;
   brandId: number;
   brandName: string;
-  productGroupId: number;
-  productGroupName: string;
   columns: ProductColumnNode[];
   rows: PurchaseRow[];
 };
@@ -68,13 +82,3 @@ export type VehicleAssignment = {
     name: string;
   };
 };
-
-export interface ProcurementRule {
-  distributor_id: number;
-  brand_id: number;
-  product_group_id: number;
-  master_distributor: { name: string };
-  master_brand: { name: string };
-  master_product_group: { name: string };
-  category: SupplyCategory;
-}

@@ -1,23 +1,34 @@
-import { Injectable } from "@nestjs/common";
-import { Prisma } from "../../generated/prisma/client.js";
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '../../generated/prisma/client.js';
 import { SaveDairyTrayEntryDto } from './dto/save-dairy-tray-entry.dto.js';
-import { Vehicle, BuildDairyTrayGridParams, TrayType, ProductTrayRule, DairyTrayTransaction, DairyTrayGrid, DairyTrayRow, DairyTrayTotals, TrayColumnNode, Product, VehicleAllocation } from "../../types/dairy-tray-tracking.types.js";
-
+import {
+  Vehicle,
+  BuildDairyTrayGridParams,
+  TrayType,
+  ProductTrayRule,
+  DairyTrayTransaction,
+  DairyTrayGrid,
+  DairyTrayRow,
+  DairyTrayTotals,
+  TrayColumnNode,
+  Product,
+  PurchaseEntry,
+} from '../../types/dairy-tray-tracking.types.js';
 
 @Injectable()
 export class DairyTrayTrackingBuilder {
   buildDairyTrayGrid({
     vehicles,
     trayTypes,
-    vehicleAllocations,
+    purchaseEntries,
     trayRules,
     previousTransactions,
     currentTransactions,
   }: BuildDairyTrayGridParams): DairyTrayGrid {
     const columns = this.buildTrayColumns(trayTypes);
 
-    const takenMap = this.buildTakenMapFromVehicleAllocations(
-      vehicleAllocations,
+    const takenMap = this.buildTakenMapFromPurchaseEntries(
+      purchaseEntries,
       trayRules,
     );
 
@@ -37,7 +48,6 @@ export class DairyTrayTrackingBuilder {
       totals,
     };
   }
-
 
   private buildTrayColumns(trayTypes: TrayType[]): TrayColumnNode[] {
     const brandMap = new Map<
@@ -176,8 +186,7 @@ export class DairyTrayTrackingBuilder {
   ): ProductTrayRule | null {
     const matchingRules = trayRules.filter((rule) => {
       const baseMatch =
-        (rule.brand_id === null ||
-          rule.brand_id === product.brand_id) &&
+        (rule.brand_id === null || rule.brand_id === product.brand_id) &&
         (rule.product_group_id === null ||
           rule.product_group_id === product.product_group_id) &&
         (rule.product_type_id === null ||
@@ -217,15 +226,15 @@ export class DairyTrayTrackingBuilder {
     return matchingRules[0];
   }
 
-  private buildTakenMapFromVehicleAllocations(
-    vehicleAllocations: VehicleAllocation[],
+  private buildTakenMapFromPurchaseEntries(
+    purchaseEntries: PurchaseEntry[],
     trayRules: ProductTrayRule[],
   ): Map<number, Map<number, number>> {
     const takenMap = new Map<number, Map<number, number>>();
 
-    for (const allocation of vehicleAllocations) {
+    for (const entry of purchaseEntries) {
       const trayRule = this.findMatchingTrayRule(
-        allocation.master_product,
+        entry.master_product,
         trayRules,
       );
 
@@ -233,19 +242,18 @@ export class DairyTrayTrackingBuilder {
         continue;
       }
 
-      let vehicleMap = takenMap.get(allocation.vehicle_id);
+      let vehicleMap = takenMap.get(entry.vehicle_id);
 
       if (!vehicleMap) {
         vehicleMap = new Map<number, number>();
-        takenMap.set(allocation.vehicle_id, vehicleMap);
+        takenMap.set(entry.vehicle_id, vehicleMap);
       }
 
-      const currentTaken =
-        vehicleMap.get(trayRule.tray_type_id) ?? 0;
+      const currentTaken = vehicleMap.get(trayRule.tray_type_id) ?? 0;
 
       vehicleMap.set(
         trayRule.tray_type_id,
-        currentTaken + Number(allocation.allocated_qty),
+        currentTaken + Number(entry.purchased_qty),
       );
     }
 
@@ -284,9 +292,7 @@ export class DairyTrayTrackingBuilder {
     return totals;
   }
 
-  private initializeTrayFields(
-    trayTypes: TrayType[],
-  ): Record<string, number> {
+  private initializeTrayFields(trayTypes: TrayType[]): Record<string, number> {
     const row: Record<string, number> = {};
 
     for (const trayType of trayTypes) {
@@ -301,20 +307,19 @@ export class DairyTrayTrackingBuilder {
 
   buildTrayTransactions(
     dairyTrayPaperId: number,
-    entries: SaveDairyTrayEntryDto[],
-    vehicleAllocations: VehicleAllocation[],
+    trayentries: SaveDairyTrayEntryDto[],
+    purchaseEntries: PurchaseEntry[],
     trayRules: ProductTrayRule[],
     previousTransactions: DairyTrayTransaction[],
   ): Prisma.dairy_tray_transactionCreateManyInput[] {
-
-    const takenMap = this.buildTakenMapFromVehicleAllocations(
-      vehicleAllocations,
+    const takenMap = this.buildTakenMapFromPurchaseEntries(
+      purchaseEntries,
       trayRules,
     );
 
     const transactions: Prisma.dairy_tray_transactionCreateManyInput[] = [];
 
-    for (const entry of entries) {
+    for (const entry of trayentries) {
       const previous = previousTransactions.find(
         (transaction) =>
           transaction.vehicle_id === entry.vehicleId &&
@@ -328,8 +333,7 @@ export class DairyTrayTrackingBuilder {
 
       const traysReturned = entry.returned;
 
-      const closingBalance =
-        openingBalance + traysTaken - traysReturned;
+      const closingBalance = openingBalance + traysTaken - traysReturned;
 
       transactions.push({
         dairy_tray_paper_id: dairyTrayPaperId,

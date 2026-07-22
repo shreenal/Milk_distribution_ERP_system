@@ -12,7 +12,7 @@ import { SupplyCategory } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class CollectionsRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async getOrderSheetById(sheetId: number) {
     return this.prisma.order_sheet.findUnique({
@@ -42,27 +42,26 @@ export class CollectionsRepository {
     });
   }
 
-
   async getClientsByGroupAndCategory(
-  groupId: number,
-  category: SupplyCategory,
-) {
-  return this.prisma.master_client.findMany({
-    where: {
-      delivery_group_id: groupId,
-      is_active: true,
-      categories: {
-        some: {
-          category,
+    groupId: number,
+    category: SupplyCategory,
+  ) {
+    return this.prisma.master_client.findMany({
+      where: {
+        delivery_group_id: groupId,
+        is_active: true,
+        categories: {
+          some: {
+            category,
+          },
         },
       },
-    },
 
-    orderBy: {
-      code: 'asc',
-    },
-  });
-}
+      orderBy: {
+        code: 'asc',
+      },
+    });
+  }
 
   async getCollectionsForValidation(sheetId: number) {
     return this.prisma.client_collection.findMany({

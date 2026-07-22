@@ -4,27 +4,21 @@ import { SavePurchaseDto } from './dto/purchase.dto.js';
 
 import { PurchaseRepository } from './purchase.repository.js';
 
-import { SupplyCategory } from '../../generated/prisma/client.js';
-
-import {
-  VehicleAssignment,
-  ProcurementRule,
-} from '../../types/purchase.types.js';
+import { VehicleAssignment } from '../../types/purchase.types.js';
 
 import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
 
+import { DeliverySession } from '../../generated/prisma/client.js';
+
 @Injectable()
 export class PurchaseValidationService {
-  constructor(private readonly purchaseRepository: PurchaseRepository) {}
+  constructor(private readonly purchaseRepository: PurchaseRepository) { }
 
   async validatePurchases(paperId: number, dto: SavePurchaseDto) {
     const products = await this.purchaseRepository.findProducts();
 
     const vehicleAssignments: VehicleAssignment[] =
       await this.purchaseRepository.findVehicleAssignmentsByPaperId(paperId);
-
-    const procurementRules: ProcurementRule[] =
-      await this.purchaseRepository.findDistributorProcurementRules();
 
     const validProductIds = new Set(products.map((product) => product.id));
 
@@ -34,6 +28,12 @@ export class PurchaseValidationService {
 
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
+
+    if (allocations.length === 0) {
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.NO_VEHICLE_ALLOCATIONS,
+      );
+    }
 
     const assignmentMap = new Map<string, VehicleAssignment>();
 
@@ -56,32 +56,6 @@ export class PurchaseValidationService {
         `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}`,
         Number(allocation.allocated_qty),
       );
-    }
-
-    const productsByBrandAndGroup = new Map<string, typeof products>();
-
-    for (const product of products) {
-      const key = `${product.brand_id}_${product.product_group_id}`;
-
-      const existing = productsByBrandAndGroup.get(key) ?? [];
-
-      existing.push(product);
-
-      productsByBrandAndGroup.set(key, existing);
-    }
-    const validProcurementRules = new Set<string>();
-
-    for (const rule of procurementRules) {
-      const matchingProducts =
-        productsByBrandAndGroup.get(
-          `${rule.brand_id}_${rule.product_group_id}`,
-        ) ?? [];
-
-      for (const product of matchingProducts) {
-        validProcurementRules.add(
-          `${rule.distributor_id}_${rule.category}_${product.id}`,
-        );
-      }
     }
 
     for (const entry of dto.entries) {
@@ -114,19 +88,6 @@ export class PurchaseValidationService {
       if (!assignment || assignment.distributor_id !== entry.distributorId) {
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(entry.vehicleId),
-        );
-      }
-
-      if (
-        !validProcurementRules.has(
-          `${entry.distributorId}_${entry.category}_${entry.productId}`,
-        )
-      ) {
-        throw new BadRequestException(
-          PURCHASE_ERROR_MESSAGES.PROCUREMENT_RULE_MISSING(
-            entry.distributorId,
-            entry.productId,
-          ),
         );
       }
 
@@ -178,7 +139,7 @@ export class PurchaseValidationService {
     }
 
     const purchasePaper =
-      await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
+      await this.purchaseRepository.findPurchasePaper(paperId);
 
     console.log('purchasePaper =', purchasePaper);
     if (!purchasePaper) {
@@ -228,6 +189,8 @@ export class PurchaseValidationService {
       const key = `${allocation.distributor_id}_${allocation.category}_${allocation.vehicle_id}_${allocation.product_id}`;
 
       if (!purchaseKeys.has(key)) {
+        console.log("Expected key:", key);
+        console.log("Purchase keys:", [...purchaseKeys]);
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.PURCHASE_MISSING(
             allocation.vehicle_id,

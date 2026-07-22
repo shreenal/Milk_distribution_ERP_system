@@ -28,9 +28,7 @@ export class DairyTrayTrackingController {
     @Param('paperId', ParseIntPipe)
     paperId: number,
   ) {
-    return this.dairyTrayTrackingService.getDairyTrayGrid(
-      paperId,
-    );
+    return this.dairyTrayTrackingService.getDairyTrayGrid(paperId);
   }
 
   @Post(':paperId/save')
@@ -42,9 +40,6 @@ export class DairyTrayTrackingController {
     @Body()
     dto: SaveDairyTrayEntriesDto,
   ) {
-    return this.dairyTrayTrackingService.saveDairyTrayEntries(
-      paperId,
-      dto,
-    );
+    return this.dairyTrayTrackingService.saveDairyTrayEntries(paperId, dto);
   }
 }

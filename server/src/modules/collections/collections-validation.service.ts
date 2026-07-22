@@ -7,27 +7,24 @@ import { SupplyCategory } from '../../generated/prisma/client.js';
 export class CollectionsValidationService {
   constructor(private readonly collectionsRepository: CollectionsRepository) {}
 
-
   validateClientsForCategory(
-  entries: { clientId: number }[],
-  validClients: { id: number }[],
-  category: SupplyCategory,
-) {
-  const validClientIds = new Set(
-    validClients.map((client) => client.id),
-  );
+    entries: { clientId: number }[],
+    validClients: { id: number }[],
+    category: SupplyCategory,
+  ) {
+    const validClientIds = new Set(validClients.map((client) => client.id));
 
-  for (const entry of entries) {
-    if (!validClientIds.has(entry.clientId)) {
-      throw new BadRequestException(
-        COLLECTION_ERROR_MESSAGES.CLIENT_NOT_IN_CATEGORY(
-          entry.clientId,
-          category,
-        ),
-      );
+    for (const entry of entries) {
+      if (!validClientIds.has(entry.clientId)) {
+        throw new BadRequestException(
+          COLLECTION_ERROR_MESSAGES.CLIENT_NOT_IN_CATEGORY(
+            entry.clientId,
+            category,
+          ),
+        );
+      }
     }
   }
-}
 
   async validateNightCollections(sheetId: number): Promise<void> {
     const collections =

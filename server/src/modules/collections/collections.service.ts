@@ -10,7 +10,6 @@ import { SaveNightCollectionsDto } from './dto/save-night-collection.dto.js';
 
 import { SaveMorningCollectionsDto } from './dto/save-morning-collection.dto.js';
 
-
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import {
   COLLECTION_ERROR_MESSAGES,
@@ -30,7 +29,7 @@ export class CollectionsService {
     private readonly collectionsValidationService: CollectionsValidationService,
 
     private readonly workflowState: WorkflowStateService,
-  ) { }
+  ) {}
 
   async getCollectionGrid(sheetId: number) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
@@ -62,7 +61,11 @@ export class CollectionsService {
     );
   }
 
-  async saveNightCollections(sheetId: number, category: SupplyCategory, dto: SaveNightCollectionsDto) {
+  async saveNightCollections(
+    sheetId: number,
+    category: SupplyCategory,
+    dto: SaveNightCollectionsDto,
+  ) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {
@@ -145,7 +148,8 @@ export class CollectionsService {
   async saveAdminCollections(
     sheetId: number,
     category: SupplyCategory,
-    dto: SaveAdminCollectionsDto) {
+    dto: SaveAdminCollectionsDto,
+  ) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
 
     if (!sheet) {

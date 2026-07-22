@@ -48,7 +48,6 @@ export interface CollectionTotals {
   grandTotal: number;
 }
 
-
 export type CollectionSheet = Prisma.order_sheetGetPayload<{
   include: {
     master_group: true;

@@ -5,17 +5,16 @@ import { PurchaseRepository } from './purchase.repository.js';
 import { PurchaseBuilder } from './purchase.builder.js';
 import { SavePurchaseDto } from './dto/purchase.dto.js';
 import { PurchaseValidationService } from './purchase-validation.service.js';
+import { AllocationSummaryBuilder } from '../../common/builders/allocation-summary.builder.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import { OrderItemsRepository } from '../../common/repositories/order-items.repository.js';
+import { VehicleAssignment } from '../../types/purchase.types.js';
 import {
-  VehicleAssignment,
-  ProcurementRule,
-} from '../../types/purchase.types.js';
-import { PURCHASE_ERROR_MESSAGES, QUANTITY_PRECISION } from './purchase.constants.js';
+  PURCHASE_ERROR_MESSAGES,
+  QUANTITY_PRECISION,
+} from './purchase.constants.js';
 
-import {
-  GatepassDatePolicy,
-  SupplyCategory,
-} from '../../generated/prisma/client.js';
+import { GatepassDatePolicy } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseService {
@@ -23,6 +22,10 @@ export class PurchaseService {
     private readonly purchaseRepository: PurchaseRepository,
 
     private readonly purchaseBuilder: PurchaseBuilder,
+
+    private readonly allocationSummaryBuilder: AllocationSummaryBuilder,
+
+    private readonly orderItemsRepository: OrderItemsRepository,
 
     private readonly purchaseValidationService: PurchaseValidationService,
 
@@ -32,20 +35,11 @@ export class PurchaseService {
   async getPurchases(paperId: number) {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
 
+
+
     if (!paper) {
       throw new BadRequestException(
         PURCHASE_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
-      );
-    }
-
-    const vehicleAllocationPaper =
-      await this.purchaseRepository.findVehicleAllocationPaperByOrderPaperId(
-        paperId,
-      );
-
-    if (!vehicleAllocationPaper) {
-      throw new BadRequestException(
-        PURCHASE_ERROR_MESSAGES.VEHICLE_ALLOCATIONS_REQUIRED,
       );
     }
 
@@ -60,19 +54,37 @@ export class PurchaseService {
 
     const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
 
-    const products = await this.purchaseRepository.findProducts();
+    // const products = await this.purchaseRepository.findProducts();
 
-    const procurementRules: ProcurementRule[] =
-      await this.purchaseRepository.findDistributorProcurementRules();
+    // const procurementRules: ProcurementRule[] =
+    //   await this.purchaseRepository.findDistributorProcurementRules();
+
+    // const grids = this.purchaseBuilder.buildPurchaseGrids(
+    //   procurementRules,
+    //   products,
+    //   vehicleAssignments,
+    // );
+
+    const orderItems =
+      await this.orderItemsRepository.findOrderItemsWithSupplyContextByPaperId(
+        paperId,
+      );
+
+    const summaries = this.allocationSummaryBuilder.build(orderItems);
 
     const grids = this.purchaseBuilder.buildPurchaseGrids(
-      procurementRules,
-      products,
+      summaries,
       vehicleAssignments,
     );
 
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
+
+    if (allocations.length === 0) {
+      throw new BadRequestException(
+        PURCHASE_ERROR_MESSAGES.VEHICLE_ALLOCATIONS_REQUIRED,
+      );
+    }
 
     const allocationResult = this.purchaseBuilder.applyVehicleAllocations(
       grids,
@@ -145,7 +157,7 @@ export class PurchaseService {
     );
 
     const purchasePaper =
-      await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
+      await this.purchaseRepository.findPurchasePaper(paperId);
 
     if (!purchasePaper) {
       return rateResult;
@@ -174,17 +186,12 @@ export class PurchaseService {
       throw new BadRequestException(PURCHASE_ERROR_MESSAGES.EDIT_NOT_ALLOWED);
     }
 
-    await this.purchaseValidationService.validatePurchases(paperId, dto);
+    await this.purchaseValidationService.validatePurchases(paperId,dto);
 
     const entries = dto.entries.filter((entry) => entry.purchasedQty > 0);
 
-    let purchasePaper =
-      await this.purchaseRepository.findPurchasePaperByOrderPaperId(paperId);
-
-    if (!purchasePaper) {
-      purchasePaper =
-        await this.purchaseRepository.createPurchasePaper(paperId);
-    }
+    const purchasePaper =
+      await this.purchaseRepository.getOrCreatePurchasePaper(paperId);
 
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
@@ -267,17 +274,16 @@ export class PurchaseService {
           Number(entry.purchasedQty) *
           QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
 
-        const purchaseAmount =
-          litres * Number(rate.purchase_rate);
+        const purchaseAmount = litres * Number(rate.purchase_rate);
 
         return {
           purchase_paper_id: purchasePaper.id,
+          delivery_session:allocation.vehicle_allocation_paper.delivery_session,
           distributor_id: entry.distributorId,
           category: entry.category,
           vehicle_id: entry.vehicleId,
           product_id: entry.productId,
           product_link_id: productLink.id,
-          allocated_qty: allocation.allocated_qty,
           purchased_qty: entry.purchasedQty,
           purchase_rate: rate.purchase_rate,
           purchase_amount: Number(purchaseAmount.toFixed(2)),

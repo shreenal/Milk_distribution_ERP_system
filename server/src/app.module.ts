@@ -29,7 +29,7 @@ import { DairyTrayTrackingModule } from './modules/dairy-tray-tracking/dairy-tra
     DeliverySummaryModule,
     CashSettlementModule,
     DistributorTransferModule,
-    DairyTrayTrackingModule
+    DairyTrayTrackingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

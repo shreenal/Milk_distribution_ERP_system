@@ -1,7 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { SaveDairyTrayEntryDto } from './dto/save-dairy-tray-entry.dto.js';
 import { DAIRY_TRAY_TRACKING_ERROR_MESSAGES } from './dairy-tray-tracking.constants.js';
@@ -9,9 +6,7 @@ import { DairyTrayTrackingRepository } from './dairy-tray-tracking.repository.js
 
 @Injectable()
 export class DairyTrayTrackingValidationService {
-  constructor(
-    private readonly repository: DairyTrayTrackingRepository,
-  ) { }
+  constructor(private readonly repository: DairyTrayTrackingRepository) {}
   validateSaveRequest(
     entries: SaveDairyTrayEntryDto[],
     vehicles: { id: number }[],
@@ -22,9 +17,7 @@ export class DairyTrayTrackingValidationService {
     this.validateTrayTypeIds(entries, trayTypes);
   }
 
-  private validateDuplicateEntries(
-    entries: SaveDairyTrayEntryDto[],
-  ) {
+  private validateDuplicateEntries(entries: SaveDairyTrayEntryDto[]) {
     const seen = new Set<string>();
 
     for (const entry of entries) {
@@ -32,7 +25,10 @@ export class DairyTrayTrackingValidationService {
 
       if (seen.has(key)) {
         throw new BadRequestException(
-          DAIRY_TRAY_TRACKING_ERROR_MESSAGES.DUPLICATE_ENTRY(entry.vehicleId, entry.trayTypeId),
+          DAIRY_TRAY_TRACKING_ERROR_MESSAGES.DUPLICATE_ENTRY(
+            entry.vehicleId,
+            entry.trayTypeId,
+          ),
         );
       }
 
@@ -44,9 +40,7 @@ export class DairyTrayTrackingValidationService {
     entries: SaveDairyTrayEntryDto[],
     vehicles: { id: number }[],
   ) {
-    const validVehicleIds = new Set(
-      vehicles.map((vehicle) => vehicle.id),
-    );
+    const validVehicleIds = new Set(vehicles.map((vehicle) => vehicle.id));
 
     for (const entry of entries) {
       if (!validVehicleIds.has(entry.vehicleId)) {
@@ -61,26 +55,22 @@ export class DairyTrayTrackingValidationService {
     entries: SaveDairyTrayEntryDto[],
     trayTypes: { id: number }[],
   ) {
-    const validTrayTypeIds = new Set(
-      trayTypes.map((trayType) => trayType.id),
-    );
+    const validTrayTypeIds = new Set(trayTypes.map((trayType) => trayType.id));
 
     for (const entry of entries) {
       if (!validTrayTypeIds.has(entry.trayTypeId)) {
         throw new BadRequestException(
-          DAIRY_TRAY_TRACKING_ERROR_MESSAGES.INVALID_TRAY_TYPE(entry.trayTypeId),
+          DAIRY_TRAY_TRACKING_ERROR_MESSAGES.INVALID_TRAY_TYPE(
+            entry.trayTypeId,
+          ),
         );
       }
     }
   }
 
-  async validateDairyTrayTrackingComplete(
-    paperId: number,
-  ) {
+  async validateDairyTrayTrackingComplete(paperId: number) {
     const dairyTrayPaper =
-      await this.repository.findDairyTrayPaperByOrderPaperId(
-        paperId,
-      );
+      await this.repository.findDairyTrayPaperByOrderPaperId(paperId);
 
     if (!dairyTrayPaper) {
       throw new BadRequestException(
@@ -88,39 +78,29 @@ export class DairyTrayTrackingValidationService {
       );
     }
 
-    const [
-      transactions,
-      vehicleAllocations,
-      trayRules,
-    ] = await Promise.all([
-      this.repository.getCurrentTrayTransactions(
-        dairyTrayPaper.id,
-      ),
-      this.repository.getVehicleAllocations(paperId),
+    const [transactions, purchaseEntries, trayRules] = await Promise.all([
+      this.repository.getCurrentTrayTransactions(dairyTrayPaper.id),
+      this.repository.getPurchaseEntries(paperId),
       this.repository.getProductTrayRules(),
     ]);
 
     const expected = new Set<string>();
 
-    for (const allocation of vehicleAllocations) {
+    for (const purchase of purchaseEntries) {
       const rule = trayRules.find(
         (rule) =>
-          rule.brand_id === allocation.master_product.brand_id &&
-          rule.product_group_id === allocation.master_product.product_group_id &&
-          (
-            !rule.applies_to_packaging ||
+          rule.brand_id === purchase.master_product.brand_id &&
+          rule.product_group_id === purchase.master_product.product_group_id &&
+          (!rule.applies_to_packaging ||
             rule.packaging_type_id ===
-            allocation.master_product.packaging_type_id
-          ),
+              purchase.master_product.packaging_type_id),
       );
 
       if (!rule) {
         continue;
       }
 
-      expected.add(
-        `${allocation.vehicle_id}_${rule.tray_type_id}`,
-      );
+      expected.add(`${purchase.vehicle_id}_${rule.tray_type_id}`);
     }
 
     const existing = new Set(

@@ -7,29 +7,19 @@ export const DAIRY_TRAY_TRACKING_ERROR_MESSAGES = {
   EDIT_NOT_ALLOWED:
     'Dairy tray tracking cannot be edited in the current workflow state',
 
-  DUPLICATE_ENTRY: (
-    vehicleId: number,
-    trayTypeId: number,
-  ) =>
+  DUPLICATE_ENTRY: (vehicleId: number, trayTypeId: number) =>
     `Duplicate tray entry for vehicle ${vehicleId} and tray type ${trayTypeId}`,
 
-  INVALID_VEHICLE: (vehicleId: number) =>
-    `Invalid vehicle ${vehicleId}`,
+  INVALID_VEHICLE: (vehicleId: number) => `Invalid vehicle ${vehicleId}`,
 
-  INVALID_TRAY_TYPE: (trayTypeId: number) =>
-    `Invalid tray type ${trayTypeId}`,
+  INVALID_TRAY_TYPE: (trayTypeId: number) => `Invalid tray type ${trayTypeId}`,
 
-  MISSING_ENTRY: (
-    vehicleId: number,
-    trayTypeId: number,
-  ) =>
+  MISSING_ENTRY: (vehicleId: number, trayTypeId: number) =>
     `Missing dairy tray entry for vehicle ${vehicleId} and tray type ${trayTypeId}`,
 
-  CALCULATION_FAILED:
-    'Failed to calculate dairy tray balances',
+  CALCULATION_FAILED: 'Failed to calculate dairy tray balances',
 } as const;
 
 export const DAIRY_TRAY_TRACKING_SUCCESS_MESSAGES = {
-  TRAY_RETURNS_SAVED:
-    'Dairy tray returns saved successfully',
+  TRAY_RETURNS_SAVED: 'Dairy tray returns saved successfully',
 } as const;

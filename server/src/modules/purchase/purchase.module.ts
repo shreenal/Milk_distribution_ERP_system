@@ -10,6 +10,8 @@ import { PurchaseBuilder } from './purchase.builder.js';
 
 import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
 import { PurchaseValidationService } from './purchase-validation.service.js';
+import { OrderItemsRepository } from '../../common/repositories/order-items.repository.js';
+import { AllocationSummaryBuilder } from '../../common/builders/allocation-summary.builder.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 
 @Module({
@@ -27,6 +29,9 @@ import { WorkflowModule } from '../workflow/workflow.module.js';
     PurchaseValidationService,
 
     ProductColumnsBuilder,
+
+    OrderItemsRepository,
+    AllocationSummaryBuilder,
   ],
 
   exports: [PurchaseService, PurchaseValidationService],

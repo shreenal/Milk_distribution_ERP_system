@@ -5,7 +5,7 @@ import { TRAY_ERROR_MESSAGES } from './trays.constants.js';
 
 @Injectable()
 export class TraysValidationService {
-  constructor(private readonly traysService: TraysService) { }
+  constructor(private readonly traysService: TraysService) {}
 
   async validateTrayCompleteness(sheetId: number): Promise<void> {
     try {
@@ -63,9 +63,7 @@ export class TraysValidationService {
       traySheet.trayBilling.nonMilkTrayGrid.rows.length;
 
     if (totalRows === 0) {
-      throw new BadRequestException(
-        TRAY_ERROR_MESSAGES.CALCULATION_FAILED,
-      );
+      throw new BadRequestException(TRAY_ERROR_MESSAGES.CALCULATION_FAILED);
     }
   }
 }

@@ -25,6 +25,4 @@ import { ProductColumnsBuilder } from '../../common/builders/product-columns.bui
     DistributorTransferValidationService,
   ],
 })
-
-
 export class DistributorTransferModule {}

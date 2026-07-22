@@ -1,13 +1,10 @@
-import { SupplyCategory } from "../../generated/prisma/client.js";
+import { SupplyCategory } from '../../generated/prisma/client.js';
 
 export const COLLECTION_ERROR_MESSAGES = {
   SHEET_NOT_FOUND: 'Order sheet not found',
 
-  CLIENT_NOT_IN_CATEGORY: (
-  clientId: number,
-  category: SupplyCategory,
-) =>
-  `Client ${clientId} does not belong to ${category} category.`,
+  CLIENT_NOT_IN_CATEGORY: (clientId: number, category: SupplyCategory) =>
+    `Client ${clientId} does not belong to ${category} category.`,
 
   NIGHT_EDIT_NOT_ALLOWED:
     'Night collections cannot be edited in the current workflow state',

@@ -84,8 +84,8 @@ export class PaperRepository {
         master_group: {
           select: {
             id: true,
-
             name: true,
+            delivery_session: true,
           },
         },
       },

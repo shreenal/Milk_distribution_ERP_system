@@ -36,98 +36,98 @@ export class CollectionsController {
   }
 
   @Post('/sheet/:sheetId/milk/night-save')
-@Roles('EMPLOYEE')
-saveMilkNightCollections(
-  @Param('sheetId', ParseIntPipe)
-  sheetId: number,
+  @Roles('EMPLOYEE')
+  saveMilkNightCollections(
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
-  @Body()
-  dto: SaveNightCollectionsDto,
-) {
-  return this.collectionsService.saveNightCollections(
-    sheetId,
-    SupplyCategory.MILK,
-    dto,
-  );
-}
+    @Body()
+    dto: SaveNightCollectionsDto,
+  ) {
+    return this.collectionsService.saveNightCollections(
+      sheetId,
+      SupplyCategory.MILK,
+      dto,
+    );
+  }
 
-@Post('/sheet/:sheetId/non-milk/night-save')
-@Roles('EMPLOYEE')
-saveNonMilkNightCollections(
-  @Param('sheetId', ParseIntPipe)
-  sheetId: number,
+  @Post('/sheet/:sheetId/non-milk/night-save')
+  @Roles('EMPLOYEE')
+  saveNonMilkNightCollections(
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
-  @Body()
-  dto: SaveNightCollectionsDto,
-) {
-  return this.collectionsService.saveNightCollections(
-    sheetId,
-    SupplyCategory.NON_MILK,
-    dto,
-  );
-}
+    @Body()
+    dto: SaveNightCollectionsDto,
+  ) {
+    return this.collectionsService.saveNightCollections(
+      sheetId,
+      SupplyCategory.NON_MILK,
+      dto,
+    );
+  }
 
   @Post('/sheet/:sheetId/milk/morning-save')
-@Roles('EMPLOYEE')
-saveMilkMorningCollections(
-  @Param('sheetId', ParseIntPipe)
-  sheetId: number,
+  @Roles('EMPLOYEE')
+  saveMilkMorningCollections(
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
-  @Body()
-  dto: SaveMorningCollectionsDto,
-) {
-  return this.collectionsService.saveMorningCollections(
-    sheetId,
-    SupplyCategory.MILK,
-    dto,
-  );
-}
+    @Body()
+    dto: SaveMorningCollectionsDto,
+  ) {
+    return this.collectionsService.saveMorningCollections(
+      sheetId,
+      SupplyCategory.MILK,
+      dto,
+    );
+  }
 
-@Post('/sheet/:sheetId/non-milk/morning-save')
-@Roles('EMPLOYEE')
-saveNonMilkMorningCollections(
-  @Param('sheetId', ParseIntPipe)
-  sheetId: number,
+  @Post('/sheet/:sheetId/non-milk/morning-save')
+  @Roles('EMPLOYEE')
+  saveNonMilkMorningCollections(
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
-  @Body()
-  dto: SaveMorningCollectionsDto,
-) {
-  return this.collectionsService.saveMorningCollections(
-    sheetId,
-    SupplyCategory.NON_MILK,
-    dto,
-  );
-}
+    @Body()
+    dto: SaveMorningCollectionsDto,
+  ) {
+    return this.collectionsService.saveMorningCollections(
+      sheetId,
+      SupplyCategory.NON_MILK,
+      dto,
+    );
+  }
 
   @Post('/sheet/:sheetId/milk/admin-save')
-@Roles('ADMIN')
-saveMilkAdminCollections(
-  @Param('sheetId', ParseIntPipe)
-  sheetId: number,
+  @Roles('ADMIN')
+  saveMilkAdminCollections(
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
-  @Body()
-  dto: SaveAdminCollectionsDto,
-) {
-  return this.collectionsService.saveAdminCollections(
-    sheetId,
-    SupplyCategory.MILK,
-    dto,
-  );
-}
+    @Body()
+    dto: SaveAdminCollectionsDto,
+  ) {
+    return this.collectionsService.saveAdminCollections(
+      sheetId,
+      SupplyCategory.MILK,
+      dto,
+    );
+  }
 
-@Post('/sheet/:sheetId/non-milk/admin-save')
-@Roles('ADMIN')
-saveNonMilkAdminCollections(
-  @Param('sheetId', ParseIntPipe)
-  sheetId: number,
+  @Post('/sheet/:sheetId/non-milk/admin-save')
+  @Roles('ADMIN')
+  saveNonMilkAdminCollections(
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
-  @Body()
-  dto: SaveAdminCollectionsDto,
-) {
-  return this.collectionsService.saveAdminCollections(
-    sheetId,
-    SupplyCategory.NON_MILK,
-    dto,
-  );
-}
+    @Body()
+    dto: SaveAdminCollectionsDto,
+  ) {
+    return this.collectionsService.saveAdminCollections(
+      sheetId,
+      SupplyCategory.NON_MILK,
+      dto,
+    );
+  }
 }

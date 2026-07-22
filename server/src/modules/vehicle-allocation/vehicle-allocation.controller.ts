@@ -21,15 +21,6 @@ export class VehicleAllocationController {
     private readonly vehicleAllocationService: VehicleAllocationService,
   ) {}
 
-  @Get('group-summary/:paperId')
-  @Roles('EMPLOYEE')
-  async getGroupSummary(
-    @Param('paperId', ParseIntPipe)
-    paperId: number,
-  ) {
-    return this.vehicleAllocationService.getGroupSummary(paperId);
-  }
-
   @Get(':paperId/vehicle-allocations')
   @Roles('EMPLOYEE')
   async getVehicleAllocations(
@@ -44,7 +35,6 @@ export class VehicleAllocationController {
   async saveVehicleAllocations(
     @Param('paperId', ParseIntPipe)
     paperId: number,
-
     @Body()
     dto: SaveVehicleAllocationDto,
   ) {

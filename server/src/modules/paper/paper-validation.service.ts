@@ -9,11 +9,14 @@ import { PurchaseValidationService } from '../purchase/purchase-validation.servi
 import { CashSettlementValidationService } from '../cash-settlement/cash-settlement-validation.service.js';
 import { DistributorTransferValidationService } from '../distributor-transfer/distributor-transfer-validation.service.js';
 import { DairyTrayTrackingValidationService } from '../dairy-tray-tracking/dairy-tray-tracking-validation.service.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import { DeliverySession } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class PaperValidationService {
   constructor(
     private readonly paperRepository: PaperRepository,
+    private readonly workflowState: WorkflowStateService,
     private readonly ordersValidationService: OrdersValidationService,
     private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
     private readonly traysValidationService: TraysValidationService,
@@ -83,14 +86,16 @@ export class PaperValidationService {
       );
     }
     await this.purchaseValidationService.validatePurchasesComplete(paperId);
-    await this.dairyTrayTrackingValidationService
-  .validateDairyTrayTrackingComplete(paperId);
+    await this.dairyTrayTrackingValidationService.validateDairyTrayTrackingComplete(
+      paperId,
+    );
     await this.cashSettlementValidationService.validateMorningSubmitReadiness(
       paperId,
     );
 
-    await this.distributorTransferValidationService
-    .validateGenerationReadiness(paperId);
+    await this.distributorTransferValidationService.validateGenerationReadiness(
+      paperId,
+    );
     return paper;
   }
 

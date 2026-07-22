@@ -1,23 +1,21 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
-import { PrismaService } from "../../prisma/prisma.service.js";
-import { Prisma } from "../../generated/prisma/client.js";
-
+import { Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service.js';
+import { Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class DairyTrayTrackingRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async getOrCreateDairyTrayPaper(orderPaperId: number) {
-  let dairyTrayPaper = await this.findDairyTrayPaperByOrderPaperId(
-    orderPaperId,
-  );
+    let dairyTrayPaper =
+      await this.findDairyTrayPaperByOrderPaperId(orderPaperId);
 
-  if (!dairyTrayPaper) {
-    dairyTrayPaper = await this.createDairyTrayPaper(orderPaperId);
+    if (!dairyTrayPaper) {
+      dairyTrayPaper = await this.createDairyTrayPaper(orderPaperId);
+    }
+
+    return dairyTrayPaper;
   }
-
-  return dairyTrayPaper;
-}
 
   async getPaperStatusByPaperId(paperId: number) {
     const paper = await this.prisma.order_paper.findUnique({
@@ -44,7 +42,6 @@ export class DairyTrayTrackingRepository {
       },
     });
   }
-
 
   async createDairyTrayPaper(orderPaperId: number) {
     return this.prisma.dairy_tray_paper.create({
@@ -76,7 +73,7 @@ export class DairyTrayTrackingRepository {
           },
         },
         vehicle_allocation_paper: true,
-      }
+      },
     });
   }
 
@@ -151,7 +148,7 @@ export class DairyTrayTrackingRepository {
             master_brand: true,
           },
         },
-      }
+      },
     });
   }
 
@@ -166,10 +163,38 @@ export class DairyTrayTrackingRepository {
     });
   }
 
-  async getVehicleAllocations(paperId: number) {
-    return this.prisma.vehicle_allocation.findMany({
+  // async getVehicleAllocations(paperId: number) {
+  //   return this.prisma.vehicle_allocation.findMany({
+  //     where: {
+  //       vehicle_allocation_paper: {
+  //         order_paper_id: paperId,
+  //       },
+  //     },
+
+  //     include: {
+  //       master_product: {
+  //         include: {
+  //           master_brand: true,
+  //           master_product_group: true,
+  //           master_product_type: true,
+  //           master_packaging_type: true,
+  //         },
+  //       },
+  //       master_vehicle: true,
+  //     },
+  //     orderBy: [
+  //       { vehicle_id: 'asc' },
+  //       { distributor_id: 'asc' },
+  //       { category: 'asc' },
+  //       { product_id: 'asc' },
+  //     ],
+  //   });
+  // }
+
+  async getPurchaseEntries(paperId: number) {
+    return this.prisma.purchase_entry.findMany({
       where: {
-        vehicle_allocation_paper: {
+        purchase_paper: {
           order_paper_id: paperId,
         },
       },
@@ -183,8 +208,10 @@ export class DairyTrayTrackingRepository {
             master_packaging_type: true,
           },
         },
+
         master_vehicle: true,
       },
+
       orderBy: [
         { vehicle_id: 'asc' },
         { distributor_id: 'asc' },
@@ -193,7 +220,6 @@ export class DairyTrayTrackingRepository {
       ],
     });
   }
-
 
   async getProductTrayRules() {
     return this.prisma.product_tray_rule.findMany({
@@ -220,21 +246,21 @@ export class DairyTrayTrackingRepository {
   }
 
   async replaceTrayTransactions(
-  dairyTrayPaperId: number,
-  data: Prisma.dairy_tray_transactionCreateManyInput[],
-) {
-  return this.prisma.$transaction(async (tx) => {
-    await tx.dairy_tray_transaction.deleteMany({
-      where: {
-        dairy_tray_paper_id: dairyTrayPaperId,
-      },
-    });
-
-    if (data.length > 0) {
-      await tx.dairy_tray_transaction.createMany({
-        data,
+    dairyTrayPaperId: number,
+    data: Prisma.dairy_tray_transactionCreateManyInput[],
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.dairy_tray_transaction.deleteMany({
+        where: {
+          dairy_tray_paper_id: dairyTrayPaperId,
+        },
       });
-    }
-  });
-}
+
+      if (data.length > 0) {
+        await tx.dairy_tray_transaction.createMany({
+          data,
+        });
+      }
+    });
+  }
 }

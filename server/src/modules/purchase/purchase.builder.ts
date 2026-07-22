@@ -7,7 +7,6 @@ import {
 
 import {
   VehicleAssignment,
-  ProcurementRule,
   PurchaseEntry,
   PurchaseGrid,
   PurchaseGridItem,
@@ -16,34 +15,30 @@ import {
 } from '../../types/purchase.types.js';
 import { SupplyCategory } from '../../generated/prisma/client.js';
 import { QUANTITY_PRECISION } from './purchase.constants.js';
-import { Product } from '../../types/purchase.types.js';
 
+import {
+  Product,
+  AllocationSummary,
+} from '../../common/builders/allocation-summary.builder.js';
 
 @Injectable()
 export class PurchaseBuilder {
-  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) { }
+  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
 
   buildPurchaseGrids(
-    procurementRules: ProcurementRule[],
-
-    products: Product[],
-
+    summaries: AllocationSummary[],
     vehicleAssignments: VehicleAssignment[],
   ): PurchaseGrid {
     const purchaseGrids: PurchaseGridItem[] = [];
 
-    for (const rule of procurementRules) {
-      const gridProducts = products.filter(
-        (product) =>
-          product.brand_id === rule.brand_id &&
-          product.product_group_id === rule.product_group_id,
-      );
+    for (const summary of summaries) {
+      const gridProducts = summary.products;
 
       if (gridProducts.length === 0) {
         continue;
       }
 
-      const category = rule.category;
+      const category = summary.category;
 
       const columns = this.buildPurchaseColumns(
         gridProducts,
@@ -54,13 +49,16 @@ export class PurchaseBuilder {
 
       const assignedVehicles = vehicleAssignments.filter(
         (assignment) =>
-          assignment.distributor_id === rule.distributor_id &&
-          assignment.category === category,
+          assignment.distributor_id === summary.distributorId &&
+          assignment.category === summary.category,
       );
 
       if (assignedVehicles.length === 0) {
         continue;
       }
+
+      const distributorName =
+        assignedVehicles[0]?.master_distributor.name ?? '';
 
       const rows = assignedVehicles.map((assignment) => ({
         vehicleId: assignment.vehicle_id,
@@ -70,14 +68,12 @@ export class PurchaseBuilder {
         ...structuredClone(productFields),
       }));
       purchaseGrids.push({
-        purchaseKey: `${rule.distributor_id}_${category}_${rule.brand_id}_${rule.product_group_id}`,
-        distributorId: rule.distributor_id,
-        distributorName: rule.master_distributor.name,
+        purchaseKey: summary.summaryKey,
+        distributorId: summary.distributorId,
+        distributorName,
         category,
-        brandId: rule.brand_id,
-        brandName: rule.master_brand.name,
-        productGroupId: rule.product_group_id,
-        productGroupName: rule.master_product_group.name,
+        brandId: summary.brandId,
+        brandName: summary.brandName,
         columns,
         rows,
       });
@@ -96,7 +92,7 @@ export class PurchaseBuilder {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
 
-      'night',
+      'ordered',
 
       includePackagingType,
     );
@@ -187,6 +183,7 @@ export class PurchaseBuilder {
 
     return result;
   }
+
   applyPurchaseEntries(
     purchaseGrids: PurchaseGrid,
     purchaseEntries: PurchaseEntry[],
@@ -197,7 +194,6 @@ export class PurchaseBuilder {
       const purchasedField = `product_${entry.product_id}_purchased`;
       const rateField = `product_${entry.product_id}_rate`;
       const amountField = `product_${entry.product_id}_amount`;
-      const allocatedField = `product_${entry.product_id}_allocated`;
 
       const grid = result.purchases.find(
         (purchase) =>
@@ -218,7 +214,6 @@ export class PurchaseBuilder {
         continue;
       }
 
-      row[allocatedField] = Number(entry.allocated_qty ?? 0);
       row[purchasedField] = Number(entry.purchased_qty);
       row[rateField] = Number(entry.purchase_rate);
       row[amountField] = Number(entry.purchase_amount);
@@ -263,8 +258,7 @@ export class PurchaseBuilder {
         Number(row[purchasedField] ?? 0) *
         QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
 
-      const amount =
-        litres * Number(rate.purchaseRate);
+      const amount = litres * Number(rate.purchaseRate);
 
       row[amountField] = Number(amount.toFixed(2));
     }

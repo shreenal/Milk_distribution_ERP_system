@@ -15,6 +15,12 @@ export class TraysRepository {
       },
 
       select: {
+        master_group: {
+          select: {
+            delivery_session: true,
+          },
+        },
+
         order_paper: {
           select: {
             status: true,
@@ -37,7 +43,13 @@ export class TraysRepository {
       },
 
       include: {
-        master_group: true,
+        master_group: {
+          select: {
+            id: true,
+            name: true,
+            delivery_session: true,
+          },
+        },
 
         order_paper: true,
       },
@@ -59,24 +71,24 @@ export class TraysRepository {
   }
 
   async getClientsByGroupAndCategory(
-  groupId: number,
-  category: SupplyCategory,
-) {
-  return this.prisma.master_client.findMany({
-    where: {
-      delivery_group_id: groupId,
-      is_active: true,
-      categories: {
-        some: {
-          category,
+    groupId: number,
+    category: SupplyCategory,
+  ) {
+    return this.prisma.master_client.findMany({
+      where: {
+        delivery_group_id: groupId,
+        is_active: true,
+        categories: {
+          some: {
+            category,
+          },
         },
       },
-    },
-    orderBy: {
-      name: 'asc',
-    },
-  });
-}
+      orderBy: {
+        name: 'asc',
+      },
+    });
+  }
 
   async getSheetItems(sheetId: number) {
     return this.prisma.order_sheet_items.findMany({

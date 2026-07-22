@@ -25,7 +25,7 @@ export class TraysService {
     private readonly trayBillingBuilder: TrayBillingBuilder,
 
     private readonly workflowStateService: WorkflowStateService,
-  ) { }
+  ) {}
   async getTraySheetService(sheetId: number) {
     const sheet = await this.traysRepository.findSheetById(sheetId);
 
@@ -33,11 +33,10 @@ export class TraysService {
       throw new NotFoundException(TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
-    const milkClients =
-      await this.traysRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        SupplyCategory.MILK,
-      );
+    const milkClients = await this.traysRepository.getClientsByGroupAndCategory(
+      sheet.group_id,
+      SupplyCategory.MILK,
+    );
 
     const nonMilkClients =
       await this.traysRepository.getClientsByGroupAndCategory(
@@ -85,7 +84,6 @@ export class TraysService {
       openingBalanceMap,
     });
 
-
     return {
       sheet,
 
@@ -127,11 +125,9 @@ export class TraysService {
 
       const field = `tray_${entry.trayTypeId}_taken`;
 
-const trayRow = trayRows.find(
-  (row) =>
-    row.clientId === entry.clientId &&
-    row[field] !== undefined,
-);
+      const trayRow = trayRows.find(
+        (row) => row.clientId === entry.clientId && row[field] !== undefined,
+      );
 
       if (!trayRow) {
         throw new BadRequestException(

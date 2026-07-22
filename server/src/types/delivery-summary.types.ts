@@ -1,5 +1,5 @@
-import { ProductColumnNode } from "../common/builders/product-columns.builder.js";
-import { Prisma,SupplyCategory } from "../generated/prisma/client.js";
+import { ProductColumnNode } from '../common/builders/product-columns.builder.js';
+import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
 
 export type DeliveredItemWithSupplyContext = {
   billingGroupId: number;
@@ -27,7 +27,7 @@ export type SummaryRow = {
 };
 
 export type Summary = {
-   summaryKey: string;
+  summaryKey: string;
   distributorId: number;
   category: SupplyCategory;
   brandId: number;

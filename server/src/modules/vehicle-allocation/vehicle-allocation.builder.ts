@@ -4,89 +4,25 @@ import {
   ProductColumnNode,
 } from '../../common/builders/product-columns.builder.js';
 import { SupplyCategory } from '../../generated/prisma/client.js';
-import {Product, Vehicle, Distributor, VehicleAssignment, VehicleAllocation, DynamicProductFields, VehicleAllocationRow, VehicleAssignmentRow, VehicleAssignmentGrid, AllocationGrid, AllocationGridResult, SummaryRow, Summary, OrderItemWithSupplyContext} from '../../types/vehicle-allocation.types.js';
+import {
+  Vehicle,
+  Distributor,
+  VehicleAssignment,
+  VehicleAllocation,
+  DynamicProductFields,
+  VehicleAllocationRow,
+  VehicleAssignmentRow,
+  VehicleAssignmentGrid,
+  AllocationGrid,
+  AllocationGridResult,
+  Product,
+} from '../../types/vehicle-allocation.types.js';
 
+import { AllocationSummary } from '../../common/builders/allocation-summary.builder.js';
 
 @Injectable()
 export class VehicleAllocationBuilder {
   constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
-
-  buildGroupSummary(orderItems: OrderItemWithSupplyContext[]) {
-    type SummaryBuilder = Summary & {
-      products: Product[];
-    };
-
-    const summariesMap = new Map<string, SummaryBuilder>();
-
-    for (const item of orderItems) {
-      const product = item.master_product;
-
-      const brandId = product.master_brand.id;
-      const brandName = product.master_brand.name;
-      const productGroupId = product.master_product_group.id;
-      const productGroupName = product.master_product_group.name;
-
-      const summaryKey = `${item.distributorId}_${item.category}_${brandId}_${productGroupId}`;
-
-      let summary = summariesMap.get(summaryKey);
-
-      if (!summary) {
-        summary = {
-          summaryKey,
-          distributorId: item.distributorId,
-          category: item.category,
-          brandId,
-          brandName,
-          productGroupId,
-          productGroupName,
-          columns: [],
-          rows: [],
-          products: [],
-        };
-
-        summariesMap.set(summaryKey, summary);
-      }
-
-      if (!summary.products.some((p) => p.id === product.id)) {
-        summary.products.push(product);
-      }
-
-      let row = summary.rows.find((r) => r.groupId === item.groupId);
-
-      if (!row) {
-        row = {
-          groupId: item.groupId,
-          groupName: item.groupName,
-        };
-        summary.rows.push(row);
-      }
-
-      const field = `product_${item.productId}`;
-      const currentValue = typeof row[field] === 'number' ? row[field] : 0;
-      row[field] = currentValue + Number(item.orderedQty ?? 0);
-    }
-
-    const summaries: Summary[] = [];
-
-    for (const summary of summariesMap.values()) {
-      summaries.push({
-        summaryKey: summary.summaryKey,
-        distributorId: summary.distributorId,
-        category: summary.category,
-        brandId: summary.brandId,
-        brandName: summary.brandName,
-        productGroupId: summary.productGroupId,
-        productGroupName: summary.productGroupName,
-        columns: this.buildVehicleCapacityColumns(
-          summary.products,
-          summary.category === SupplyCategory.NON_MILK,
-        ),
-        rows: summary.rows,
-      });
-    }
-
-    return { summaries };
-  }
 
   private buildVehicleCapacityColumns(
     products: Product[],
@@ -94,7 +30,7 @@ export class VehicleAllocationBuilder {
   ): ProductColumnNode[] {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
-      'night',
+      'ordered',
       includePackagingType,
     );
 
@@ -116,7 +52,7 @@ export class VehicleAllocationBuilder {
   }
 
   buildVehicleAllocationGrids(
-    summaries: Summary[],
+    summaries: AllocationSummary[],
     vehicles: Vehicle[],
   ): AllocationGridResult {
     const allocations: AllocationGrid[] = [];
@@ -124,7 +60,12 @@ export class VehicleAllocationBuilder {
     for (const summary of summaries) {
       const rows: VehicleAllocationRow[] = [];
 
-      const productFields = initializeProductFields(summary.columns);
+      const columns = this.buildVehicleCapacityColumns(
+        summary.products,
+        summary.category === SupplyCategory.NON_MILK,
+      );
+
+      const productFields = initializeProductFields(columns);
 
       for (const vehicle of vehicles) {
         rows.push({
@@ -154,10 +95,8 @@ export class VehicleAllocationBuilder {
         category: summary.category,
         brandId: summary.brandId,
         brandName: summary.brandName,
-        productGroupId: summary.productGroupId,
-        productGroupName: summary.productGroupName,
         summaryTotal,
-        columns: summary.columns,
+        columns,
         rows,
       });
     }

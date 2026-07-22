@@ -3,7 +3,6 @@
 import { ProductColumnNode } from 'src/common/builders/product-columns.builder.js';
 import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
 
-
 export type Product = Prisma.master_productGetPayload<{
   include: {
     master_brand: true;
@@ -17,7 +16,8 @@ export type Vehicle = Prisma.master_vehicleGetPayload<{}>;
 
 export type Distributor = Prisma.master_distributorGetPayload<{}>;
 
-export type VehicleAssignment = Prisma.vehicle_distribution_assignmentGetPayload<{}>;
+export type VehicleAssignment =
+  Prisma.vehicle_distribution_assignmentGetPayload<{}>;
 
 export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{}>;
 
@@ -50,8 +50,6 @@ export type AllocationGrid = {
   category: SupplyCategory;
   brandId: number;
   brandName: string;
-  productGroupId: number;
-  productGroupName: string;
   summaryTotal: DynamicProductFields;
   columns: ProductColumnNode[];
   rows: VehicleAllocationRow[];
@@ -59,24 +57,6 @@ export type AllocationGrid = {
 
 export type AllocationGridResult = {
   allocations: AllocationGrid[];
-};
-
-export type SummaryRow = {
-  groupId: number;
-  groupName: string;
-  [key: string]: string | number;
-};
-
-export type Summary = {
-  summaryKey: string;
-  distributorId: number;
-  category: SupplyCategory;
-  brandId: number;
-  brandName: string;
-  productGroupId: number;
-  productGroupName: string;
-  columns: ProductColumnNode[];
-  rows: SummaryRow[];
 };
 
 export type OrderItemWithSupplyContext = {

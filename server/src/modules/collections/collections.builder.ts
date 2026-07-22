@@ -1,13 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { SupplyCategory } from '../../generated/prisma/client.js';
-import { CollectionSheet, CollectionClient, SavedCollection, CollectionGrid } from '../../types/collection.types.js';
-
+import {
+  CollectionSheet,
+  CollectionClient,
+  SavedCollection,
+  CollectionGrid,
+} from '../../types/collection.types.js';
 
 @Injectable()
 export class CollectionBuilder {
-
-  constructor(private readonly workflowState: WorkflowStateService) { }
+  constructor(private readonly workflowState: WorkflowStateService) {}
 
   buildCollectionSection(
     sheet: CollectionSheet,
@@ -15,7 +18,6 @@ export class CollectionBuilder {
     nonMilkClients: CollectionClient[],
     savedCollections: SavedCollection[],
   ) {
-
     const status = sheet.order_paper?.status;
 
     const permissions = {
@@ -38,7 +40,6 @@ export class CollectionBuilder {
     const nonMilkCollections = savedCollections.filter(
       (collection) => collection.category === SupplyCategory.NON_MILK,
     );
-
 
     const milkCollectionGrid = this.buildGrid(
       sheet,

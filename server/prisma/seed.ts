@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient, GatepassDatePolicy, SupplyCategory } from '../src/generated/prisma/client.js';
+import { PrismaClient, GatepassDatePolicy, SupplyCategory, DeliverySession } from '../src/generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcrypt';
 
@@ -607,9 +607,6 @@ async function main() {
 
     // ------------------------------------------------------------
     // 14) DISTRIBUTOR PRODUCT RATES
-    // ------------------------------------------------------------
-    // ------------------------------------------------------------
-    // 14) DISTRIBUTOR PRODUCT RATES
     // distributor_product_rate now points to master_product_link
     // ------------------------------------------------------------
     const rateDate = new Date('2026-01-01');
@@ -897,15 +894,20 @@ async function main() {
         id: number;
         name: string;
         vehicle_id: number | null;
+        delivery_session: DeliverySession;
     }> = [];
 
     for (let i = 1; i <= 10; i++) {
-        
+        const deliverySession =
+            i <= 9
+                ? DeliverySession.NIGHT
+                : DeliverySession.MORNING;
 
         const group = await prisma.master_group.create({
             data: {
                 name: `Group ${i}`,
                 vehicle_id: vehicles[(i - 1) % vehicles.length].id,
+                delivery_session: deliverySession,
                 is_active: true,
             },
         });
@@ -914,6 +916,7 @@ async function main() {
             id: group.id,
             name: group.name,
             vehicle_id: group.vehicle_id,
+            delivery_session: group.delivery_session,
         });
     }
     // ------------------------------------------------------------

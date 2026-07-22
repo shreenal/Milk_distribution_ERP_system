@@ -1,17 +1,14 @@
 export interface OrderBillingInput {
+  milkProducts;
 
-    milkProducts;
+  nonMilkProducts;
 
-    nonMilkProducts;
+  milkClients;
 
-    milkClients;
+  nonMilkClients;
 
-    nonMilkClients;
-
-    sheetItems;
-
+  sheetItems;
 }
-
 
 export type BillingRow = {
   clientId: number;

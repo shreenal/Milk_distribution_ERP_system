@@ -3,26 +3,48 @@ import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { VehicleAllocationRepository } from './vehicle-allocation.repository.js';
 import { VehicleAllocationBuilder } from './vehicle-allocation.builder.js';
 import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
-import { SupplyCategory } from '../../generated/prisma/client.js';
+import { AllocationSummaryBuilder } from '../../common/builders/allocation-summary.builder.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import {
+  DeliverySession,
+  SupplyCategory,
+} from '../../generated/prisma/client.js';
+import { OrderItemsRepository } from '../../common/repositories/order-items.repository.js';
 
 @Injectable()
 export class VehicleAllocationValidationService {
   constructor(
     private readonly vehicleAllocationRepository: VehicleAllocationRepository,
     private readonly vehicleAllocationBuilder: VehicleAllocationBuilder,
-  ) {}
+    private readonly allocationSummaryBuilder: AllocationSummaryBuilder,
+    private readonly orderItemsRepository: OrderItemsRepository,
+    private readonly workflowState: WorkflowStateService,
+  ) { }
 
   async validateVehicleAllocations(
     paperId: number,
     dto: SaveVehicleAllocationDto,
   ) {
-    const groupSummary = await this.getGroupSummary(paperId);
-
     const vehicles = await this.vehicleAllocationRepository.findVehicles();
+
+    const paper =
+      await this.vehicleAllocationRepository.findOrderPaperById(paperId);
+
+    if (!paper) {
+      throw new BadRequestException(
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
+      );
+    }
+
+    const session =
+      this.workflowState.getActiveExecutionSession(paper.status);
+
+    const summaries =
+      await this.getGroupSummary(paperId, session);
 
     const allocationGrids =
       this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
-        groupSummary.summaries,
+        summaries,
         vehicles,
       );
 
@@ -57,11 +79,18 @@ export class VehicleAllocationValidationService {
       );
     }
 
+
     for (const [key, requiredQty] of requiredTotals) {
       const allocatedQty = allocatedTotals.get(key) ?? 0;
 
       if (allocatedQty !== requiredQty) {
-        const [distributorId, category, productId] = key.split('_');
+        // const [distributorId, category, productId] = key.split('_');
+        const first = key.indexOf('_');
+        const last = key.lastIndexOf('_');
+
+        const distributorId = key.substring(0, first);
+        const category = key.substring(first + 1, last);
+        const productId = key.substring(last + 1);
 
         throw new BadRequestException(
           `Allocation mismatch for distributor ${distributorId}, category ${category}, product ${productId}. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
@@ -71,7 +100,10 @@ export class VehicleAllocationValidationService {
   }
 
   async validateVehicleAllocationsForNightSubmit(paperId: number) {
-    const allocationGrid = await this.getAllocationGrid(paperId);
+    const allocationGrid = await this.getAllocationGrid(
+      paperId,
+      DeliverySession.NIGHT,
+    );
 
     for (const allocation of allocationGrid.allocations) {
       for (const [field, requiredQty] of Object.entries(
@@ -85,37 +117,39 @@ export class VehicleAllocationValidationService {
 
         if (allocatedQty !== Number(requiredQty)) {
           throw new BadRequestException(
-            `${allocation.brandName} ${allocation.productGroupName} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
+            `${allocation.brandName} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
           );
         }
       }
     }
   }
 
-  private async getGroupSummary(paperId: number) {
+  private async getGroupSummary(paperId: number, session: DeliverySession) {
     const orderItems =
-      await this.vehicleAllocationRepository.findOrderItemsWithSupplyContextByPaperId(
+      await this.orderItemsRepository.findOrderItemsWithSupplyContextByPaperId(
         paperId,
       );
 
-    return this.vehicleAllocationBuilder.buildGroupSummary(orderItems);
+    const summaries = this.allocationSummaryBuilder.build(orderItems,session);
+
+    return summaries;
   }
 
-  private async getAllocationGrid(paperId: number) {
-    const groupSummary = await this.getGroupSummary(paperId);
+  private async getAllocationGrid(paperId: number, session: DeliverySession) {
+    const summaries = await this.getGroupSummary(paperId, session);
 
     const vehicles = await this.vehicleAllocationRepository.findVehicles();
 
     const allocationGrids =
       this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
-        groupSummary.summaries,
-
+        summaries,
         vehicles,
       );
 
     const vehicleAllocationPaper =
-      await this.vehicleAllocationRepository.findVehicleAllocationPaperByOrderPaperId(
+      await this.vehicleAllocationRepository.findVehicleAllocationPaper(
         paperId,
+        session,
       );
 
     if (!vehicleAllocationPaper) {
@@ -310,11 +344,15 @@ export class VehicleAllocationValidationService {
   }
 
   async validateVehicleAssignmentsForNightSubmit(paperId: number) {
-    const allocationGrid = await this.getAllocationGrid(paperId);
+    const allocationGrid = await this.getAllocationGrid(
+      paperId,
+      DeliverySession.NIGHT,
+    );
 
     const vehicleAllocationPaper =
-      await this.vehicleAllocationRepository.findVehicleAllocationPaperByOrderPaperId(
+      await this.vehicleAllocationRepository.findVehicleAllocationPaper(
         paperId,
+        DeliverySession.NIGHT,
       );
 
     if (!vehicleAllocationPaper) {

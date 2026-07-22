@@ -6,7 +6,7 @@ import { PrismaOrTransaction } from '../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async getActiveGroups() {
     return this.prisma.master_group.findMany({
@@ -34,7 +34,13 @@ export class OrdersRepository {
       },
 
       include: {
-        master_group: true,
+        master_group: {
+          select: {
+            id: true,
+            name: true,
+            delivery_session: true,
+          },
+        },
 
         order_paper: true,
       },
@@ -595,7 +601,13 @@ export class OrdersRepository {
       include: {
         order_sheet: {
           include: {
-            master_group: true,
+            master_group: {
+              select: {
+                id: true,
+                name: true,
+                delivery_session: true,
+              },
+            },
           },
         },
         master_product: {
@@ -643,6 +655,7 @@ export class OrdersRepository {
         sheetId: item.order_sheet_id,
         groupId: item.order_sheet.group_id,
         groupName: item.order_sheet.master_group.name,
+        deliverySession: item.order_sheet.master_group.delivery_session,
 
         clientId: item.client_id,
 
@@ -718,6 +731,13 @@ export class OrdersRepository {
       select: {
         id: true,
         group_id: true,
+
+        master_group: {
+          select: {
+            delivery_session: true,
+          },
+        },
+
         order_paper: {
           select: {
             sale_date: true,

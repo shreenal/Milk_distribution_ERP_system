@@ -1,35 +1,29 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
 import { BillingRow, OrderBillingInput } from '../../types/order.types.js';
 
 @Injectable()
 export class OrdersBillingBuilder {
-  private readonly logger = new Logger(OrdersBillingBuilder.name);
-
-  constructor(
-    private readonly productColumnsBuilder: ProductColumnsBuilder,
-  ) { }
+  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
 
   buildOrderBillingSection(input: OrderBillingInput) {
-
-     const {
-        milkProducts,
-        nonMilkProducts,
-        milkClients,
-        nonMilkClients,
-        sheetItems,
+    const {
+      milkProducts,
+      nonMilkProducts,
+      milkClients,
+      nonMilkClients,
+      sheetItems,
     } = input;
-
 
     const milkColumns = this.productColumnsBuilder.buildGroupedColumns(
       milkProducts,
-      'night',
+      'ordered',
       false,
     );
 
     const nonMilkColumns = this.productColumnsBuilder.buildGroupedColumns(
       nonMilkProducts,
-      'night',
+      'ordered',
       true,
     );
 
@@ -50,12 +44,10 @@ export class OrdersBillingBuilder {
     let nonMilkTotalFinalBillAmount = 0;
 
     for (const client of milkClients) {
-
       const milkRow: BillingRow = {
         clientId: client.id,
         clientName: client.name,
       };
-
 
       const clientItems = sheetItems.filter(
         (item) => item.client_id === client.id,
@@ -87,14 +79,13 @@ export class OrdersBillingBuilder {
       milkRow.nightBillAmount = Number(milkNightBillAmount.toFixed(2));
       milkRow.finalBillAmount = Number(milkFinalBillAmount.toFixed(2));
 
-        milkRows.push(milkRow);
+      milkRows.push(milkRow);
 
       milkTotalNightBillAmount += milkNightBillAmount;
       milkTotalFinalBillAmount += milkFinalBillAmount;
     }
 
     for (const client of nonMilkClients) {
-
       const nonMilkRow: BillingRow = {
         clientId: client.id,
         clientName: client.name,
@@ -111,7 +102,6 @@ export class OrdersBillingBuilder {
         const orderedQty = Number(item.ordered_qty ?? 0);
         const deliveredQty =
           item.delivered_qty !== null ? Number(item.delivered_qty) : null;
-
 
         if (nonMilkProductIds.has(item.product_id)) {
           const orderedKey = `product_${item.product_id}_ordered`;

@@ -1,12 +1,11 @@
-import {Prisma} from '../generated/prisma/client.js'
-
+import { Prisma } from '../generated/prisma/client.js';
 
 export type Vehicle = Prisma.master_vehicleGetPayload<{}>;
 
 export type BuildDairyTrayGridParams = {
   vehicles: Vehicle[];
   trayTypes: TrayType[];
-  vehicleAllocations: VehicleAllocation[];
+  purchaseEntries: PurchaseEntry[];
   trayRules: ProductTrayRule[];
   previousTransactions: DairyTrayTransaction[];
   currentTransactions: DairyTrayTransaction[];
@@ -21,7 +20,7 @@ export type Product = Prisma.master_productGetPayload<{
   };
 }>;
 
-export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
+export type PurchaseEntry = Prisma.purchase_entryGetPayload<{
   include: {
     master_vehicle: true;
     master_product: {
@@ -54,7 +53,6 @@ export type DairyTrayGrid = {
   rows: DairyTrayRow[];
   totals: DairyTrayTotals;
 };
-
 
 export type TrayType = Prisma.master_tray_typeGetPayload<{
   include: {

@@ -43,7 +43,6 @@ export const PURCHASE_ERROR_MESSAGES = {
     `Vehicle assignment not found for vehicle ${vehicleId}`,
 } as const;
 
-
 export const QUANTITY_PRECISION = {
   OPERATIONAL_UNIT_LITRES: 10,
 } as const;

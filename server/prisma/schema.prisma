@@ -242,6 +242,7 @@ model master_group {
   is_active             Boolean                    @default(true)
   created_at            DateTime                   @default(now())
   updated_at            DateTime                   @default(now()) @updatedAt
+  delivery_session      DeliverySession            @default(NIGHT)
   billing_clients       master_client[]            @relation("BillingGroup")
   delivery_clients      master_client[]            @relation("DeliveryGroup")
   master_vehicle        master_vehicle?            @relation(fields: [vehicle_id], references: [id])
@@ -446,8 +447,8 @@ model order_paper {
   cash_bank_deposits         cash_bank_deposit[]
   cash_direct_collections    cash_direct_collection[]
   order_sheet                order_sheet[]
-  purchase_paper             purchase_paper?
-  vehicle_allocation_paper   vehicle_allocation_paper?
+  purchase_paper             purchase_paper[]
+  vehicle_allocation_paper   vehicle_allocation_paper[]
   distributor_transfers      distributor_transfer[]
   dairy_tray_paper           dairy_tray_paper?
 }
@@ -518,12 +519,16 @@ model users {
 
 model vehicle_allocation_paper {
   id                  Int                               @id @default(autoincrement())
-  order_paper_id      Int                               @unique
+  order_paper_id      Int
+  delivery_session    DeliverySession
   created_at          DateTime                          @default(now())
   updated_at          DateTime                          @updatedAt
   allocations         vehicle_allocation[]
   order_paper         order_paper                       @relation(fields: [order_paper_id], references: [id], onDelete: Cascade)
   vehicle_assignments vehicle_distribution_assignment[]
+
+   @@unique([order_paper_id, delivery_session])
+   @@index([order_paper_id])
 }
 
 model vehicle_allocation {
@@ -566,6 +571,8 @@ model purchase_paper {
   updated_at     DateTime         @updatedAt
   entries        purchase_entry[]
   order_paper    order_paper      @relation(fields: [order_paper_id], references: [id], onDelete: Cascade)
+
+ @@index([order_paper_id])
 }
 
 model purchase_entry {
@@ -579,9 +586,9 @@ model purchase_entry {
   updated_at        DateTime            @updatedAt
   purchase_amount   Decimal             @db.Decimal(12, 2)
   purchase_rate     Decimal             @db.Decimal(10, 2)
-  allocated_qty     Decimal?            @db.Decimal(10, 2)
   distributor_id    Int
   gatepass_date     DateTime            @db.Date
+  delivery_session  DeliverySession?
   category          SupplyCategory
   distributor       master_distributor  @relation("DistributorPurchases", fields: [distributor_id], references: [id])
   master_product    master_product      @relation(fields: [product_id], references: [id])
@@ -589,7 +596,7 @@ model purchase_entry {
   master_vehicle    master_vehicle      @relation(fields: [vehicle_id], references: [id])
   product_link      master_product_link @relation(fields: [product_link_id], references: [id])
 
-  @@unique([purchase_paper_id, vehicle_id, product_link_id])
+  @@unique([purchase_paper_id,delivery_session,vehicle_id,product_link_id])
   @@index([purchase_paper_id, vehicle_id])
   @@index([distributor_id])
 }
@@ -734,4 +741,9 @@ enum OrderPaperStatus {
 enum SupplyCategory {
   MILK
   NON_MILK
+}
+
+enum DeliverySession {
+  NIGHT
+  MORNING
 }

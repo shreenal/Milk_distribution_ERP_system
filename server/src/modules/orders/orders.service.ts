@@ -68,7 +68,7 @@ export class OrdersService {
     private readonly collectionsService: CollectionsService,
 
     private readonly workflowState: WorkflowStateService,
-  ) { }
+  ) {}
 
   async getSheetService(sheetId: number) {
     try {
@@ -82,39 +82,35 @@ export class OrdersService {
         throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
       }
 
-      const milkProducts =
-    await this.ordersRepository.getProductsByCategory(
+      const milkProducts = await this.ordersRepository.getProductsByCategory(
         SupplyCategory.MILK,
-    );
+      );
 
-const nonMilkProducts =
-    await this.ordersRepository.getProductsByCategory(
+      const nonMilkProducts = await this.ordersRepository.getProductsByCategory(
         SupplyCategory.NON_MILK,
-    );
+      );
 
-const milkClients =
-    await this.ordersRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        SupplyCategory.MILK,
-    );
+      const milkClients =
+        await this.ordersRepository.getClientsByGroupAndCategory(
+          sheet.group_id,
+          SupplyCategory.MILK,
+        );
 
-const nonMilkClients =
-    await this.ordersRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        SupplyCategory.NON_MILK,
-    );
+      const nonMilkClients =
+        await this.ordersRepository.getClientsByGroupAndCategory(
+          sheet.group_id,
+          SupplyCategory.NON_MILK,
+        );
 
-const sheetItems =
-    await this.ordersRepository.getSheetItems(sheet.id);
+      const sheetItems = await this.ordersRepository.getSheetItems(sheet.id);
 
-const orderBilling =
-    this.ordersBillingBuilder.buildOrderBillingSection({
+      const orderBilling = this.ordersBillingBuilder.buildOrderBillingSection({
         milkProducts,
         nonMilkProducts,
         milkClients,
         nonMilkClients,
         sheetItems,
-    });
+      });
 
       const traySheet = await this.traysService.getTraySheetService(sheetId);
 
@@ -487,14 +483,13 @@ const orderBilling =
       );
     }
 
-    const canProcure =
-      await this.ordersRepository.canDistributorProcureProduct(
-        distributorId,
-        product.brand_id,
-        product.product_group_id,
-        category,
-        tx,
-      );
+    const canProcure = await this.ordersRepository.canDistributorProcureProduct(
+      distributorId,
+      product.brand_id,
+      product.product_group_id,
+      category,
+      tx,
+    );
 
     if (!canProcure) {
       throw new BadRequestException(

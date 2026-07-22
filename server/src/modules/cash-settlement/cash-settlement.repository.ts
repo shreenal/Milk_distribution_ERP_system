@@ -17,7 +17,13 @@ export class CashSettlementRepository {
       include: {
         order_sheet: {
           include: {
-            master_group: true,
+            master_group: {
+              select: {
+                id: true,
+                name: true,
+                delivery_session: true,
+              },
+            },
 
             client_collection: true,
 

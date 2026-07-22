@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { Prisma} from '../../generated/prisma/client.js';
+import { DeliverySession, Prisma } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class VehicleAllocationRepository {
@@ -28,7 +28,13 @@ export class VehicleAllocationRepository {
         order_paper_id: paperId,
       },
       include: {
-        master_group: true,
+        master_group: {
+          select: {
+            id: true,
+            name: true,
+            delivery_session: true,
+          },
+        },
       },
     });
   }
@@ -95,18 +101,21 @@ export class VehicleAllocationRepository {
     });
   }
 
-  async findVehicleAllocationPaperByOrderPaperId(orderPaperId: number) {
-    return this.prisma.vehicle_allocation_paper.findUnique({
+  async getOrCreateVehicleAllocationPaper(
+    orderPaperId: number,
+    deliverySession: DeliverySession,
+  ) {
+    return this.prisma.vehicle_allocation_paper.upsert({
       where: {
-        order_paper_id: orderPaperId,
+        order_paper_id_delivery_session: {
+          order_paper_id: orderPaperId,
+          delivery_session: deliverySession,
+        },
       },
-    });
-  }
-
-  async createVehicleAllocationPaper(orderPaperId: number) {
-    return this.prisma.vehicle_allocation_paper.create({
-      data: {
+      update: {},
+      create: {
         order_paper_id: orderPaperId,
+        delivery_session: deliverySession,
       },
     });
   }
@@ -147,11 +156,29 @@ export class VehicleAllocationRepository {
     });
   }
 
-  async findVehicleAllocationsByPaperId(orderPaperId: number) {
+  async findVehicleAllocationPaper(
+    orderPaperId: number,
+    deliverySession: DeliverySession,
+  ) {
+    return this.prisma.vehicle_allocation_paper.findUnique({
+      where: {
+        order_paper_id_delivery_session: {
+          order_paper_id: orderPaperId,
+          delivery_session: deliverySession,
+        },
+      },
+    });
+  }
+
+  async findVehicleAllocationsByPaperId(
+    orderPaperId: number,
+    deliverySession: DeliverySession,
+  ) {
     return this.prisma.vehicle_allocation.findMany({
       where: {
         vehicle_allocation_paper: {
           order_paper_id: orderPaperId,
+          delivery_session: deliverySession,
         },
       },
 
@@ -215,7 +242,6 @@ export class VehicleAllocationRepository {
     });
   }
 
-  
   async getProductLink(distributorId: number, productId: number) {
     return this.prisma.master_product_link.findUnique({
       where: {
@@ -265,58 +291,6 @@ export class VehicleAllocationRepository {
           data,
         });
       }
-    });
-  }
-
-  async findOrderItemsWithSupplyContextByPaperId(paperId: number) {
-    const items = await this.prisma.order_sheet_items.findMany({
-      where: {
-        order_sheet: {
-          order_paper_id: paperId,
-        },
-      },
-      include: {
-        order_sheet: {
-          include: {
-            master_group: {
-              include: {
-                supply_rules: true,
-              },
-            },
-          },
-        },
-        master_product: {
-          include: {
-            master_brand: true,
-            master_product_group: true,
-            master_product_type: true,
-            master_packaging_type: true,
-          },
-        },
-      },
-    });
-
-    return items.map((item) => {
-      const category = item.master_product.master_product_group.category;
-      const supplyRule = item.order_sheet.master_group.supply_rules.find(
-        (rule) => rule.category === category,
-      );
-
-      if (!supplyRule) {
-        throw new Error(
-          `Missing supply rule for group ${item.order_sheet.master_group.name} and category ${category}`,
-        );
-      }
-
-      return {
-        groupId: item.order_sheet.group_id,
-        groupName: item.order_sheet.master_group.name,
-        productId: item.product_id,
-        orderedQty: Number(item.ordered_qty ?? 0),
-        distributorId: supplyRule.distributor_id,
-        category,
-        master_product: item.master_product,
-      };
     });
   }
 }

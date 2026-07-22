@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service.js';
 
 @Injectable()
 export class DeliverySummaryRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findDeliveredItemsByPaperId(paperId: number) {
     return this.prisma.order_sheet_items.findMany({
@@ -61,9 +61,7 @@ export class DeliverySummaryRepository {
     });
   }
 
-  async findDeliveredItemsWithSupplyContextByPaperId(
-    paperId: number,
-  ) {
+  async findDeliveredItemsWithSupplyContextByPaperId(paperId: number) {
     const items = await this.prisma.order_sheet_items.findMany({
       where: {
         order_sheet: {
@@ -74,7 +72,11 @@ export class DeliverySummaryRepository {
         order_sheet: {
           include: {
             master_group: {
-              include: {
+              select: {
+                id: true,
+                name: true,
+                delivery_session: true,
+
                 supply_rules: true,
               },
             },
@@ -114,6 +116,8 @@ export class DeliverySummaryRepository {
       return {
         billingGroupId: item.master_client.billing_group.id,
         billingGroupName: item.master_client.billing_group.name,
+
+        deliverySession: item.order_sheet.master_group.delivery_session,
 
         productId: item.product_id,
         deliveredQty: Number(item.delivered_qty ?? 0),

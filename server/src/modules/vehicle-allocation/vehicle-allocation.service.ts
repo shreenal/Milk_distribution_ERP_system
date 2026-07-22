@@ -4,8 +4,13 @@ import { VehicleAllocationRepository } from './vehicle-allocation.repository.js'
 import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { VehicleAllocationValidationService } from './vehicle-allocation-validation.service.js';
+import { AllocationSummaryBuilder } from '../../common/builders/allocation-summary.builder.js';
 import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
-import { SupplyCategory } from '../../generated/prisma/client.js';
+import {
+  DeliverySession,
+  SupplyCategory,
+} from '../../generated/prisma/client.js';
+import { OrderItemsRepository } from '../../common/repositories/order-items.repository.js';
 
 @Injectable()
 export class VehicleAllocationService {
@@ -14,12 +19,25 @@ export class VehicleAllocationService {
 
     private readonly vehicleAllocationBuilder: VehicleAllocationBuilder,
 
+    private readonly allocationSummaryBuilder: AllocationSummaryBuilder,
+
+    private readonly orderItemsRepository: OrderItemsRepository,
+
     private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
 
     private readonly workflowState: WorkflowStateService,
-  ) {}
+  ) { }
 
-  async getGroupSummary(paperId: number) {
+  private async getGroupSummary(paperId: number, session: DeliverySession) {
+    const orderItems =
+      await this.orderItemsRepository.findOrderItemsWithSupplyContextByPaperId(
+        paperId,
+      );
+
+    return this.allocationSummaryBuilder.build(orderItems, session);
+  }
+
+  async getVehicleAllocations(paperId: number) {
     const paper =
       await this.vehicleAllocationRepository.findOrderPaperById(paperId);
 
@@ -29,16 +47,9 @@ export class VehicleAllocationService {
       );
     }
 
-    const orderItems =
-      await this.vehicleAllocationRepository.findOrderItemsWithSupplyContextByPaperId(
-        paperId,
-      );
+    const session = this.workflowState.getActiveExecutionSession(paper.status);
 
-    return this.vehicleAllocationBuilder.buildGroupSummary(orderItems);
-  }
-
-  async getVehicleAllocations(paperId: number) {
-    const groupSummary = await this.getGroupSummary(paperId);
+    const summaries = await this.getGroupSummary(paperId, session);
 
     const vehicles = await this.vehicleAllocationRepository.findVehicles();
 
@@ -54,14 +65,14 @@ export class VehicleAllocationService {
 
     const allocationGrids =
       this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
-        groupSummary.summaries,
-
+        summaries,
         vehicles,
       );
 
     const vehicleAllocationPaper =
-      await this.vehicleAllocationRepository.findVehicleAllocationPaperByOrderPaperId(
+      await this.vehicleAllocationRepository.findVehicleAllocationPaper(
         paperId,
+        session,
       );
 
     if (!vehicleAllocationPaper) {
@@ -96,6 +107,7 @@ export class VehicleAllocationService {
         savedAssignments,
       );
 
+
     return {
       ...allocationResult,
 
@@ -113,37 +125,34 @@ export class VehicleAllocationService {
     }
 
     const status = paper.status;
-    if (!this.workflowState.canEditVehicleAllocations(status)) {
+    const session = this.workflowState.getActiveExecutionSession(status);
+
+    if (!this.workflowState.canEditVehicleAllocations(status, session)) {
       throw new BadRequestException(
         VEHICLE_ALLOCATION_ERROR_MESSAGES.EDIT_NOT_ALLOWED,
       );
     }
 
-    await this.vehicleAllocationValidationService.validateVehicleAllocations(
-      paperId,
-      dto,
-    );
+
     await this.vehicleAllocationValidationService.validateVehicleAssignments(
       paperId,
       dto,
     );
 
-    // ✓ NEW: Validate all product links exist before saving
     await this.vehicleAllocationValidationService.validateAllocationProductLinks(
       dto,
     );
 
-    let vehicleAllocationPaper =
-      await this.vehicleAllocationRepository.findVehicleAllocationPaperByOrderPaperId(
-        paperId,
-      );
+    await this.vehicleAllocationValidationService.validateVehicleAllocations(
+      paperId,
+      dto,
+    );
 
-    if (!vehicleAllocationPaper) {
-      vehicleAllocationPaper =
-        await this.vehicleAllocationRepository.createVehicleAllocationPaper(
-          paperId,
-        );
-    }
+    const vehicleAllocationPaper =
+      await this.vehicleAllocationRepository.getOrCreateVehicleAllocationPaper(
+        paperId,
+        session,
+      );
 
     const assignmentRows = dto.assignments.flatMap((assignment) => {
       const rows: {

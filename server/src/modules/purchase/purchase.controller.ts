@@ -36,7 +36,6 @@ export class PurchaseController {
   savePurchases(
     @Param('paperId', ParseIntPipe)
     paperId: number,
-
     @Body()
     dto: SavePurchaseDto,
   ) {
