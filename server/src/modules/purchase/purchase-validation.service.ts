@@ -8,11 +8,9 @@ import { VehicleAssignment } from '../../types/purchase.types.js';
 
 import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
 
-import { DeliverySession } from '../../generated/prisma/client.js';
-
 @Injectable()
 export class PurchaseValidationService {
-  constructor(private readonly purchaseRepository: PurchaseRepository) { }
+  constructor(private readonly purchaseRepository: PurchaseRepository) {}
 
   async validatePurchases(paperId: number, dto: SavePurchaseDto) {
     const products = await this.purchaseRepository.findProducts();
@@ -39,7 +37,7 @@ export class PurchaseValidationService {
 
     for (const assignment of vehicleAssignments) {
       assignmentMap.set(
-        `${assignment.vehicle_id}_${assignment.category}`,
+        `${assignment.vehicle_id}_${assignment.category}_${assignment.vehicle_allocation_paper.delivery_session}`,
         assignment,
       );
     }
@@ -53,7 +51,7 @@ export class PurchaseValidationService {
         );
       }
       allocationMap.set(
-        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}`,
+        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`,
         Number(allocation.allocated_qty),
       );
     }
@@ -82,7 +80,7 @@ export class PurchaseValidationService {
       }
 
       const assignment = assignmentMap.get(
-        `${entry.vehicleId}_${entry.category}`,
+        `${entry.vehicleId}_${entry.category}_${entry.deliverySession}`,
       );
 
       if (!assignment || assignment.distributor_id !== entry.distributorId) {
@@ -92,7 +90,7 @@ export class PurchaseValidationService {
       }
 
       const allocatedQty = allocationMap.get(
-        `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}`,
+        `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}_${entry.deliverySession}`,
       );
 
       if (allocatedQty === undefined) {
@@ -133,7 +131,7 @@ export class PurchaseValidationService {
 
     for (const assignment of vehicleAssignments) {
       assignmentMap.set(
-        `${assignment.vehicle_id}_${assignment.category}`,
+        `${assignment.vehicle_id}_${assignment.category}_${assignment.vehicle_allocation_paper.delivery_session}`,
         assignment,
       );
     }
@@ -160,7 +158,7 @@ export class PurchaseValidationService {
     const purchaseKeys = new Set(
       purchaseEntries.map(
         (entry) =>
-          `${entry.distributor_id}_${entry.category}_${entry.vehicle_id}_${entry.product_id}`,
+          `${entry.distributor_id}_${entry.category}_${entry.vehicle_id}_${entry.product_id}_${entry.delivery_session}`,
       ),
     );
 
@@ -172,7 +170,7 @@ export class PurchaseValidationService {
       }
 
       const assignment = assignmentMap.get(
-        `${allocation.vehicle_id}_${allocation.category}`,
+        `${allocation.vehicle_id}_${allocation.category}_${allocation.vehicle_allocation_paper.delivery_session}`,
       );
 
       if (
@@ -186,11 +184,10 @@ export class PurchaseValidationService {
         );
       }
 
-      const key = `${allocation.distributor_id}_${allocation.category}_${allocation.vehicle_id}_${allocation.product_id}`;
-
+      const key = `${allocation.distributor_id}_${allocation.category}_${allocation.vehicle_id}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`;
       if (!purchaseKeys.has(key)) {
-        console.log("Expected key:", key);
-        console.log("Purchase keys:", [...purchaseKeys]);
+        console.log('Expected key:', key);
+        console.log('Purchase keys:', [...purchaseKeys]);
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.PURCHASE_MISSING(
             allocation.vehicle_id,

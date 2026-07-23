@@ -19,7 +19,7 @@ export class VehicleAllocationValidationService {
     private readonly allocationSummaryBuilder: AllocationSummaryBuilder,
     private readonly orderItemsRepository: OrderItemsRepository,
     private readonly workflowState: WorkflowStateService,
-  ) { }
+  ) {}
 
   async validateVehicleAllocations(
     paperId: number,
@@ -36,11 +36,9 @@ export class VehicleAllocationValidationService {
       );
     }
 
-    const session =
-      this.workflowState.getActiveExecutionSession(paper.status);
+    const session = this.workflowState.getActiveExecutionSession(paper.status);
 
-    const summaries =
-      await this.getGroupSummary(paperId, session);
+    const summaries = await this.getGroupSummary(paperId, session);
 
     const allocationGrids =
       this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
@@ -78,7 +76,6 @@ export class VehicleAllocationValidationService {
         (allocatedTotals.get(key) ?? 0) + Number(allocation.allocatedQty),
       );
     }
-
 
     for (const [key, requiredQty] of requiredTotals) {
       const allocatedQty = allocatedTotals.get(key) ?? 0;
@@ -130,7 +127,7 @@ export class VehicleAllocationValidationService {
         paperId,
       );
 
-    const summaries = this.allocationSummaryBuilder.build(orderItems,session);
+    const summaries = this.allocationSummaryBuilder.build(orderItems, session);
 
     return summaries;
   }

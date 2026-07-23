@@ -6,11 +6,17 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { SupplyCategory } from '../../../generated/prisma/client.js';
+import {
+  SupplyCategory,
+  DeliverySession,
+} from '../../../generated/prisma/client.js';
 
 class PurchaseEntryDto {
   @IsInt()
   vehicleId!: number;
+
+  @IsEnum(DeliverySession)
+  deliverySession!: DeliverySession;
 
   @IsInt()
   distributorId!: number;

@@ -30,12 +30,10 @@ export class PurchaseService {
     private readonly purchaseValidationService: PurchaseValidationService,
 
     private readonly workflowState: WorkflowStateService,
-  ) { }
+  ) {}
 
   async getPurchases(paperId: number) {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
-
-
 
     if (!paper) {
       throw new BadRequestException(
@@ -109,10 +107,9 @@ export class PurchaseService {
             `No product link found for distributor ${allocation.distributor_id} and product ${allocation.product_id}`,
           );
         }
+        const key = `${allocation.vehicle_id}_${allocation.category}_${allocation.vehicle_allocation_paper.delivery_session}`;
 
-        const assignment = assignmentMap.get(
-          `${allocation.vehicle_id}_${allocation.category}`,
-        );
+        const assignment = assignmentMap.get(key);
 
         if (
           !assignment ||
@@ -145,6 +142,7 @@ export class PurchaseService {
           distributorId: allocation.distributor_id,
           category: allocation.category,
           vehicleId: allocation.vehicle_id,
+          deliverySession: allocation.vehicle_allocation_paper.delivery_session,
           productId: allocation.product_id,
           purchaseRate: Number(rate.purchase_rate),
         };
@@ -186,7 +184,7 @@ export class PurchaseService {
       throw new BadRequestException(PURCHASE_ERROR_MESSAGES.EDIT_NOT_ALLOWED);
     }
 
-    await this.purchaseValidationService.validatePurchases(paperId,dto);
+    await this.purchaseValidationService.validatePurchases(paperId, dto);
 
     const entries = dto.entries.filter((entry) => entry.purchasedQty > 0);
 
@@ -211,7 +209,7 @@ export class PurchaseService {
       }
 
       allocationMap.set(
-        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}`,
+        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`,
         allocation,
       );
     }
@@ -219,7 +217,7 @@ export class PurchaseService {
     const purchaseRows = await Promise.all(
       entries.map(async (entry) => {
         const allocation = allocationMap.get(
-          `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}`,
+          `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}_${entry.deliverySession}`,
         );
 
         if (!allocation) {
@@ -243,7 +241,7 @@ export class PurchaseService {
         }
 
         const assignment = assignmentMap.get(
-          `${entry.vehicleId}_${entry.category}`,
+          `${entry.vehicleId}_${entry.category}_${entry.deliverySession}`,
         );
 
         if (!assignment || assignment.distributor_id !== entry.distributorId) {
@@ -278,7 +276,7 @@ export class PurchaseService {
 
         return {
           purchase_paper_id: purchasePaper.id,
-          delivery_session:allocation.vehicle_allocation_paper.delivery_session,
+          delivery_session: entry.deliverySession,
           distributor_id: entry.distributorId,
           category: entry.category,
           vehicle_id: entry.vehicleId,
@@ -317,7 +315,10 @@ function buildVehicleAssignmentMap(
   const map = new Map<string, VehicleAssignment>();
 
   for (const assignment of assignments) {
-    map.set(`${assignment.vehicle_id}_${assignment.category}`, assignment);
+    map.set(
+      `${assignment.vehicle_id}_${assignment.category}_${assignment.vehicle_allocation_paper.delivery_session}`,
+      assignment,
+    );
   }
 
   return map;

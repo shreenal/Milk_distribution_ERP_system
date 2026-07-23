@@ -26,7 +26,7 @@ export class VehicleAllocationService {
     private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
 
     private readonly workflowState: WorkflowStateService,
-  ) { }
+  ) {}
 
   private async getGroupSummary(paperId: number, session: DeliverySession) {
     const orderItems =
@@ -107,7 +107,6 @@ export class VehicleAllocationService {
         savedAssignments,
       );
 
-
     return {
       ...allocationResult,
 
@@ -132,7 +131,6 @@ export class VehicleAllocationService {
         VEHICLE_ALLOCATION_ERROR_MESSAGES.EDIT_NOT_ALLOWED,
       );
     }
-
 
     await this.vehicleAllocationValidationService.validateVehicleAssignments(
       paperId,

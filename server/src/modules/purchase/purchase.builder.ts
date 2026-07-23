@@ -62,9 +62,8 @@ export class PurchaseBuilder {
 
       const rows = assignedVehicles.map((assignment) => ({
         vehicleId: assignment.vehicle_id,
-
+        deliverySession: assignment.vehicle_allocation_paper.delivery_session,
         vehicleName: assignment.master_vehicle.vehicle_name,
-
         ...structuredClone(productFields),
       }));
       purchaseGrids.push({
@@ -170,7 +169,10 @@ export class PurchaseBuilder {
       }
 
       const row = grid.rows.find(
-        (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
+        (vehicle) =>
+          vehicle.vehicleId === allocation.vehicle_id &&
+          vehicle.deliverySession ===
+            allocation.vehicle_allocation_paper.delivery_session,
       );
 
       if (!row) {
@@ -207,7 +209,9 @@ export class PurchaseBuilder {
       }
 
       const row = grid.rows.find(
-        (vehicle) => vehicle.vehicleId === entry.vehicle_id,
+        (vehicle) =>
+          vehicle.vehicleId === entry.vehicle_id &&
+          vehicle.deliverySession === entry.delivery_session,
       );
 
       if (!row) {
@@ -245,7 +249,9 @@ export class PurchaseBuilder {
       }
 
       const row = grid.rows.find(
-        (vehicle) => vehicle.vehicleId === rate.vehicleId,
+        (vehicle) =>
+          vehicle.vehicleId === rate.vehicleId &&
+          vehicle.deliverySession === rate.deliverySession,
       );
 
       if (!row) {

@@ -1,4 +1,8 @@
-import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
+import {
+  DeliverySession,
+  Prisma,
+  SupplyCategory,
+} from '../generated/prisma/client.js';
 import { ProductColumnNode } from '../common/builders/product-columns.builder.js';
 
 export type Product = Prisma.master_productGetPayload<{
@@ -29,6 +33,11 @@ export type SummaryRow = {
 export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
   include: {
     master_vehicle: true;
+    vehicle_allocation_paper: {
+      select: {
+        delivery_session: true;
+      };
+    };
     master_product: {
       include: {
         master_brand: true;
@@ -43,6 +52,7 @@ export type PurchaseEntry = Prisma.purchase_entryGetPayload<{}>;
 export type PurchaseRow = {
   vehicleId: number;
   vehicleName: string | null;
+  deliverySession: DeliverySession;
   [key: string]: string | number | null;
 };
 
@@ -67,6 +77,7 @@ export type PurchaseRateDefault = {
   vehicleId: number;
   productId: number;
   purchaseRate: number;
+  deliverySession: DeliverySession;
 };
 
 export type VehicleAssignment = {
@@ -80,5 +91,8 @@ export type VehicleAssignment = {
   master_distributor: {
     id: number;
     name: string;
+  };
+  vehicle_allocation_paper: {
+    delivery_session: DeliverySession;
   };
 };

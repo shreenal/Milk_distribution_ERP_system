@@ -46,6 +46,11 @@ export class PurchaseRepository {
         master_vehicle: true,
 
         master_distributor: true,
+        vehicle_allocation_paper: {
+          select: {
+            delivery_session: true,
+          },
+        },
       },
 
       orderBy: [
@@ -59,30 +64,28 @@ export class PurchaseRepository {
     });
   }
 
-  async findPurchaseEntries(
-  purchasePaperId: number,
-) {
-  return this.prisma.purchase_entry.findMany({
-    where: {
-      purchase_paper_id: purchasePaperId,
-    },
-    include: {
-      product_link: true,
-    },
-    orderBy: [
-      { distributor_id: 'asc' },
-      { category: 'asc' },
-      { vehicle_id: 'asc' },
-      { gatepass_date: 'asc' },
-      { product_id: 'asc' },
-    ],
-  });
-}
+  async findPurchaseEntries(purchasePaperId: number) {
+    return this.prisma.purchase_entry.findMany({
+      where: {
+        purchase_paper_id: purchasePaperId,
+      },
+      include: {
+        product_link: true,
+      },
+      orderBy: [
+        { distributor_id: 'asc' },
+        { category: 'asc' },
+        { vehicle_id: 'asc' },
+        { gatepass_date: 'asc' },
+        { product_id: 'asc' },
+      ],
+    });
+  }
 
   async replacePurchaseEntries(
-  purchasePaperId: number,
-  data: Prisma.purchase_entryCreateManyInput[],
-) {
+    purchasePaperId: number,
+    data: Prisma.purchase_entryCreateManyInput[],
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.purchase_entry.deleteMany({
         where: {
@@ -160,23 +163,23 @@ export class PurchaseRepository {
       },
 
       include: {
-  master_vehicle: true,
+        master_vehicle: true,
 
-  vehicle_allocation_paper: {
-    select: {
-      delivery_session: true,
-    },
-  },
+        vehicle_allocation_paper: {
+          select: {
+            delivery_session: true,
+          },
+        },
 
-  master_product: {
-    include: {
-      master_brand: true,
-      master_product_group: true,
-      master_product_type: true,
-      master_packaging_type: true,
-    },
-  },
-},
+        master_product: {
+          include: {
+            master_brand: true,
+            master_product_group: true,
+            master_product_type: true,
+            master_packaging_type: true,
+          },
+        },
+      },
       orderBy: [
         { distributor_id: 'asc' },
         { category: 'asc' },
