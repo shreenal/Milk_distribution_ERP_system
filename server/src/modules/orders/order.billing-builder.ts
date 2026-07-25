@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { ProductColumnsBuilder } from '../../common/builders/product-columns.builder.js';
 import { BillingRow, OrderBillingInput } from '../../types/order.types.js';
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
 
 @Injectable()
 export class OrdersBillingBuilder {
   constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
 
-  buildOrderBillingSection(input: OrderBillingInput) {
+  buildOrderBillingSection(
+    input: OrderBillingInput,
+    paperStatus: OrderPaperStatus,
+  ) {
     const {
       milkProducts,
       nonMilkProducts,
@@ -17,13 +21,11 @@ export class OrdersBillingBuilder {
 
     const milkColumns = this.productColumnsBuilder.buildGroupedColumns(
       milkProducts,
-      'ordered',
       false,
     );
 
     const nonMilkColumns = this.productColumnsBuilder.buildGroupedColumns(
       nonMilkProducts,
-      'ordered',
       true,
     );
 
@@ -43,10 +45,15 @@ export class OrdersBillingBuilder {
 
     let nonMilkTotalFinalBillAmount = 0;
 
+    const useOrderedQuantity =
+      paperStatus === OrderPaperStatus.DRAFT ||
+      paperStatus === OrderPaperStatus.REOPENED;
+
     for (const client of milkClients) {
       const milkRow: BillingRow = {
         clientId: client.id,
         clientName: client.name,
+        billAmount: 0,
       };
 
       const clientItems = sheetItems.filter(
@@ -57,27 +64,22 @@ export class OrdersBillingBuilder {
       let milkFinalBillAmount = 0;
 
       for (const item of clientItems) {
-        const orderedQty = Number(item.ordered_qty ?? 0);
-        const deliveredQty =
-          item.delivered_qty !== null ? Number(item.delivered_qty) : null;
-
         if (milkProductIds.has(item.product_id)) {
-          const orderedKey = `product_${item.product_id}_ordered`;
-          const deliveredKey = `product_${item.product_id}_delivered`;
+          const key = `product_${item.product_id}`;
+          const quantity = useOrderedQuantity
+            ? Number(item.ordered_qty ?? 0)
+            : Number(item.delivered_qty ?? 0);
 
-          milkRow[orderedKey] = Number(milkRow[orderedKey] ?? 0) + orderedQty;
-          milkRow[deliveredKey] =
-            deliveredQty === null
-              ? (milkRow[deliveredKey] ?? null)
-              : Number(milkRow[deliveredKey] ?? 0) + deliveredQty;
+          milkRow[key] = quantity;
 
           milkNightBillAmount += Number(item.night_bill_amount ?? 0);
           milkFinalBillAmount += Number(item.final_bill_amount ?? 0);
         }
       }
 
-      milkRow.nightBillAmount = Number(milkNightBillAmount.toFixed(2));
-      milkRow.finalBillAmount = Number(milkFinalBillAmount.toFixed(2));
+      milkRow.billAmount = useOrderedQuantity
+        ? Number(milkNightBillAmount.toFixed(2))
+        : Number(milkFinalBillAmount.toFixed(2));
 
       milkRows.push(milkRow);
 
@@ -89,6 +91,7 @@ export class OrdersBillingBuilder {
       const nonMilkRow: BillingRow = {
         clientId: client.id,
         clientName: client.name,
+        billAmount: 0,
       };
 
       const clientItems = sheetItems.filter(
@@ -99,28 +102,23 @@ export class OrdersBillingBuilder {
       let nonMilkFinalBillAmount = 0;
 
       for (const item of clientItems) {
-        const orderedQty = Number(item.ordered_qty ?? 0);
-        const deliveredQty =
-          item.delivered_qty !== null ? Number(item.delivered_qty) : null;
-
         if (nonMilkProductIds.has(item.product_id)) {
-          const orderedKey = `product_${item.product_id}_ordered`;
-          const deliveredKey = `product_${item.product_id}_delivered`;
+          const key = `product_${item.product_id}`;
 
-          nonMilkRow[orderedKey] =
-            Number(nonMilkRow[orderedKey] ?? 0) + orderedQty;
-          nonMilkRow[deliveredKey] =
-            deliveredQty === null
-              ? (nonMilkRow[deliveredKey] ?? null)
-              : Number(nonMilkRow[deliveredKey] ?? 0) + deliveredQty;
+          const quantity = useOrderedQuantity
+            ? Number(item.ordered_qty ?? 0)
+            : Number(item.delivered_qty ?? 0);
+
+          nonMilkRow[key] = quantity;
 
           nonMilkNightBillAmount += Number(item.night_bill_amount ?? 0);
           nonMilkFinalBillAmount += Number(item.final_bill_amount ?? 0);
         }
       }
 
-      nonMilkRow.nightBillAmount = Number(nonMilkNightBillAmount.toFixed(2));
-      nonMilkRow.finalBillAmount = Number(nonMilkFinalBillAmount.toFixed(2));
+      nonMilkRow.billAmount = useOrderedQuantity
+        ? Number(nonMilkNightBillAmount.toFixed(2))
+        : Number(nonMilkFinalBillAmount.toFixed(2));
 
       nonMilkRows.push(nonMilkRow);
 
@@ -134,8 +132,9 @@ export class OrdersBillingBuilder {
         rows: milkRows,
         totals: {
           totalClients: milkRows.length,
-          totalNightBillAmount: Number(milkTotalNightBillAmount.toFixed(2)),
-          totalFinalBillAmount: Number(milkTotalFinalBillAmount.toFixed(2)),
+          totalBillAmount: useOrderedQuantity
+            ? Number(milkTotalNightBillAmount.toFixed(2))
+            : Number(milkTotalFinalBillAmount.toFixed(2)),
         },
       },
 
@@ -144,8 +143,9 @@ export class OrdersBillingBuilder {
         rows: nonMilkRows,
         totals: {
           totalClients: nonMilkRows.length,
-          totalNightBillAmount: Number(nonMilkTotalNightBillAmount.toFixed(2)),
-          totalFinalBillAmount: Number(nonMilkTotalFinalBillAmount.toFixed(2)),
+          totalBillAmount: useOrderedQuantity
+            ? Number(nonMilkTotalNightBillAmount.toFixed(2))
+            : Number(nonMilkTotalFinalBillAmount.toFixed(2)),
         },
       },
     };

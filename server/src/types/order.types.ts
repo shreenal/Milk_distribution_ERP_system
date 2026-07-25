@@ -13,6 +13,5 @@ export interface OrderBillingInput {
 export type BillingRow = {
   clientId: number;
   clientName: string;
-  nightBillAmount?: number;
-  finalBillAmount?: number;
+  billAmount: number;
 } & Record<string, number | string | null | undefined>;

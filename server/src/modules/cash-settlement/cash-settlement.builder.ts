@@ -9,6 +9,8 @@ import {
   RouteSettlementRowDto,
 } from './dto/cash-settlement-response.dto.js';
 
+import { OrderPaperStatus } from '../../generated/prisma/client.js';
+
 @Injectable()
 export class CashSettlementBuilder {
   buildCashSettlement(
@@ -207,7 +209,7 @@ export class CashSettlementBuilder {
       0,
     );
 
-    if (paper.status === 'REOPENED') {
+    if (paper.status === OrderPaperStatus.REOPENED) {
       const historicalRouteDenominationCash = totalRouteDenominationCash;
 
       const historicalDirectCollectionCash = directCollectionCash;
@@ -223,7 +225,6 @@ export class CashSettlementBuilder {
       const reconciliationDifference = revisedOfficeCash - historicalCashOnHand;
 
       return {
-        paperStatus: paper.status,
         routeSettlements,
         routeExpenses,
         routeDenominations,
@@ -248,7 +249,6 @@ export class CashSettlementBuilder {
     const cashInHandAfterDeposits = officeCash - totalDeposits;
 
     return {
-      paperStatus: paper.status,
       routeSettlements,
       routeExpenses,
       routeDenominations,

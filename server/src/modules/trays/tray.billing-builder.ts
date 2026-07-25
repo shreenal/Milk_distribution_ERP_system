@@ -1,6 +1,9 @@
 import { Injectable } from '@nestjs/common';
 
-import { SupplyCategory } from '../../generated/prisma/client.js';
+import {
+  OrderPaperStatus,
+  SupplyCategory,
+} from '../../generated/prisma/client.js';
 import {
   TrayClient,
   TraySheetItem,
@@ -15,15 +18,18 @@ import {
 
 @Injectable()
 export class TrayBillingBuilder {
-  buildTrayBilling(data: {
-    milkClients: TrayClient[];
-    nonMilkClients: TrayClient[];
-    trayTypes: TrayType[];
-    sheetItems: TraySheetItem[];
-    trayRules: ProductTrayRule[];
-    trayTransactions: TrayTransaction[];
-    openingBalanceMap: Map<string, number>;
-  }) {
+  buildTrayBilling(
+    data: {
+      milkClients: TrayClient[];
+      nonMilkClients: TrayClient[];
+      trayTypes: TrayType[];
+      sheetItems: TraySheetItem[];
+      trayRules: ProductTrayRule[];
+      trayTransactions: TrayTransaction[];
+      openingBalanceMap: Map<string, number>;
+    },
+    paperStatus: OrderPaperStatus,
+  ) {
     const milkSheetItems = data.sheetItems.filter(
       (item) =>
         item.master_product.master_product_group.category ===
@@ -48,11 +54,16 @@ export class TrayBillingBuilder {
       data.trayTypes,
     );
 
+    const useOrderedQuantity =
+      paperStatus === OrderPaperStatus.DRAFT ||
+      paperStatus === OrderPaperStatus.REOPENED;
+
     const milkTrayGrid = this.buildGrid({
       ...data,
       clients: data.milkClients,
       sheetItems: milkSheetItems,
       trayTypes: milkTrayTypes,
+      useOrderedQuantity,
     });
 
     const nonMilkTrayGrid = this.buildGrid({
@@ -60,6 +71,7 @@ export class TrayBillingBuilder {
       clients: data.nonMilkClients,
       sheetItems: nonMilkSheetItems,
       trayTypes: nonMilkTrayTypes,
+      useOrderedQuantity,
     });
 
     return {
@@ -107,17 +119,9 @@ export class TrayBillingBuilder {
           },
 
           {
-            headerName: 'Expected',
+            headerName: 'Trays',
 
-            field: `tray_${trayType.id}_expected`,
-
-            editable: false,
-          },
-
-          {
-            headerName: 'Taken',
-
-            field: `tray_${trayType.id}_taken`,
+            field: `tray_${trayType.id}`,
 
             editable: false,
           },
@@ -161,6 +165,7 @@ export class TrayBillingBuilder {
     trayRules: ProductTrayRule[];
     trayTransactions: TrayTransaction[];
     openingBalanceMap: Map<string, number>;
+    useOrderedQuantity: boolean;
   }): TrayGrid {
     const {
       clients,
@@ -195,9 +200,11 @@ export class TrayBillingBuilder {
           return null;
         }
 
-        const expectedTrayMap = new Map<number, number>();
+        // const expectedTrayMap = new Map<number, number>();
 
-        const trayTakenMap = new Map<number, number>();
+        // const trayTakenMap = new Map<number, number>();
+
+        const trayCountMap = new Map<number, number>();
 
         for (const item of clientItems) {
           const matchingRules = trayRules.filter((rule) => {
@@ -253,25 +260,16 @@ export class TrayBillingBuilder {
 
           const deliveredQty = Number(item.delivered_qty ?? 0);
 
+          const trays = data.useOrderedQuantity
+            ? orderedQty
+            : Math.round(deliveredQty);
+
           // ========================= // TRAY CALCULATION // ========================= // ordered_qty already represents // tray shorthand count
-          const expectedTraysTaken = orderedQty; // delivered_qty may contain // fractional tray shorthand // because of leakage
-          const traysTaken = Math.round(deliveredQty);
+          // const expectedTraysTaken = orderedQty;// delivered_qty may contain // fractional tray shorthand // because of leakage
+          // const traysTaken = Math.round(deliveredQty);
+          const existing = trayCountMap.get(trayTypeId) ?? 0;
 
-          const existingExpected = expectedTrayMap.get(trayTypeId) ?? 0;
-
-          expectedTrayMap.set(
-            trayTypeId,
-
-            existingExpected + expectedTraysTaken,
-          );
-
-          const existingActual = trayTakenMap.get(trayTypeId) ?? 0;
-
-          trayTakenMap.set(
-            trayTypeId,
-
-            existingActual + traysTaken,
-          );
+          trayCountMap.set(trayTypeId, existing + trays);
         }
 
         // =========================
@@ -291,19 +289,15 @@ export class TrayBillingBuilder {
             openingBalanceMap.get(`${client.id}_${trayTypeId}`) ?? 0,
           );
 
-          const expected = Number(expectedTrayMap.get(trayTypeId) ?? 0);
-
-          const taken = Number(trayTakenMap.get(trayTypeId) ?? 0);
+          const trays = Number(trayCountMap.get(trayTypeId) ?? 0);
 
           const returned = Number(savedTransaction?.trays_returned ?? 0);
 
-          const closing = opening + taken - returned;
+          const closing = opening + trays - returned;
 
           row[`tray_${trayTypeId}_opening`] = opening;
 
-          row[`tray_${trayTypeId}_expected`] = expected;
-
-          row[`tray_${trayTypeId}_taken`] = taken;
+          row[`tray_${trayTypeId}`] = trays;
 
           row[`tray_${trayTypeId}_returned`] = returned;
 
@@ -333,7 +327,7 @@ export class TrayBillingBuilder {
         ),
 
         taken: rows.reduce(
-          (sum, row) => sum + Number(row[`tray_${trayTypeId}_taken`] ?? 0),
+          (sum, row) => sum + Number(row[`tray_${trayTypeId}`] ?? 0),
 
           0,
         ),

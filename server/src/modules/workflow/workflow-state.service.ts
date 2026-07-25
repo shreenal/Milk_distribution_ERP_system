@@ -135,6 +135,10 @@ export class WorkflowStateService {
     return this.canEditCompletionModule(status);
   }
 
+  canEditDistributorTransfers(status: OrderPaperStatus): boolean {
+    return status === OrderPaperStatus.REOPENED;
+  }
+
   private isActiveExecutionSession(
     status: OrderPaperStatus,
     session: DeliverySession,

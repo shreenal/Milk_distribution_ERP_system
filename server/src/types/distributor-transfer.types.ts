@@ -40,19 +40,25 @@ export type TransferRow = {
 };
 
 export type TransferSummary = {
-  transferKey: string;
+  supplierDistributor: {
+    id: number;
+    name: string;
+  };
 
-  supplierDistributorId: number;
-  supplierDistributorName: string;
+  ownerDistributor: {
+    id: number;
+    name: string;
+  };
 
-  ownerDistributorId: number;
-  ownerDistributorName: string;
+  brand: {
+    id: number;
+    name: string;
+  };
 
-  brandId: number;
-  brandName: string;
-
-  productGroupId: number;
-  productGroupName: string;
+  productGroup: {
+    id: number;
+    name: string;
+  };
 
   rows: TransferRow[];
 };

@@ -11,8 +11,8 @@ export class TraysValidationService {
     try {
       const traySheet = await this.traysService.getTraySheetService(sheetId);
       const rows = [
-        ...traySheet.trayBilling.milkTrayGrid.rows,
-        ...traySheet.trayBilling.nonMilkTrayGrid.rows,
+        ...traySheet.milkTrayGrid.rows,
+        ...traySheet.nonMilkTrayGrid.rows,
       ];
 
       if (rows.length === 0) {
@@ -41,11 +41,11 @@ export class TraysValidationService {
 
     for (const key of trayTypeKeys) {
       const trayPrefix = key.replace('_returned', '');
-      const taken = Number(row[`${trayPrefix}_taken`] ?? 0);
+      const trays = Number(row[trayPrefix] ?? 0);
       const opening = Number(row[`${trayPrefix}_opening`] ?? 0);
       const returned = row[key];
 
-      if (taken > 0 || opening > 0) {
+      if (trays > 0 || opening > 0) {
         if (returned === null || returned === undefined || returned === '') {
           throw new BadRequestException(
             TRAY_ERROR_MESSAGES.INCOMPLETE_TRAY_RETURNS(String(row.clientName)),
@@ -57,10 +57,9 @@ export class TraysValidationService {
 
   async validateTrayCalculationExists(sheetId: number): Promise<void> {
     const traySheet = await this.traysService.getTraySheetService(sheetId);
-
     const totalRows =
-      traySheet.trayBilling.milkTrayGrid.rows.length +
-      traySheet.trayBilling.nonMilkTrayGrid.rows.length;
+      traySheet.milkTrayGrid.rows.length +
+      traySheet.nonMilkTrayGrid.rows.length;
 
     if (totalRows === 0) {
       throw new BadRequestException(TRAY_ERROR_MESSAGES.CALCULATION_FAILED);

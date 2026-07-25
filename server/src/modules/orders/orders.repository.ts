@@ -34,14 +34,7 @@ export class OrdersRepository {
       },
 
       include: {
-        master_group: {
-          select: {
-            id: true,
-            name: true,
-            delivery_session: true,
-          },
-        },
-
+        master_group: true,
         order_paper: true,
       },
     });

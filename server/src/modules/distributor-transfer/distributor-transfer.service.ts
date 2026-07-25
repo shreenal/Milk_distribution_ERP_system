@@ -17,11 +17,22 @@ export class DistributorTransferService {
   ) {}
 
   async getTransferSummary(paperId: number) {
+    const paper = await this.repository.findOrderPaperById(paperId);
+
+    if (!paper) {
+      throw new NotFoundException('Order paper not found');
+    }
+
     const items = await this.repository.getTransferSourceItems(paperId);
 
     const summaries = this.builder.buildTransferSummary(items);
 
-    return this.builder.buildTransferGrids(summaries);
+    const transfers = this.builder.buildTransferGrids(summaries);
+
+    return {
+      paper,
+      ...transfers,
+    };
   }
 
   async generateTransfer(paperId: number) {
@@ -43,7 +54,12 @@ export class DistributorTransferService {
 
     await this.repository.replaceDistributorTransfers(paper.id, transfers);
 
-    return this.builder.buildTransferGrids(summaries);
+    const grids = this.builder.buildTransferGrids(summaries);
+
+    return {
+      paper,
+      ...grids,
+    };
   }
 
   private buildTransferEntities(
@@ -73,8 +89,8 @@ export class DistributorTransferService {
 
           transfers.push({
             order_paper_id: orderPaperId,
-            supplier_distributor_id: summary.supplierDistributorId,
-            owner_distributor_id: summary.ownerDistributorId,
+            supplier_distributor_id: summary.supplierDistributor.id,
+            owner_distributor_id: summary.ownerDistributor.id,
             billing_group_id: row.billingGroupId,
             product_id: productId,
             transfer_qty: qty,

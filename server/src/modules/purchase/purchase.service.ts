@@ -7,6 +7,7 @@ import { SavePurchaseDto } from './dto/purchase.dto.js';
 import { PurchaseValidationService } from './purchase-validation.service.js';
 import { AllocationSummaryBuilder } from '../../common/builders/allocation-summary.builder.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+
 import { OrderItemsRepository } from '../../common/repositories/order-items.repository.js';
 import { VehicleAssignment } from '../../types/purchase.types.js';
 import {
@@ -15,6 +16,7 @@ import {
 } from './purchase.constants.js';
 
 import { GatepassDatePolicy } from '../../generated/prisma/client.js';
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 @Injectable()
 export class PurchaseService {
@@ -30,6 +32,8 @@ export class PurchaseService {
     private readonly purchaseValidationService: PurchaseValidationService,
 
     private readonly workflowState: WorkflowStateService,
+
+    private readonly workflowBuilder: WorkflowBuilder,
   ) {}
 
   async getPurchases(paperId: number) {
@@ -51,6 +55,8 @@ export class PurchaseService {
     }
 
     const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
+
+    const workflow = this.workflowBuilder.buildPurchasesWorkflow(paper.status);
 
     // const products = await this.purchaseRepository.findProducts();
 
@@ -158,17 +164,27 @@ export class PurchaseService {
       await this.purchaseRepository.findPurchasePaper(paperId);
 
     if (!purchasePaper) {
-      return rateResult;
+      return {
+        paper,
+        workflow,
+        ...rateResult,
+      };
     }
 
     const purchaseEntries = await this.purchaseRepository.findPurchaseEntries(
       purchasePaper.id,
     );
 
-    return this.purchaseBuilder.applyPurchaseEntries(
+    const purchases = this.purchaseBuilder.applyPurchaseEntries(
       rateResult,
       purchaseEntries,
     );
+
+    return {
+      paper,
+      workflow,
+      ...purchases,
+    };
   }
 
   async savePurchases(paperId: number, dto: SavePurchaseDto) {

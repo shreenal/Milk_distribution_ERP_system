@@ -10,6 +10,8 @@ import { OrdersBillingBuilder } from './order.billing-builder.js';
 
 import { TraysService } from '../trays/trays.service.js';
 
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
+
 import { OrdersValidationService } from './orders-validation.service.js';
 
 import { Prisma, SupplyCategory } from '../../generated/prisma/client.js';
@@ -68,6 +70,8 @@ export class OrdersService {
     private readonly collectionsService: CollectionsService,
 
     private readonly workflowState: WorkflowStateService,
+
+    private readonly workflowBuilder: WorkflowBuilder,
   ) {}
 
   async getSheetService(sheetId: number) {
@@ -104,41 +108,36 @@ export class OrdersService {
 
       const sheetItems = await this.ordersRepository.getSheetItems(sheet.id);
 
-      const orderBilling = this.ordersBillingBuilder.buildOrderBillingSection({
-        milkProducts,
-        nonMilkProducts,
-        milkClients,
-        nonMilkClients,
-        sheetItems,
-      });
+      const workflow = this.workflowBuilder.buildOrdersWorkflow(
+        sheet.order_paper.status,
+      );
 
-      const traySheet = await this.traysService.getTraySheetService(sheetId);
+      const orderBilling = this.ordersBillingBuilder.buildOrderBillingSection(
+        {
+          milkProducts,
+          nonMilkProducts,
+          milkClients,
+          nonMilkClients,
+          sheetItems,
+        },
+        sheet.order_paper.status,
+      );
 
-      const collectionGrid =
-        await this.collectionsService.getCollectionGrid(sheetId);
+      // const traySheet = await this.traysService.getTraySheetService(sheetId);
+
+      // const collectionGrid =
+      //   await this.collectionsService.getCollectionGrid(sheetId);
 
       return {
         sheet,
 
-        workflow: {
-          status: sheet.order_paper.status,
+        workflow,
 
-          isNightEditable: this.workflowState.canEditNightEntries(
-            sheet.order_paper.status,
-          ),
+        ...orderBilling,
 
-          isMorningEditable: this.workflowState.canEditMorningEntries(
-            sheet.order_paper.status,
-          ),
-        },
+        // trayBilling: traySheet.trayBilling,
 
-        milkGrid: orderBilling.milkGrid,
-
-        nonMilkGrid: orderBilling.nonMilkGrid,
-
-        trayBilling: traySheet.trayBilling,
-
-        collectionBilling: collectionGrid,
+        // collectionBilling: collectionGrid,
       };
     } catch (error) {
       this.logger.error(`Failed to fetch sheet ${sheetId}`, error);

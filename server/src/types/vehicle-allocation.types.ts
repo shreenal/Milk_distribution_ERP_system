@@ -45,12 +45,18 @@ export type VehicleAssignmentGrid = {
 };
 
 export type AllocationGrid = {
-  summaryKey: string;
-  distributorId: number;
+  distributor: {
+    id: number;
+  };
+
   category: SupplyCategory;
-  brandId: number;
-  brandName: string;
-  summaryTotal: DynamicProductFields;
+
+  brand: {
+    id: number;
+    name: string;
+  };
+
+  totals: DynamicProductFields;
   columns: ProductColumnNode[];
   rows: VehicleAllocationRow[];
 };

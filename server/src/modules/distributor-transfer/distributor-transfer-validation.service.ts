@@ -24,11 +24,11 @@ export class DistributorTransferValidationService {
     );
 
     for (const summary of summaries) {
-      const key = `${summary.supplierDistributorId}_${summary.ownerDistributorId}`;
+      const key = `${summary.supplierDistributor.id}_${summary.ownerDistributor.id}`;
 
       if (!transferRuleSet.has(key)) {
         throw new BadRequestException(
-          `Transfer rule not found for supplier ${summary.supplierDistributorName} and owner ${summary.ownerDistributorName}`,
+          `Transfer rule not found for supplier ${summary.supplierDistributor.name} and owner ${summary.ownerDistributor.name}`,
         );
       }
     }

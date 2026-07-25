@@ -1,5 +1,4 @@
 export class CashSettlementResponseDto {
-  paperStatus!: string;
   routeSettlements: RouteSettlementRowDto[] = [];
 
   routeExpenses: RouteExpenseRowDto[] = [];

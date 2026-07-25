@@ -30,7 +30,6 @@ export class VehicleAllocationBuilder {
   ): ProductColumnNode[] {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
-      'ordered',
       includePackagingType,
     );
 
@@ -77,7 +76,7 @@ export class VehicleAllocationBuilder {
         });
       }
 
-      const summaryTotal: DynamicProductFields = {};
+      const totals: DynamicProductFields = {};
 
       for (const row of summary.rows) {
         for (const [key, value] of Object.entries(row)) {
@@ -85,19 +84,22 @@ export class VehicleAllocationBuilder {
             continue;
           }
 
-          summaryTotal[key] = (summaryTotal[key] ?? 0) + Number(value ?? 0);
+          totals[key] = (totals[key] ?? 0) + Number(value ?? 0);
         }
       }
 
       allocations.push({
-        summaryKey: summary.summaryKey,
-        distributorId: summary.distributorId,
+        distributor: {
+          id: summary.distributorId,
+        },
         category: summary.category,
-        brandId: summary.brandId,
-        brandName: summary.brandName,
-        summaryTotal,
+        brand: {
+          id: summary.brandId,
+          name: summary.brandName,
+        },
         columns,
         rows,
+        totals,
       });
     }
 
@@ -117,7 +119,7 @@ export class VehicleAllocationBuilder {
 
       const grid = result.allocations.find(
         (g) =>
-          g.distributorId === allocation.distributor_id &&
+          g.distributor.id === allocation.distributor_id &&
           g.category === allocation.category &&
           g.rows.some((row) => field in row),
       );

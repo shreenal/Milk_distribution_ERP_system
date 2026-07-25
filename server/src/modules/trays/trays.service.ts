@@ -14,6 +14,7 @@ import {
 import { TrayTransactionEntry } from '../../types/transaction.types.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { SupplyCategory } from '../../generated/prisma/client.js';
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 @Injectable()
 export class TraysService {
@@ -25,6 +26,8 @@ export class TraysService {
     private readonly trayBillingBuilder: TrayBillingBuilder,
 
     private readonly workflowStateService: WorkflowStateService,
+
+    private readonly workflowBuilder: WorkflowBuilder,
   ) {}
   async getTraySheetService(sheetId: number) {
     const sheet = await this.traysRepository.findSheetById(sheetId);
@@ -74,20 +77,27 @@ export class TraysService {
       }
     }
 
-    const trayBilling = await this.trayBillingBuilder.buildTrayBilling({
-      milkClients,
-      nonMilkClients,
-      trayTypes,
-      sheetItems,
-      trayRules,
-      trayTransactions,
-      openingBalanceMap,
-    });
+    const workflow = this.workflowBuilder.buildTraysWorkflow(
+      sheet.order_paper.status,
+    );
+
+    const trayBilling = this.trayBillingBuilder.buildTrayBilling(
+      {
+        milkClients,
+        nonMilkClients,
+        trayTypes,
+        sheetItems,
+        trayRules,
+        trayTransactions,
+        openingBalanceMap,
+      },
+      sheet.order_paper.status,
+    );
 
     return {
       sheet,
-
-      trayBilling,
+      workflow,
+      ...trayBilling,
     };
   }
 
@@ -109,8 +119,8 @@ export class TraysService {
 
     const traySheet = await this.getTraySheetService(sheetId);
     const trayRows = [
-      ...traySheet.trayBilling.milkTrayGrid.rows,
-      ...traySheet.trayBilling.nonMilkTrayGrid.rows,
+      ...traySheet.milkTrayGrid.rows,
+      ...traySheet.nonMilkTrayGrid.rows,
     ];
     const transactionEntries: TrayTransactionEntry[] = [];
 
@@ -123,7 +133,7 @@ export class TraysService {
         );
       }
 
-      const field = `tray_${entry.trayTypeId}_taken`;
+      const field = `tray_${entry.trayTypeId}`;
 
       const trayRow = trayRows.find(
         (row) => row.clientId === entry.clientId && row[field] !== undefined,
@@ -137,16 +147,16 @@ export class TraysService {
 
       const opening = Number(trayRow[`tray_${entry.trayTypeId}_opening`] ?? 0);
 
-      const taken = Number(trayRow[`tray_${entry.trayTypeId}_taken`] ?? 0);
+      const trays = Number(trayRow[`tray_${entry.trayTypeId}`] ?? 0);
 
-      const closing = opening + taken - returned;
+      const closing = opening + trays - returned;
       transactionEntries.push({
         order_sheet_id: sheetId,
         client_id: entry.clientId,
         tray_type_id: entry.trayTypeId,
         opening_balance: opening,
         trays_returned: returned,
-        trays_taken: taken,
+        trays_taken: trays,
         closing_balance: closing,
       });
     }

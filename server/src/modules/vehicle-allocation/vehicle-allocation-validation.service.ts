@@ -49,7 +49,7 @@ export class VehicleAllocationValidationService {
     const requiredTotals = new Map<string, number>();
 
     for (const allocation of allocationGrids.allocations) {
-      for (const [field, qty] of Object.entries(allocation.summaryTotal)) {
+      for (const [field, qty] of Object.entries(allocation.totals)) {
         if (!field.startsWith('product_')) {
           continue;
         }
@@ -60,7 +60,7 @@ export class VehicleAllocationValidationService {
           throw new BadRequestException(`Invalid product field ${field}`);
         }
 
-        const key = `${allocation.distributorId}_${allocation.category}_${productId}`;
+        const key = `${allocation.distributor.id}_${allocation.category}_${productId}`;
 
         requiredTotals.set(key, Number(qty));
       }
@@ -103,9 +103,7 @@ export class VehicleAllocationValidationService {
     );
 
     for (const allocation of allocationGrid.allocations) {
-      for (const [field, requiredQty] of Object.entries(
-        allocation.summaryTotal,
-      )) {
+      for (const [field, requiredQty] of Object.entries(allocation.totals)) {
         let allocatedQty = 0;
 
         for (const row of allocation.rows) {
@@ -114,7 +112,7 @@ export class VehicleAllocationValidationService {
 
         if (allocatedQty !== Number(requiredQty)) {
           throw new BadRequestException(
-            `${allocation.brandName} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
+            `${allocation.brand.name} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
           );
         }
       }

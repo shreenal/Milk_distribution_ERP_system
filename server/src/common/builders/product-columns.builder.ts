@@ -22,7 +22,7 @@ export type ProductColumnNode = {
 export class ProductColumnsBuilder {
   buildGroupedColumns(
     products: Product[],
-    quantityType: 'ordered' | 'delivered',
+    // quantityType: 'ordered' | 'delivered',
     includePackagingType = true,
   ) {
     const brandMap = new Map<string, ProductColumnNode>();
@@ -97,10 +97,11 @@ export class ProductColumnsBuilder {
         packagingTypeNode.children.push({
           headerName: sizeLabel,
 
-          field:
-            quantityType === 'ordered'
-              ? `product_${product.id}_ordered`
-              : `product_${product.id}_delivered`,
+          // field:
+          //   quantityType === 'ordered'
+          //     ? `product_${product.id}_ordered`
+          //     : `product_${product.id}_delivered`,
+          field: `product_${product.id}`,
 
           productId: product.id,
 
@@ -111,10 +112,11 @@ export class ProductColumnsBuilder {
         productTypeNode.children.push({
           headerName: sizeLabel,
 
-          field:
-            quantityType === 'ordered'
-              ? `product_${product.id}_ordered`
-              : `product_${product.id}_delivered`,
+          // field:
+          //   quantityType === 'ordered'
+          //     ? `product_${product.id}_ordered`
+          //     : `product_${product.id}_delivered`,
+          field: `product_${product.id}`,
 
           productId: product.id,
 

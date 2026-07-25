@@ -57,22 +57,27 @@ export class DistributorTransferBuilder {
 
       if (!summary) {
         summary = {
-          transferKey,
+          supplierDistributor: {
+            id: supplierDistributorId,
+            name: supplyRule.distributor.name,
+          },
 
-          supplierDistributorId,
-          supplierDistributorName: supplyRule.distributor.name,
+          ownerDistributor: {
+            id: ownerDistributorId,
+            name: item.master_client.owner_distributor.name,
+          },
 
-          ownerDistributorId,
-          ownerDistributorName: item.master_client.owner_distributor.name,
+          brand: {
+            id: product.brand_id,
+            name: product.master_brand.name,
+          },
 
-          brandId: product.brand_id,
-          brandName: product.master_brand.name,
-
-          productGroupId: product.product_group_id,
-          productGroupName: product.master_product_group.name,
+          productGroup: {
+            id: product.product_group_id,
+            name: product.master_product_group.name,
+          },
 
           rows: [],
-
           products: [],
         };
 
@@ -110,7 +115,6 @@ export class DistributorTransferBuilder {
   ): ProductColumnNode[] {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
-      'delivered',
       includePackagingType,
     );
 
@@ -146,19 +150,13 @@ export class DistributorTransferBuilder {
       const includePackagingType =
         firstProduct.master_product_group.category === SupplyCategory.NON_MILK;
       transfers.push({
-        transferKey: summary.transferKey,
+        supplierDistributor: summary.supplierDistributor,
 
-        supplierDistributorId: summary.supplierDistributorId,
-        supplierDistributorName: summary.supplierDistributorName,
+        ownerDistributor: summary.ownerDistributor,
 
-        ownerDistributorId: summary.ownerDistributorId,
-        ownerDistributorName: summary.ownerDistributorName,
+        brand: summary.brand,
 
-        brandId: summary.brandId,
-        brandName: summary.brandName,
-
-        productGroupId: summary.productGroupId,
-        productGroupName: summary.productGroupName,
+        productGroup: summary.productGroup,
 
         columns: this.buildTransferColumns(
           summary.products,

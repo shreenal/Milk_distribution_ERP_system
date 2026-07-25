@@ -11,6 +11,7 @@ import {
   SupplyCategory,
 } from '../../generated/prisma/client.js';
 import { OrderItemsRepository } from '../../common/repositories/order-items.repository.js';
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 @Injectable()
 export class VehicleAllocationService {
@@ -26,6 +27,8 @@ export class VehicleAllocationService {
     private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
 
     private readonly workflowState: WorkflowStateService,
+
+    private readonly workflowBuilder: WorkflowBuilder,
   ) {}
 
   private async getGroupSummary(paperId: number, session: DeliverySession) {
@@ -69,6 +72,10 @@ export class VehicleAllocationService {
         vehicles,
       );
 
+    const workflow = this.workflowBuilder.buildVehicleAllocationWorkflow(
+      paper.status,
+      session,
+    );
     const vehicleAllocationPaper =
       await this.vehicleAllocationRepository.findVehicleAllocationPaper(
         paperId,
@@ -77,6 +84,8 @@ export class VehicleAllocationService {
 
     if (!vehicleAllocationPaper) {
       return {
+        paper,
+        workflow,
         ...allocationGrids,
 
         vehicleAssignments: assignmentGrid,
@@ -108,6 +117,8 @@ export class VehicleAllocationService {
       );
 
     return {
+      paper,
+      workflow,
       ...allocationResult,
 
       vehicleAssignments: assignmentResult,

@@ -105,7 +105,6 @@ export class DeliverySummaryBuilder {
   ): ProductColumnNode[] {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
-      'delivered',
       includePackagingType,
     );
 

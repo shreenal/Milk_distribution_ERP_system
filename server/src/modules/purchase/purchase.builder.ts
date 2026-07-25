@@ -67,12 +67,15 @@ export class PurchaseBuilder {
         ...structuredClone(productFields),
       }));
       purchaseGrids.push({
-        purchaseKey: summary.summaryKey,
-        distributorId: summary.distributorId,
-        distributorName,
+        distributor: {
+          id: summary.distributorId,
+          name: distributorName,
+        },
         category,
-        brandId: summary.brandId,
-        brandName: summary.brandName,
+        brand: {
+          id: summary.brandId,
+          name: summary.brandName,
+        },
         columns,
         rows,
       });
@@ -90,9 +93,6 @@ export class PurchaseBuilder {
   ) {
     const columns = this.productColumnsBuilder.buildGroupedColumns(
       products,
-
-      'ordered',
-
       includePackagingType,
     );
 
@@ -103,15 +103,8 @@ export class PurchaseBuilder {
 
           node.children = [
             {
-              headerName: 'Allocated',
-              field: `product_${productId}_allocated`,
-              productId,
-              children: [],
-            },
-
-            {
-              headerName: 'Purchased',
-              field: `product_${productId}_purchased`,
+              headerName: 'Quantity',
+              field: `product_${productId}`,
               productId,
               editable: true,
               children: [],
@@ -154,14 +147,15 @@ export class PurchaseBuilder {
     const result = structuredClone(purchaseGrids);
 
     for (const allocation of allocations) {
-      const allocatedField = `product_${allocation.product_id}_allocated`;
-      const purchasedField = `product_${allocation.product_id}_purchased`;
+      // const allocatedField = `product_${allocation.product_id}_allocated`;
+      // const purchasedField = `product_${allocation.product_id}_purchased`;
+      const quantityField = `product_${allocation.product_id}`;
 
       const grid = result.purchases.find(
         (purchase) =>
-          purchase.distributorId === allocation.distributor_id &&
+          purchase.distributor.id === allocation.distributor_id &&
           purchase.category === allocation.category &&
-          purchase.rows.some((row) => allocatedField in row),
+          purchase.rows.some((row) => quantityField in row),
       );
 
       if (!grid) {
@@ -179,8 +173,9 @@ export class PurchaseBuilder {
         continue;
       }
 
-      row[allocatedField] = Number(allocation.allocated_qty);
-      row[purchasedField] = Number(allocation.allocated_qty);
+      // row[allocatedField] = Number(allocation.allocated_qty);
+      // row[purchasedField] = Number(allocation.allocated_qty);
+      row[quantityField] = Number(allocation.allocated_qty);
     }
 
     return result;
@@ -193,15 +188,15 @@ export class PurchaseBuilder {
     const result = structuredClone(purchaseGrids);
 
     for (const entry of purchaseEntries) {
-      const purchasedField = `product_${entry.product_id}_purchased`;
+      const quantityField = `product_${entry.product_id}`;
       const rateField = `product_${entry.product_id}_rate`;
       const amountField = `product_${entry.product_id}_amount`;
 
       const grid = result.purchases.find(
         (purchase) =>
-          purchase.distributorId === entry.distributor_id &&
+          purchase.distributor.id === entry.distributor_id &&
           purchase.category === entry.category &&
-          purchase.rows.some((row) => purchasedField in row),
+          purchase.rows.some((row) => quantityField in row),
       );
 
       if (!grid) {
@@ -218,7 +213,9 @@ export class PurchaseBuilder {
         continue;
       }
 
-      row[purchasedField] = Number(entry.purchased_qty);
+      // row[purchasedField] = Number(entry.purchased_qty);
+
+      row[quantityField] = Number(entry.purchased_qty);
       row[rateField] = Number(entry.purchase_rate);
       row[amountField] = Number(entry.purchase_amount);
     }
@@ -233,15 +230,15 @@ export class PurchaseBuilder {
     const result = structuredClone(purchaseGrids);
 
     for (const rate of rateDefaults) {
-      const purchasedField = `product_${rate.productId}_purchased`;
+      const quantityField = `product_${rate.productId}`;
       const rateField = `product_${rate.productId}_rate`;
       const amountField = `product_${rate.productId}_amount`;
 
       const grid = result.purchases.find(
         (purchase) =>
-          purchase.distributorId === rate.distributorId &&
+          purchase.distributor.id === rate.distributorId &&
           purchase.category === rate.category &&
-          purchase.rows.some((row) => purchasedField in row),
+          purchase.rows.some((row) => quantityField in row),
       );
 
       if (!grid) {
@@ -261,7 +258,7 @@ export class PurchaseBuilder {
       row[rateField] = Number(rate.purchaseRate);
 
       const litres =
-        Number(row[purchasedField] ?? 0) *
+        Number(row[quantityField] ?? 0) *
         QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
 
       const amount = litres * Number(rate.purchaseRate);

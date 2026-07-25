@@ -16,6 +16,8 @@ import { SaveBankDepositsDto } from './dto/save-bank-deposit.dto.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
 import { CASH_SETTLEMENT_ERRORS } from './cash-settlement.constants.js';
+
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 @Injectable()
 export class CashSettlementService {
   constructor(
@@ -24,12 +26,36 @@ export class CashSettlementService {
     private readonly builder: CashSettlementBuilder,
 
     private readonly workflowStateService: WorkflowStateService,
+
+    private readonly workflowBuilder: WorkflowBuilder,
   ) {}
 
   async getCashSettlementService(paperId: number) {
     const paper = await this.getCashSettlementPaper(paperId);
 
-    return this.builder.buildCashSettlement(paper);
+    const workflow = this.workflowBuilder.buildCashSettlementWorkflow(
+      paper.status,
+    );
+
+    const settlement = this.builder.buildCashSettlement(paper);
+
+    return {
+      paper: {
+        id: paper.id,
+        order_date: paper.order_date,
+        sale_date: paper.sale_date,
+        status: paper.status,
+        night_entry_submitted_at: paper.night_entry_submitted_at,
+        morning_entry_submitted_at: paper.morning_entry_submitted_at,
+        finalized_at: paper.finalized_at,
+        reopened_at: paper.reopened_at,
+        reopen_reason: paper.reopen_reason,
+        created_at: paper.created_at,
+        updated_at: paper.updated_at,
+      },
+      workflow,
+      ...settlement,
+    };
   }
 
   async saveRouteExpensesService(paperId: number, dto: SaveRouteExpensesDto) {

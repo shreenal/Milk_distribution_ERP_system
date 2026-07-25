@@ -79,7 +79,7 @@ export type DairyTrayRow = {
 
 export type TrayTotal = {
   opening: number;
-  taken: number;
+  trays: number;
   returned: number;
   closing: number;
 };

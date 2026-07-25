@@ -57,13 +57,20 @@ export type PurchaseRow = {
 };
 
 export type PurchaseGridItem = {
-  purchaseKey: string;
-  distributorId: number;
-  distributorName: string;
+  distributor: {
+    id: number;
+    name: string;
+  };
+
   category: SupplyCategory;
-  brandId: number;
-  brandName: string;
+
+  brand: {
+    id: number;
+    name: string;
+  };
+
   columns: ProductColumnNode[];
+
   rows: PurchaseRow[];
 };
 

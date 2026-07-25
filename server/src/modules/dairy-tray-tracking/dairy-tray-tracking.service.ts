@@ -8,6 +8,7 @@ import { DairyTrayTrackingBuilder } from './dairy-tray-tracking.builder.js';
 import { DairyTrayTrackingRepository } from './dairy-tray-tracking.repository.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { SaveDairyTrayEntriesDto } from './dto/save-dairy-tray-entries.dto.js';
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 @Injectable()
 export class DairyTrayTrackingService {
@@ -16,6 +17,7 @@ export class DairyTrayTrackingService {
     private readonly builder: DairyTrayTrackingBuilder,
     private readonly validation: DairyTrayTrackingValidationService,
     private readonly workflowStateService: WorkflowStateService,
+    private readonly workflowBuilder: WorkflowBuilder,
   ) {}
 
   async getDairyTrayGrid(paperId: number) {
@@ -68,7 +70,11 @@ export class DairyTrayTrackingService {
     const currentTransactions =
       await this.repository.getCurrentTrayTransactions(dairyTrayPaper.id);
 
-    return this.builder.buildDairyTrayGrid({
+    const workflow = this.workflowBuilder.buildDairyTrayTrackingWorkflow(
+      paper.status,
+    );
+
+    const grid = this.builder.buildDairyTrayGrid({
       vehicles,
       trayTypes,
       purchaseEntries,
@@ -76,6 +82,12 @@ export class DairyTrayTrackingService {
       previousTransactions,
       currentTransactions,
     });
+
+    return {
+      paper,
+      workflow,
+      ...grid,
+    };
   }
 
   async saveDairyTrayEntries(paperId: number, dto: SaveDairyTrayEntriesDto) {

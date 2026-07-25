@@ -88,9 +88,9 @@ export class DairyTrayTrackingBuilder {
           },
 
           {
-            headerName: 'Taken',
+            headerName: 'Trays',
 
-            field: `tray_${trayType.id}_taken`,
+            field: `tray_${trayType.id}`,
 
             editable: false,
           },
@@ -162,14 +162,14 @@ export class DairyTrayTrackingBuilder {
 
         const opening = previous?.closing_balance ?? 0;
 
-        const taken = vehicleTaken?.get(trayType.id) ?? 0;
+        const trays = vehicleTaken?.get(trayType.id) ?? 0;
 
         const returned = current?.trays_returned ?? 0;
 
-        const closing = opening + taken - returned;
+        const closing = opening + trays - returned;
 
         row[`tray_${trayType.id}_opening`] = opening;
-        row[`tray_${trayType.id}_taken`] = taken;
+        row[`tray_${trayType.id}`] = trays;
         row[`tray_${trayType.id}_returned`] = returned;
         row[`tray_${trayType.id}_closing`] = closing;
       }
@@ -270,20 +270,20 @@ export class DairyTrayTrackingBuilder {
 
     for (const trayType of trayTypes) {
       let opening = 0;
-      let taken = 0;
+      let trays = 0;
       let returned = 0;
       let closing = 0;
 
       for (const row of rows) {
         opening += Number(row[`tray_${trayType.id}_opening`] ?? 0);
-        taken += Number(row[`tray_${trayType.id}_taken`] ?? 0);
+        trays += Number(row[`tray_${trayType.id}`] ?? 0);
         returned += Number(row[`tray_${trayType.id}_returned`] ?? 0);
         closing += Number(row[`tray_${trayType.id}_closing`] ?? 0);
       }
 
       totals[`tray_${trayType.id}`] = {
         opening,
-        taken,
+        trays,
         returned,
         closing,
       };
@@ -297,7 +297,7 @@ export class DairyTrayTrackingBuilder {
 
     for (const trayType of trayTypes) {
       row[`tray_${trayType.id}_opening`] = 0;
-      row[`tray_${trayType.id}_taken`] = 0;
+      row[`tray_${trayType.id}`] = 0;
       row[`tray_${trayType.id}_returned`] = 0;
       row[`tray_${trayType.id}_closing`] = 0;
     }

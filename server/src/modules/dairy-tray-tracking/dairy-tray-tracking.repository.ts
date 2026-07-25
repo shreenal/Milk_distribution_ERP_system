@@ -17,24 +17,6 @@ export class DairyTrayTrackingRepository {
     return dairyTrayPaper;
   }
 
-  async getPaperStatusByPaperId(paperId: number) {
-    const paper = await this.prisma.order_paper.findUnique({
-      where: {
-        id: paperId,
-      },
-
-      select: {
-        status: true,
-      },
-    });
-
-    if (!paper) {
-      throw new NotFoundException('Paper status not found');
-    }
-
-    return paper.status;
-  }
-
   async findDairyTrayPaperByOrderPaperId(orderPaperId: number) {
     return this.prisma.dairy_tray_paper.findUnique({
       where: {
@@ -55,24 +37,6 @@ export class DairyTrayTrackingRepository {
     return this.prisma.order_paper.findUnique({
       where: {
         id: paperId,
-      },
-
-      include: {
-        dairy_tray_paper: {
-          include: {
-            dairy_tray_transactions: {
-              include: {
-                master_vehicle: true,
-                master_tray_type: {
-                  include: {
-                    master_brand: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-        vehicle_allocation_paper: true,
       },
     });
   }
