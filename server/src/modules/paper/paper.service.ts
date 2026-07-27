@@ -134,6 +134,40 @@ export class PaperService {
     }
   }
 
+  async getPaperByIdService(paperId: number) {
+    const paper = await this.paperRepository.findPaperById(paperId);
+
+    if (!paper) {
+      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    }
+
+    return paper;
+  }
+
+  async getPapersService(date?: string) {
+    if (date) {
+      const [year, month, day] = date.split('-').map(Number);
+
+      if (!year || !month || !day) {
+        throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
+      }
+
+      const start = new Date(Date.UTC(year, month - 1, day));
+      const end = new Date(start);
+      end.setUTCDate(end.getUTCDate() + 1);
+
+      const paper = await this.paperRepository.findPaperBySaleDate(start, end);
+
+      if (!paper) {
+        throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+      }
+
+      return paper;
+    }
+
+    return this.paperRepository.findAllPapers();
+  }
+
   async submitNightEntryService(paperId: number) {
     const paper =
       await this.paperValidationService.validateNightSubmitReadiness(paperId);

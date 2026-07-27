@@ -5,6 +5,7 @@ import {
   Get,
   ParseIntPipe,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { PaperService } from './paper.service.js';
@@ -30,6 +31,24 @@ export class PaperController {
   @Roles('EMPLOYEE')
   async getTodayPaper() {
     return this.paperService.getTodayPaperService();
+  }
+
+  @Get()
+  @Roles('EMPLOYEE')
+  async getPapers(
+    @Query('date')
+    date?: string,
+  ) {
+    return this.paperService.getPapersService(date);
+  }
+
+  @Get(':paperId')
+  @Roles('EMPLOYEE')
+  async getPaperById(
+    @Param('paperId', ParseIntPipe)
+    paperId: number,
+  ) {
+    return this.paperService.getPaperByIdService(paperId);
   }
 
   @Post(':paperId/submit-night')

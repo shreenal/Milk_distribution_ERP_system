@@ -7,6 +7,14 @@ import { OrderPaperStatus } from '../../generated/prisma/client.js';
 export class PaperRepository {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findAllPapers() {
+    return this.prisma.order_paper.findMany({
+      orderBy: {
+        sale_date: 'desc',
+      },
+    });
+  }
+
   async findPaperBySaleDate(today: Date, tomorrow: Date) {
     return this.prisma.order_paper.findFirst({
       where: {
