@@ -4,13 +4,13 @@ sidebarTitle: "Cash Settlement"
 description: "How route denominations, route expenses, direct collections, and bank deposits are recorded and reconciled for each day's paper during the morning shift."
 ---
 
-**Cash Settlement** is the closing money step of the day. It happens after morning submit and before finalization. Its job is to physically account for every rupee collected: what came back on the routes, what the office collected directly, what got spent on the routes, and what ended up in the bank.
+**Cash Settlement** is the closing money step of the day. Its four write channels run alongside the morning shift — the paper must be in `NIGHT_SUBMITTED` for three of them and remains partially editable after that. Its job is to physically account for every rupee collected: what came back on the routes, what the office collected directly, what got spent on the routes, and what ended up in the bank.
 
 ## Preconditions
 
-- Paper is in `MORNING_SUBMITTED` (or `REOPENED`).
-- Client collections are complete for both night and morning phases.
-- Route expenses (fuel, tolls, small purchases) have been noted down on paper by the drivers.
+- Paper is in `NIGHT_SUBMITTED`. This is when all four channels are open. After the paper moves to `MORNING_SUBMITTED` or `FINALIZED`, every channel is locked.
+- If the paper is in `REOPENED`, only `route-expenses` accepts writes. Route denominations, direct collections, and bank deposits stay locked (their `canEdit…` helpers whitelist `NIGHT_SUBMITTED` only).
+- Client collections and route expenses should already have been noted down on paper by the drivers before you begin entering them into the ERP.
 
 ## The four inputs
 

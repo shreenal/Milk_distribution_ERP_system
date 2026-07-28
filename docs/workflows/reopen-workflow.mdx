@@ -39,14 +39,15 @@ Only Admins can call this endpoint (`@Roles('ADMIN')`).
 
 ## What becomes editable
 
-In `REOPENED`, the paper accepts writes on the same set of modules that are writable in `NIGHT_SUBMITTED` and `MORNING_SUBMITTED` combined:
+In `REOPENED`, the paper accepts writes on this set of modules (checked from `WorkflowStateService`):
 
-- Morning-save on `order_sheet_items` (delivered qty, final rate, final amounts).
-- Both night-save and morning-save on `client_collection`, plus Admin Save.
-- Purchase entries.
-- Trays and dairy trays.
-- Cash Settlement (route denominations, route expenses, direct collections, bank deposits).
-- Distributor Transfer regeneration.
+- Morning-save on `order_sheet_items` (delivered qty, final rate, final amounts) — `canEditMorningEntries`.
+- All three collection paths on `client_collection`: night save (`canEditNightCollections`), morning save (`canEditMorningCollections`), and admin save (`canAdminEditCollections`).
+- Purchase entries — `canEditPurchases`.
+- Trays (`canEditTrays`) and Dairy Tray Tracking (`canEditDairyTrayTracking`).
+- Vehicle Allocation — both `NIGHT` and `MORNING` sessions (`canEditVehicleAllocations` returns true for either session when the paper is `REOPENED`).
+- Cash Settlement: **only `route-expenses`** (`canEditRouteExpenses` → `NIGHT_SUBMITTED`, `REOPENED`). Route denominations, direct collections, and bank deposits stay locked in `REOPENED` — their `canEdit…` helpers whitelist `NIGHT_SUBMITTED` only, so they cannot be re-entered from a reopened paper.
+- Distributor Transfer regeneration — `canEditDistributorTransfers` → `REOPENED` only.
 
 Night saves for order items are **not** re-enabled by reopen. If a night quantity was wrong, correct the delivered quantity to match reality — the delivered quantity is what drives billing.
 

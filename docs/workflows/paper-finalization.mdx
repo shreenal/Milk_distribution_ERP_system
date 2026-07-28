@@ -29,7 +29,7 @@ Most admins follow this sequence on the operations screen:
     Call `GET /cash-settlement/:paperId` (or open the [Cash Settlement screen](/frontend/cash-settlement-screen)). Confirm route denominations sum to expected collections minus expenses; confirm direct collections and bank deposits match physical evidence.
   </Step>
   <Step title="Open Distributor Transfers">
-    Call `GET /distributor-transfer/:paperId`. If the transfers do not reflect the day's actual flows (for example because a rate or supply rule was fixed after morning submit), call `POST /distributor-transfer/:paperId/generate` to regenerate the rows. This is only available when the paper is in `MORNING_SUBMITTED` or `REOPENED`.
+    Call `GET /distributor-transfer/:paperId`. If the transfers do not reflect the day's actual flows (for example because a rate or supply rule was fixed after morning submit), call `POST /distributor-transfer/:paperId/generate` to regenerate the rows. `WorkflowStateService.canEditDistributorTransfers` returns true only for `REOPENED`, so in practice the frontend restricts manual regeneration to that state. The service method itself does not gate on paper status, but you should not rely on that.
   </Step>
   <Step title="Apply admin-only corrections">
     If any collection row needs an amount corrected or an admin remark added, use `POST /collections/sheet/:sheetId/{milk,non-milk}/admin-save`.

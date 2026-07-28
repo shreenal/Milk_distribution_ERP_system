@@ -76,7 +76,7 @@ Once morning orders, morning collections, purchases, and trays are complete, an 
 
 The service:
 
-- Validates the transition `NIGHT_SUBMITTED → MORNING_SUBMITTED` (or `REOPENED → MORNING_SUBMITTED` in the reopen path, if implemented; see [Paper States](/workflows/paper-states) for exact rules).
+- Validates the transition `NIGHT_SUBMITTED → MORNING_SUBMITTED`. Note that `submit-morning` is **only** valid from `NIGHT_SUBMITTED`; when the paper is in `REOPENED`, the same morning-save endpoints are open but the paper re-finalizes via `POST /papers/:paperId/finalize` (transition `REOPENED → FINALIZED`) rather than by re-running `submit-morning`. See [Paper States](/workflows/paper-states) for the exact transition table.
 - Updates the paper's status and stamps `morning_entry_submitted_at`.
 - **Triggers auto-generation of distributor transfers.** See [Distributor Transfer](/workflows/distributor-transfer) for how this works.
 
