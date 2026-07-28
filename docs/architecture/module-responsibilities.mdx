@@ -10,20 +10,20 @@ Each backend module owns one slice of the domain. Boundaries are defined by whic
 
 | Module | Owns writes to | Key service methods | Depends on |
 | --- | --- | --- | --- |
-| `auth` | `user` | `login`, `validateUser`, `verifyToken` | (no domain dependencies) |
-| `paper` | `order_paper`, `order_sheet` | `generatePaper`, `submitNight`, `submitMorning`, `finalize`, `reopen` | `workflow`, `orders`, `distributor-transfer` |
-| `orders` | `order_sheet_items` | `getSheet`, `saveNightItems`, `saveMorningItems` | `workflow`, `products`, `clients` |
-| `collections` | `client_collection` | `getSheetCollections`, `saveEmployeeEntry`, `saveAdminEntry` | `workflow` |
-| `purchase` | `purchase_paper`, `purchase_entry` | `getPurchasePaper`, `savePurchaseEntries` | `workflow`, `products`, `vehicle-allocation` |
-| `vehicle-allocation` | `vehicle_allocation_paper`, `vehicle_allocation_entry` | `getAllocation`, `saveAllocation` | `workflow` |
-| `trays` | `client_tray_transaction` | `getSheetTrays`, `saveTrays` | `workflow`, `products` (rule matching) |
-| `dairy-tray-tracking` | `dairy_tray_paper` | `getDairyTrays`, `saveDairyTrays` | `workflow`, `trays` |
-| `cash-settlement` | `cash_route_settlement`, `cash_route_expense`, `cash_direct_collection`, `cash_bank_deposit` | `getSettlement`, `saveRouteSettlement`, `saveExpense`, `saveDirect`, `saveBankDeposit` | `workflow`, `collections` |
-| `distributor-transfer` | `distributor_transfer` | `getTransfers`, `regenerate` | `workflow`, `orders`, `vehicle-allocation` |
-| `delivery-summary` | (read-only) | `getSummary` | `collections`, `orders` |
-| `workflow` | (no writes) | `canEditOrders`, `canEditCollections`, `validateTransition` | (no domain dependencies) |
-| `clients` | `master_client`, `master_group` | `getClient`, `getGroup`, `getBillingGroups` | (no domain dependencies) |
-| `products` | `master_product`, `master_client_rate_product`, `product_tray_rule` | `resolveRate`, `resolveTrayRule`, `getGstConfig` | (no domain dependencies) |
+| `auth` | `users` | `AuthService.login`; `AuthController` also exposes `GET /auth/me` which returns `req.user` set by `JwtAuthGuard` | (no domain dependencies) |
+| `paper` | `order_paper`, `order_sheet` | `generatePaperService`, `getTodayPaperService`, `getPaperByIdService`, `getPapersService`, `submitNightEntryService`, `submitMorningEntryService`, `finalizePaperService`, `reopenPaperService` | `workflow`, `orders`, `vehicle-allocation`, `trays`, `purchase`, `collections`, `cash-settlement`, `dairy-tray-tracking`, `distributor-transfer` (via readiness validators) |
+| `orders` | `order_sheet_items` | `getSheetService`, `getSheetItemsService`, `saveNightEntriesService`, `saveMorningEntriesService` | `workflow`, `products`, `clients` |
+| `collections` | `client_collections` | `getCollectionGrid`, `saveNightCollections`, `saveMorningCollections`, `saveAdminCollections` | `workflow` |
+| `purchase` | `purchase_paper`, `purchase_entry` | `getPurchases`, `savePurchases` | `workflow`, `products`, `vehicle-allocation` |
+| `vehicle-allocation` | `vehicle_allocation_paper`, `vehicle_allocation_entry` | `getVehicleAllocations`, `saveVehicleAllocations` | `workflow` |
+| `trays` | `client_tray_transaction` | `getTraySheetService`, `saveTrayEntriesService` | `workflow`, `products` (rule matching) |
+| `dairy-tray-tracking` | `dairy_tray_paper` | `getDairyTrayGrid`, `saveDairyTrayEntries` | `workflow`, `trays`, `purchase` |
+| `cash-settlement` | `cash_route_expense`, denomination rows, `cash_direct_collection`, `cash_bank_deposit` | `getCashSettlementService`, `saveRouteExpensesService`, `saveRouteDenominationsService`, `saveDirectCollectionsService`, `saveBankDepositsService` | `workflow`, `collections` |
+| `distributor-transfer` | `distributor_transfer` | `getTransferSummary`, `generateTransfer` | `workflow`, `orders`, `vehicle-allocation` |
+| `delivery-summary` | (read-only) | `getBillingGroupSummary` | `collections`, `orders` |
+| `workflow` | (no writes) | `validateTransition` plus fine-grained `canEdit*` methods (`canEditNightEntries`, `canEditMorningEntries`, `canEditNightCollections`, `canEditMorningCollections`, `canEditTrays`, `canEditEmployeeCollections`, `canAdminEditCollections`, `canEditVehicleAllocations`, `canEditPurchases`, `canEditRouteExpenses`, `canEditRouteDenominations`, `canEditDirectCollections`, `canEditBankDeposits`, `canEditDairyTrayTracking`, `canEditDistributorTransfers`, `canFinalize`) | (no domain dependencies) |
+| `clients` | (read-only master data) | `ClientsService` and `ClientsRepository` expose lookup methods used by other modules (billing groups, delivery groups, clients) | (no domain dependencies) |
+| `products` | (read-only master data) | `ProductsService` and `ProductsRepository` expose product, rate, and tray-rule lookups | (no domain dependencies) |
 
 ## Shared cross-cutting services
 
@@ -32,9 +32,14 @@ Two services are injected across almost every module:
 - **`WorkflowStateService`** — pure boolean methods keyed on `PaperStatus`. Every write-side service calls it before mutating; no module implements state gating on its own.
 - **`PrismaService`** — the singleton Prisma client, used by services (via `$transaction`) and repositories (via query builders).
 
-Two shared repositories live under `common/repositories`:
+One shared repository lives under `common/repositories`:
 
-- **`OrderItemsRepository`** — reused by `orders`, `delivery-summary`, and `distributor-transfer`.
+- **`OrderItemsRepository`** — reused by modules that read order-sheet-item data (for example `orders`, `delivery-summary`, and `distributor-transfer`).
+
+Two shared builders live under `common/builders`:
+
+- **`AllocationSummaryBuilder`** (`allocation-summary.builder.ts`)
+- **`ProductColumnsBuilder`** (`product-columns.builder.ts`)
 
 ## Why the split matters
 

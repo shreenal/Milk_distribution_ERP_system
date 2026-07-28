@@ -33,7 +33,7 @@ Only two roles exist:
 | `EMPLOYEE` | Delivery drivers, route staff, night/morning ops | Read all data, write orders/collections/purchases/trays during the working states |
 | `ADMIN` | Supervisors, office managers | Everything an `EMPLOYEE` can do plus finalize, reopen, admin collections, cash settlement |
 
-Roles live in a separate `roles` table (`id`, `name`) referenced from `users.role_id`. The JWT stores the role name string, so `request.user.role` is `'ADMIN'` or `'EMPLOYEE'`. Provisioning happens directly at the database level; there is no user-management endpoint.
+Roles live in a separate `roles` table (`id`, `name`) referenced from `users.role_id`. The JWT stores the role name string, so `request.user.role` is `'ADMIN'` or `'EMPLOYEE'`. Provisioning happens directly at the database level; there is no user-management endpoint. The only other auth route is `GET /auth/me` (guarded by `JwtAuthGuard`), which returns the `{ id, username, role }` payload attached by the JWT strategy.
 
 ## Handler-level enforcement
 

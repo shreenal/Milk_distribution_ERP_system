@@ -16,7 +16,7 @@ Every mutating request in the ERP API passes through the same seven-stage pipeli
 │  4. RolesGuard    →  checks @Roles(...)                         │
 │  5. Controller    →  parses params, delegates to service        │
 │  6. Service       →  runs business logic inside prisma.$tx      │
-│  7. HttpExceptionFilter (only on error)  →  formats response    │
+│  7. Nest's default exception handling (only on error)           │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,7 +41,7 @@ Failures raise `BadRequestException` (`400`) before the controller ever runs.
 
 ## Stage 3 — JwtAuthGuard
 
-Reads the `Authorization: Bearer <token>` header, verifies the JWT signature with `JWT_SECRET`, and rejects expired or malformed tokens with `401`. On success it attaches the decoded payload to `request.user`.
+Reads the `Authorization: Bearer <token>` header, verifies the JWT signature with the signing key configured in `JwtStrategy` (currently the hardcoded string `'milk-distribution-secret'`), and rejects expired or malformed tokens with `401`. On success it attaches the decoded payload — `{ id, username, role }` returned from `JwtStrategy.validate` — to `request.user`.
 
 ## Stage 4 — RolesGuard
 
@@ -78,25 +78,25 @@ The service is where all rules live. A typical mutating service method:
 
 The `WorkflowStateService` is injected almost universally to answer questions like `canEditOrders(paper.status)`. No module implements state gating independently.
 
-## Stage 7 — HttpExceptionFilter
+## Stage 7 — Nest's default exception handling
 
-Registered as a global filter, `HttpExceptionFilter` catches every `HttpException` (or subclass) thrown anywhere in the request lifecycle and converts it into the standard error envelope:
+There is no custom global `ExceptionFilter` registered. The file `src/common/filters/http-exception.filter.ts` exists in the tree but is empty and is not wired into `main.ts` or through `APP_FILTER`. Every `HttpException` (or subclass) thrown anywhere in the request lifecycle is caught by Nest's built-in exception layer and converted into the standard error envelope:
 
 ```json
 {
-  "statusCode": 422,
-  "message": "Paper is FINALIZED — reopen to edit",
-  "error": "Unprocessable Entity",
-  "path": "/orders/sheet/42/morning",
-  "timestamp": "2026-07-28T05:30:00.000Z"
+  "statusCode": 400,
+  "message": "Cannot edit night entries when paper is NIGHT_SUBMITTED. Allowed statuses: DRAFT, REOPENED",
+  "error": "Bad Request"
 }
 ```
 
-Uncaught, non-HTTP exceptions become `500 Internal Server Error` with the same shape.
+There is no `path` or `timestamp` field because no custom filter injects them.
+
+Uncaught, non-`HttpException` errors (e.g. database connection failures) fall through to Nest's default `500 Internal Server Error` with `"Internal server error"` as the message.
 
 ## Where the guards don't run
 
-The single `POST /auth/login` route omits `@UseGuards(JwtAuthGuard)` because a caller cannot yet have a token. `ValidationPipe` and `HttpExceptionFilter` still run.
+The single `POST /auth/login` route omits `@UseGuards(JwtAuthGuard)` because a caller cannot yet have a token. `ValidationPipe` still runs, and Nest's default exception handling still formats any errors.
 
 ## Related topics
 
