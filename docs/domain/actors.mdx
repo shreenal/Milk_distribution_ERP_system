@@ -14,10 +14,10 @@ There are exactly two roles in the system: `ADMIN` and `EMPLOYEE`. Every person 
 
 The Admin is the operations manager or business owner. Admins have authority over the paper lifecycle at the points that require review or accountability. Specifically:
 
-- **Create** an Order Paper for a given sale date.
-- **Finalize** a paper once all data entry is complete — locking the day's records.
-- **Reopen** a finalized paper when a correction is needed, providing a documented reason for the reopening.
-- **Edit admin-only collection fields** on a client's collection record (for example, adjusting an amount that was entered incorrectly after finalization, when the paper is in `REOPENED` status).
+- **Finalize** a paper once all data entry is complete — locking the day's records. `POST /papers/:paperId/finalize` is `@Roles('ADMIN')`.
+- **Reopen** a finalized paper when a correction is needed, providing a documented reason for the reopening. `POST /papers/:paperId/reopen` is `@Roles('ADMIN')`.
+- **Edit admin-only collection fields** on a client's collection record — `online_collection`, `bank_deposit`, and `admin_remarks` — via `POST /collections/sheet/:sheetId/{milk,non-milk}/admin-save`. `WorkflowStateService.canAdminEditCollections` allows this in `MORNING_SUBMITTED` and `REOPENED`.
+- **Create** an Order Paper: business-practice is that Admin creates the paper, but the endpoint `POST /papers` is decorated `@Roles('EMPLOYEE')`, so an Employee may call it too. The `RolesGuard` hierarchy also lets Admin satisfy that check.
 
 An Admin cannot skip lifecycle steps. Even with elevated privileges, the paper must pass through `NIGHT_SUBMITTED` → `MORNING_SUBMITTED` before it can be finalized. The Admin also cannot finalize a paper that is still in `DRAFT` or `NIGHT_SUBMITTED` status.
 
@@ -41,29 +41,34 @@ Employees are the operations staff who carry out day-to-day data entry. They int
 
 <AccordionGroup>
   <Accordion title="Paper Lifecycle Actions">
-    | Action | Admin | Employee |
-    | --- | --- | --- |
-    | Create paper | ✅ | ❌ |
-    | Submit night entries | ❌ | ✅ |
-    | Submit morning entries | ❌ | ✅ |
-    | Finalize paper | ✅ | ❌ |
-    | Reopen paper | ✅ | ❌ |
+    | Action | Admin | Employee | Notes |
+    | --- | --- | --- | --- |
+    | Create paper (`POST /papers`) | ✅ | ✅ | Decorated `@Roles('EMPLOYEE')`; Admin passes via role hierarchy. Business practice is Admin-driven. |
+    | Submit night entries | ✅ | ✅ | `@Roles('EMPLOYEE')`; Admin allowed via hierarchy. |
+    | Submit morning entries | ✅ | ✅ | `@Roles('EMPLOYEE')`; Admin allowed via hierarchy. |
+    | Finalize paper | ✅ | ❌ | `@Roles('ADMIN')`. |
+    | Reopen paper | ✅ | ❌ | `@Roles('ADMIN')`; requires non-empty `reason`. |
   </Accordion>
 
   <Accordion title="Data Entry Actions">
-    | Action | Admin | Employee |
-    | --- | --- | --- |
-    | Save night order quantities | ❌ | ✅ |
-    | Save morning delivered quantities | ❌ | ✅ |
-    | Enter client collections (night/morning) | ❌ | ✅ |
-    | Edit admin collection fields | ✅ | ❌ |
-    | Record purchases from dairy | ❌ | ✅ |
-    | Manage vehicle allocations | ❌ | ✅ |
-    | Record tray movements (client level) | ❌ | ✅ |
-    | Record tray movements (dairy/vehicle level) | ❌ | ✅ |
-    | Enter route cash denominations | ❌ | ✅ |
-    | Enter direct collections by employee | ❌ | ✅ |
-    | Enter bank deposits | ❌ | ✅ |
+    All endpoints below are decorated `@Roles('EMPLOYEE')` and are therefore callable by Admin too via the `RolesGuard` role hierarchy. The `Admin` column marks the actions where an Admin is the expected caller.
+
+    | Action | Admin | Employee | Paper status window (`WorkflowStateService`) |
+    | --- | --- | --- | --- |
+    | Save night order quantities | ✅ (allowed) | ✅ | `canEditNightEntries`: `DRAFT` only |
+    | Save morning delivered quantities | ✅ (allowed) | ✅ | `canEditMorningEntries`: `NIGHT_SUBMITTED`, `REOPENED` |
+    | Enter client collections — night save (`office_amount_given`) | ✅ (allowed) | ✅ | `canEditNightCollections`: `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+    | Enter client collections — morning save (`cash_collection`, `cheque_collection`, `employee_remarks`) | ✅ (allowed) | ✅ | `canEditMorningCollections`: `NIGHT_SUBMITTED`, `REOPENED` |
+    | Edit admin collection fields (`online_collection`, `bank_deposit`, `admin_remarks`) | ✅ | ❌ | `canAdminEditCollections`: `MORNING_SUBMITTED`, `REOPENED` (endpoint is `@Roles('ADMIN')`) |
+    | Record purchases from dairy | ✅ (allowed) | ✅ | `canEditPurchases`: `NIGHT_SUBMITTED`, `REOPENED` |
+    | Manage vehicle allocations | ✅ (allowed) | ✅ | `canEditVehicleAllocations`: NIGHT session in `DRAFT`, MORNING session in `NIGHT_SUBMITTED`, either session in `REOPENED` |
+    | Record tray movements (client level) | ✅ (allowed) | ✅ | `canEditTrays`: `NIGHT_SUBMITTED`, `REOPENED` |
+    | Record tray movements (dairy/vehicle level) | ✅ (allowed) | ✅ | `canEditDairyTrayTracking`: `NIGHT_SUBMITTED`, `REOPENED` |
+    | Enter route cash denominations | ✅ (allowed) | ✅ | `canEditRouteDenominations`: `NIGHT_SUBMITTED` only |
+    | Enter route expenses | ✅ (allowed) | ✅ | `canEditRouteExpenses`: `NIGHT_SUBMITTED`, `REOPENED` |
+    | Enter direct collections by employee | ✅ (allowed) | ✅ | `canEditDirectCollections`: `NIGHT_SUBMITTED` only |
+    | Enter bank deposits | ✅ (allowed) | ✅ | `canEditBankDeposits`: `NIGHT_SUBMITTED` only |
+    | Regenerate distributor transfers | ✅ (allowed) | ✅ | `canEditDistributorTransfers`: `REOPENED` only (endpoint has no state check itself) |
   </Accordion>
 </AccordionGroup>
 

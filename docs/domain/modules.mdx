@@ -10,7 +10,7 @@ The ERP is organized into a small number of modules, each owning one clear busin
 
 | Module | Primary role | Writes allowed when paper is in | What it produces |
 | --- | --- | --- | --- |
-| [Paper](/modules/paper) | Admin (create, finalize, reopen), Employee (submit) | Drives the transitions between all states | The `order_paper` record and its status transitions |
+| [Paper](/modules/paper) | Employee (create, submit-night, submit-morning); Admin (finalize, reopen) | Drives the transitions between all states | The `order_paper` record and its status transitions |
 | [Orders](/modules/orders) | Employee | `DRAFT` (night save), `NIGHT_SUBMITTED` or `REOPENED` (morning save) | `order_sheet_items` — night and morning quantities per (client, product) |
 | [Collections](/modules/collections) | Employee (night/morning), Admin (admin-save) | `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `REOPENED` (fields differ) | `client_collection` — cash, cheque, online, office amounts per client per category |
 | [Purchase](/modules/purchase) | Employee | `NIGHT_SUBMITTED` or `REOPENED` | `purchase_paper` and `purchase_entry` — what each vehicle collected from the dairy |

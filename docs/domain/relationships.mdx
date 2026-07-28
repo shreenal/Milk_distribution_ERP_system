@@ -58,7 +58,7 @@ The system supports multiple **Distributors** (`master_distributor`) operating s
   </Accordion>
 </AccordionGroup>
 
-The three rules combine like this: for an order line to be valid, the delivery group's supply rule for that category must point to a distributor that has an active procurement rule for the product's brand and product group, and the client must have an active rate on that distributor's product link.
+The three rules combine like this: for an order line to be valid, the delivery group's supply rule for that category must point to a distributor that has an active procurement rule for the product's brand and product group, and the resolver must find a selling rate on that distributor's product link. Rate resolution is a two-tier fallback in `OrdersRepository.getSellingRate`: it first looks for the most recent active `master_client_rate_product` for `(client, product_link)` whose effective window covers the sale date; if none exists, it falls back to the most recent active `distributor_product_rate` on that link. Only if **both** are missing is a `BadRequestException` thrown.
 
 ## Delivery Group vs Billing Group
 
@@ -106,12 +106,15 @@ See [Trays module](/modules/trays) for how these interact during a day.
 
 ## How this graph is used in a day
 
-At the start of paper creation, the system:
+At paper creation, `PaperService.generatePaperService` only walks one edge of the graph:
 
-1. Looks up all **active delivery groups**. One `order_sheet` is auto-created per group.
-2. For each sheet, looks up all clients in that delivery group and their client categories.
-3. For each (client, category), resolves the **owning distributor** for billing and the **supplying distributor** through the group supply rule.
-4. Uses the client's rate on the resolved supplier's product link to determine what to charge.
+1. Looks up all **active delivery groups** (`master_group.is_active = true`). One `order_sheet` is auto-created per group. No client, rate, or distributor resolution happens yet.
+
+The other edges are walked later, at order entry time, when the frontend requests the sheet grid and when the operator saves rows:
+
+- For each sheet, the grid is populated from all clients whose `delivery_group_id` matches the sheet, filtered by their `master_client_category` rows.
+- On each night/morning save, the service resolves the **owning distributor** (from `master_client.owner_distributor_id`) for billing and the **supplying distributor** (from `master_group_supply_rule` for `(delivery_group, category)`).
+- It then looks up the client's active `master_client_rate_product` on the resolved supplier's `master_product_link` to determine the rate.
 
 If any of the graph edges above is missing (no procurement rule, no supply rule, no active rate), the corresponding order line cannot be saved and the system rejects the entry. See [Business Rules — Order Entry](/domain/business-rules) for the exact validations.
 
