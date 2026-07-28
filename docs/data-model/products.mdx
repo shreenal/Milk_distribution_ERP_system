@@ -4,57 +4,81 @@ sidebarTitle: "Products"
 description: "Developer reference for the five-level product hierarchy, distributor product links, rate tables, and GST inclusive/exclusive billing configuration."
 ---
 
-Products in the ERP are organized as a five-level hierarchy that mirrors how dairies package and price their goods. Everything else — rate tables, tray rules, GST config — hangs off the `master_product` row at the bottom of this hierarchy.
+Products in the ERP are organized around a `master_product` row that carries brand, group, type, packaging attributes, and GST configuration. Rates are attached to a separate `(distributor, product)` join called `master_product_link`, not directly to the product.
 
-## The five levels
+## Master tables
 
 ```text
-master_dairy          (e.g. "Amul", "Mother Dairy")
-└── master_brand      (e.g. "Amul Gold", "Amul Cow")
-    └── master_product_type  (e.g. "Milk 500ml pouch", "Curd 200g cup")
-        └── master_product   (e.g. "Amul Gold Milk 500ml FCM")
-            └── master_product_variant  (optional; e.g. "Homogenized")
+master_dairy            (e.g. "Amul", "Mother Dairy")
+└── master_brand        (belongs to a dairy; has gatepass_date_policy)
+    └── master_product_type   (optional; brand-scoped, unique (brand_id, name))
 ```
 
-The five tables are linked by simple foreign keys with cascade behavior — deleting a dairy would remove all its brands, product types, and products.
+```text
+master_product_group    (top-level SupplyCategory grouping: MILK | NON_MILK)
+master_packaging_type   (packaging shape; used by product_tray_rule)
+```
 
-## master\_product columns of interest
+`master_product` composes these:
 
 | Column | Purpose |
 | --- | --- |
-| `id` | PK, referenced by every operational table |
-| `name` | Human name |
-| `product_type_id` | FK — parent in the hierarchy |
-| `default_rate` | Fallback rate when no distributor/client override applies |
-| `gst_inclusive` | Boolean controlling billing mode (see [Order Sheet](/data-model/order-sheet)) |
-| `gst_rate` | Percentage GST |
-| `product_category_id` | Groups products for vehicle allocation (`MILK`, `CURD`, `NON_MILK`, etc.) |
-| `is_active` | Soft delete |
+| `id` | PK |
+| `code` | Unique product code |
+| `brand_id` | FK → `master_brand` (required) |
+| `product_group_id` | FK → `master_product_group` (required; carries `SupplyCategory`) |
+| `product_type_id` | FK → `master_product_type` (nullable) |
+| `packaging_type_id` | FK → `master_packaging_type` (nullable) |
+| `packaging_size` | decimal(10,2) |
+| `packaging_unit` | string (e.g. `L`, `ml`, `g`) |
+| `is_gst_inclusive` | boolean controlling billing mode |
+| `gst_percentage` | decimal(5,2) |
+| `is_active` | soft delete |
+
+Uniqueness: `@@unique([brand_id, product_group_id, product_type_id, packaging_type_id, packaging_size, packaging_unit])`.
+
+There is no `default_rate`, `gst_rate`, `gst_inclusive`, or `product_category_id` column. The category is derived from `master_product_group.category`. GST fields are `is_gst_inclusive` and `gst_percentage`. There is no `master_product_variant`.
+
+## master\_product\_link
+
+The `(distributor, product)` join. Rates hang off this row, not `master_product`.
+
+| Column | Purpose |
+| --- | --- |
+| `id` | PK |
+| `distributor_id` | FK → `master_distributor` |
+| `product_id` | FK → `master_product` |
+| `is_active` | soft delete |
+
+Uniqueness: `@@unique([distributor_id, product_id])`.
 
 ## Rate tables
 
-Rates flow through three tables from most-specific to least:
+Rates flow through two active tables (there is no global default):
 
-### master\_client\_rate\_product
+### `master_client_rate_product`
 
-Client-specific override. Highest priority. Composite unique `(client_id, product_id)`.
+Client-specific override on a `product_link`. Composite unique `(client_id, product_link_id, effective_from)`. Effective-dated via `effective_from`/`effective_to`.
 
-### distributor\_product\_rate
+### `distributor_product_rate`
 
-Rate the distributor charges for the product. Composite unique `(distributor_id, product_id)`. Also carries `effective_from` and `effective_to` for time-varying rates.
+Distributor's default rates on a `product_link` — carries both `purchase_rate` and `selling_rate`, effective-dated. Composite unique `(product_link_id, effective_from)`.
 
-### master\_product.default\_rate
+Rate resolution order at save time in the Orders module:
 
-Global fallback. Rarely used in practice but keeps saves from failing when a rate is temporarily missing.
+1. `master_client_rate_product` for `(client_id, product_link_id)` where active — client override.
+2. `distributor_product_rate` for `product_link_id` where active — distributor default `selling_rate`.
+
+Purchase rates come from `distributor_product_rate.purchase_rate` only, resolved on `product_link_id`.
 
 ## GST config
 
 Two fields on `master_product` drive billing:
 
-- **`gst_inclusive`** — when true, the entered rate is taken to already include GST and the tax is backed out. When false, GST is added on top.
-- **`gst_rate`** — the percentage rate.
+- **`is_gst_inclusive`** — when true, the entered selling rate already includes GST and the tax is backed out. When false, GST is added on top.
+- **`gst_percentage`** — the percentage.
 
-Both are snapshotted onto `order_sheet_items` at save time so historical bills stay accurate even after config changes.
+Both are read at morning save and snapshotted onto `order_sheet_items.final_gst_percentage` (and used to compute `final_taxable_amount`, `final_gst_amount`, `final_bill_amount`) so historical bills stay accurate even after config changes.
 
 ## Product tray rules
 

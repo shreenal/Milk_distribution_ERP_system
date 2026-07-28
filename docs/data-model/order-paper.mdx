@@ -4,23 +4,24 @@ sidebarTitle: "Order Paper"
 description: "Reference for the order_paper entity — the top-level daily container — including its status enum, date fields, and relationships to order sheets."
 ---
 
-The `order_paper` table is the daily container that anchors every operational record in the system. Exactly one row exists per calendar sale date. Its `status` field drives the workflow state machine — every other module consults it before allowing writes.
+The `order_paper` table is the daily container that anchors every operational record in the system. Exactly one row exists per calendar `order_date`. Its `status` field drives the workflow state machine — every other module consults it before allowing writes.
 
 ## Schema
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | int, PK, autoincrement | Referenced by every child table |
-| `sale_date` | date, unique | The delivery date; one paper per date |
-| `status` | `PaperStatus` enum | See below |
-| `night_submitted_at` | datetime, nullable | Set on `submit-night` |
-| `morning_submitted_at` | datetime, nullable | Set on `submit-morning` |
-| `finalized_at` | datetime, nullable | Set on `finalize` |
+| `order_date` | date, unique | The date the paper was generated for. Uniqueness lives on this column. |
+| `sale_date` | date | The delivery date. `sale_date = order_date + 1` day when generated from `order_date`. |
+| `status` | `OrderPaperStatus` enum | See below |
+| `night_entry_submitted_at` | datetime, nullable | Set on `submit-night` |
+| `morning_entry_submitted_at` | datetime, nullable | Set on `submit-morning` |
+| `finalized_at` | datetime, nullable | Set on `finalize` (including re-finalize from `REOPENED`) |
 | `reopened_at` | datetime, nullable | Set on `reopen`; not cleared on re-finalize |
-| `reopen_reason` | text, nullable | Preserved verbatim; audit trail |
+| `reopen_reason` | string, nullable | Preserved verbatim; audit trail |
 | `created_at`, `updated_at` | datetime | Standard timestamps |
 
-## PaperStatus enum
+## OrderPaperStatus enum
 
 | Value | Meaning | Writes allowed |
 | --- | --- | --- |
@@ -36,23 +37,23 @@ Transitions are enforced by `WorkflowStateService.validateTransition()`. See [Pa
 
 ```text
 order_paper
-├── order_sheet[]              — one per delivery group participating that day
-├── purchase_paper[]           — one per (vehicle, session)
-├── vehicle_allocation_paper[] — one per session
-├── dairy_tray_paper[]         — one per (vehicle, session, tray_type)
+├── order_sheet[]              — one per active delivery group
+├── purchase_paper?            — one per order_paper (order_paper_id is @unique)
+├── vehicle_allocation_paper[] — up to two: one per (order_paper, delivery_session)
+├── dairy_tray_paper?          — one per order_paper (order_paper_id is @unique)
 ├── distributor_transfer[]     — auto-generated on submit-morning
-├── cash_route_settlement[]    — one per (vehicle, session)
-├── cash_route_expense[]
-├── cash_direct_collection[]
-└── cash_bank_deposit[]
+├── cash_direct_collection[]   — unique on (order_paper_id, employee_id)
+└── cash_bank_deposit[]        — many per (order_paper, bank), no uniqueness
 ```
 
-All child relationships use `onDelete: Cascade` at the schema level, so deleting a paper (rare — usually done only in test setups) removes every downstream record.
+Cash route settlements are children of `order_sheet` (not `order_paper` directly). Cash route expenses are children of `cash_route_settlement`.
+
+All direct children of `order_paper` use `onDelete: Cascade`, so deleting a paper removes every downstream record.
 
 ## Uniqueness constraints
 
-- `@@unique([sale_date])` — one paper per date, enforced at the DB level.
-- All child tables that reference `order_paper` also enforce their own composite uniqueness (e.g. `client_collection` on `(order_sheet_id, client_id, category)`).
+- `@@unique(order_date)` — one paper per `order_date`, enforced at the DB level. There is no unique constraint on `sale_date`.
+- Child tables that reference `order_paper` enforce their own composite uniqueness (e.g. `client_collection` on `(order_sheet_id, client_id, category)`, `vehicle_allocation_paper` on `(order_paper_id, delivery_session)`).
 
 ## Related topics
 

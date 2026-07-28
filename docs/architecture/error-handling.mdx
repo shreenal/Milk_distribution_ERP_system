@@ -4,89 +4,27 @@ sidebarTitle: "Error Handling"
 description: "How the Milk Distribution ERP API catches and formats errors, the standard error envelope, and common business-rule error messages by module."
 ---
 
-The API uses a single global exception filter to produce a consistent error envelope regardless of which module threw the error. Clients can parse errors uniformly and surface actionable messages to users without inspecting per-endpoint shapes.
+The API relies on NestJS's default exception handling. There is no custom global `ExceptionFilter` registered — the file `src/common/filters/http-exception.filter.ts` exists in the tree but is empty and is not wired into `main.ts` or via an `APP_FILTER` provider. Errors thrown as `BadRequestException`, `NotFoundException`, `UnauthorizedException`, or `ForbiddenException` produce Nest's standard envelope. There is no separate error hierarchy at the HTTP level — both validation errors and business-rule violations throw `BadRequestException` (HTTP 400). The distinction is captured only in the message string.
 
-## The error envelope
+## Default Nest response shape
 
-Every error response — validation, auth, business-rule, or unexpected — is formatted as:
-
-```json
-{
-  "statusCode": 422,
-  "message": "Paper is FINALIZED — reopen to edit",
-  "error": "Unprocessable Entity",
-  "path": "/orders/sheet/42/morning",
-  "timestamp": "2026-07-28T05:30:00.000Z"
-}
-```
-
-- `statusCode` — HTTP status number.
-- `message` — human-readable single sentence.
-- `error` — HTTP status text.
-- `path` — the URL that failed.
-- `timestamp` — ISO8601 server time.
-
-For validation failures the `message` field can be an array of DTO validation strings.
-
-## HttpExceptionFilter
-
-Registered globally in `main.ts`. Every `HttpException` (and subclass) is caught, its status and payload extracted, and the envelope emitted. Non-HTTP exceptions become `500 Internal Server Error` with the same envelope and a redacted message.
-
-The filter is stateless and adds no side effects beyond formatting.
-
-## Custom error base classes
-
-Two thin subclasses live under `common/errors`:
-
-- **`NotFoundError`** → subclass of `NotFoundException`, HTTP 404. Thrown by services when a lookup by ID returns no row.
-- **`ValidationError`** → subclass of `UnprocessableEntityException`, HTTP 422. Thrown by `<module>-validation.service.ts` when a business rule fails.
-
-Both preserve the standard `HttpException` interface so `HttpExceptionFilter` handles them without special-casing.
-
-## Common error messages by module
-
-| Module | HTTP | Message | Cause |
-| --- | --- | --- | --- |
-| `paper` | 409 | `Paper already exists for date` | Duplicate `POST /papers` for the same date |
-| `paper` | 400 | `Invalid transition: <FROM> → <TO>` | Attempting a state change the machine forbids |
-| `paper` | 400 | `Reopen reason is required` | `POST /papers/:id/reopen` with empty body |
-| `orders` | 400 | `Paper is FINALIZED — reopen to edit` | Any write on a finalized paper |
-| `orders` | 422 | `Rate not configured for client × product` | Missing entry in `master_client_rate_product` and no fallback |
-| `collections` | 403 | `Admin collections require ADMIN role` | Employee token calling the admin save endpoint |
-| `purchase` | 422 | `Distributor cannot supply this product` | `distributor_procurement_rule` prevents purchase |
-| `trays` | 422 | `No product_tray_rule matches` | Delivered product has no configured tray rule |
-| `cash-settlement` | 422 | `Denomination totals do not match declared total` | Server-side sanity check on denomination counts |
-| `distributor-transfer` | 400 | `Regenerate only allowed in MORNING_SUBMITTED or REOPENED` | Attempt to regenerate transfers in wrong state |
-
-## Client handling guidance
-
-- Show `message` verbatim to the user for `4xx` errors — server messages are already user-facing.
-- Show a generic "Something went wrong" for `5xx` responses.
-- Log `path` and `timestamp` on every error to correlate with server logs.
-
-## Related topics
-
-- [Request Flow](/architecture/request-flow) — where the filter runs
-- [Authentication](/architecture/authentication) — `401` and `403` semantics
-
-All errors in the Milk Distribution ERP backend are ultimately caught and formatted by the global `HttpExceptionFilter`. There is no separate error hierarchy at the HTTP level — both validation errors and business-rule violations throw `BadRequestException` (HTTP 400). The distinction is captured only in the message string.
-
-## `HttpExceptionFilter` Behaviour
-
-The filter is registered globally (configured in the bootstrap function or a global module) and intercepts every unhandled `HttpException` thrown anywhere in the request lifecycle. It is implemented as a NestJS `ExceptionFilter` decorated with `@Catch(HttpException)`. It extracts three pieces of information from the incoming context and exception: the HTTP status code (`exception.getStatus()`), the request URL (`request.url`), and the exception message (`exception.message`). It then calls `response.status(status).json(...)` with a structured body.
-
-When an `HttpException` is caught, the filter extracts the status code, the request path, and the exception message, then writes a uniform JSON response:
+Nest's default `HttpException` handling writes a JSON body like:
 
 ```json
 {
   "statusCode": 400,
-  "timestamp": "2024-11-15T08:23:11.000Z",
-  "path": "/orders/sheet/7/night-save",
-  "message": "Cannot edit night entries when paper is NIGHT_SUBMITTED. Allowed statuses: DRAFT, REOPENED"
+  "message": "Cannot edit night entries when paper is NIGHT_SUBMITTED. Allowed statuses: DRAFT, REOPENED",
+  "error": "Bad Request"
 }
 ```
 
-Unhandled non-`HttpException` errors (e.g., database connection failures) are treated as 500 Internal Server Error; the message is not forwarded to the client in production to avoid leaking internals.
+- `statusCode` — the HTTP status number.
+- `message` — the exception message (or an array of validation strings for DTO failures, see below).
+- `error` — the HTTP status text.
+
+There is no `path` or `timestamp` field because no custom filter injects them.
+
+Unhandled non-`HttpException` errors (e.g. database connection failures) fall through to Nest's default `500 Internal Server Error` with `"Internal server error"` as the message.
 
 ## Error Type Taxonomy
 
@@ -196,14 +134,13 @@ Status transition errors come from `WorkflowStateService.validateTransition`:
 }
 ```
 
-**Business-rule errors** (thrown by services) produce the filter's envelope format with a single string message:
+**Business-rule errors** (thrown by services) use Nest's default envelope with a single string message:
 
 ```json
 {
   "statusCode": 400,
-  "timestamp": "2024-11-15T08:23:11.000Z",
-  "path": "/orders/sheet/7/night-save",
-  "message": "Client 12 does not belong to group 3"
+  "message": "Client 12 does not belong to group 3",
+  "error": "Bad Request"
 }
 ```
 

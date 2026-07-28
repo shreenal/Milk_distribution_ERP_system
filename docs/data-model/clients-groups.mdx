@@ -34,11 +34,13 @@ Groups serve dual purposes distinguished only by which foreign key points to the
 | --- | --- |
 | `id` | PK |
 | `name` | Group name |
+| `vehicle_id` | FK → `master_vehicle`, nullable — default vehicle for the group |
+| `delivery_session` | `DeliverySession` enum, default `NIGHT` — which shift serves this delivery group |
 | `is_active` | Soft delete |
 
 ## master\_client\_category
 
-Many-to-many join between clients and category labels (e.g. "Retailer", "Hotel", "Wholesale"). Multiple categories per client are allowed. Categories drive reporting and, in some cases, procurement rules.
+Many-to-many join between `master_client` and the `SupplyCategory` enum (`MILK`, `NON_MILK`). One row per `(client_id, category)`; the composite PK is `(client_id, category)`. A client may be enrolled in one or both categories, which controls whether they appear in the MILK grid, the NON\_MILK grid, or both on each order sheet.
 
 ## client\_collection
 

@@ -6,7 +6,7 @@ description: "Track plastic crate and tray returns from delivery route clients, 
 
 The Trays API records the physical crate and tray movement between the distributor and each client. Every delivery leaves trays with the client, and every subsequent visit collects some back. The API tracks opening balance, expected trays taken (derived from delivered quantity via `product_tray_rule`), actual trays taken, and trays returned. Closing balance is computed server-side and carried forward as the next day's opening balance.
 
-Both `EMPLOYEE` and `ADMIN` may read and write, subject to the paper's workflow state.
+`EMPLOYEE` (and above) can read and write, subject to the paper's workflow state.
 
 ---
 
@@ -14,56 +14,58 @@ Both `EMPLOYEE` and `ADMIN` may read and write, subject to the paper's workflow 
 
 ### Purpose
 
-Returns the `client_tray_transaction` rows for a sheet, one per (client, tray\_type). Each row carries opening balance, expected trays taken, actual trays taken, trays returned, and closing balance.
+Returns the tray view for the sheet: the `client_tray_transaction` rows one per `(client, tray_type)` along with any grid metadata built by `TraysService`.
 
 ### Response
 
-<ResponseField name="items" type="array">
-  Tray transactions with `client_id`, `tray_type_id`, `opening_balance`, `expected_trays_taken`, `trays_taken`, `trays_returned`, `closing_balance`, `remarks`.
-</ResponseField>
+Each row carries `client_id`, `tray_type_id`, `opening_balance`, `expected_trays_taken` (nullable), `trays_taken`, `trays_returned`, `closing_balance`, and `remarks`.
 
 ---
 
-## POST /trays/sheet/:sheetId
+## POST /trays/sheet/:sheetId/save
 
 ### Purpose
 
-Upserts tray transactions for the sheet. Only `trays_taken`, `trays_returned`, and `remarks` are writable — `opening_balance` and `expected_trays_taken` are computed server-side.
+Upserts tray transactions for the sheet. Operators enter only `returned` per `(clientId, trayTypeId)`. `opening_balance`, `trays_taken`, `expected_trays_taken`, and `closing_balance` are computed server-side.
+
+### Access control
+
+`EMPLOYEE`. Editable when `WorkflowStateService.canEditTrays(status)` returns true — that is, when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
 
 ### Behavior
 
-- `opening_balance` = previous day's `closing_balance` for the same (client, tray\_type), fetched at sheet creation time.
-- `expected_trays_taken` = sum over delivered products of `product_tray_rule.trays_per_unit * delivered_qty`.
-- `closing_balance` = `opening_balance + trays_taken - trays_returned`.
-- Writes are blocked in `FINALIZED` state.
+- `opening_balance` = previous paper's `closing_balance` for the same `(client, tray_type)`.
+- `expected_trays_taken` and `trays_taken` are derived from delivered quantities using `product_tray_rule` matched most-specific-first on `(product_group, brand, product_type, packaging_type)`.
+- `closing_balance = opening_balance + trays_taken − trays_returned`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Array of tray transaction entries with `client_id`, `tray_type_id`, `trays_taken`, `trays_returned`, and optional `remarks`.
+Direct array of `SaveTrayReturnDto`:
+
+<ParamField body="returned" type="number" required>
+  Non-negative integer. The only operator-entered field.
 </ParamField>
 
 #### Example request
 
 ```json
-POST /trays/sheet/42
+POST /trays/sheet/42/save
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{
-  "items": [
-    { "client_id": 101, "tray_type_id": 2, "trays_taken": 5, "trays_returned": 3 }
-  ]
-}
+[
+  { "clientId": 101, "trayTypeId": 2, "returned": 3 },
+  { "clientId": 102, "trayTypeId": 2, "returned": 1 }
+]
 ```
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper is `FINALIZED` | `400 Bad Request` | Locked |
-| Negative `trays_taken` or `trays_returned` | `400 Bad Request` | Must be `>= 0` |
-| Tray type not applicable to any delivered product | `422 Unprocessable Entity` | No `product_tray_rule` match |
+| Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Trays locked in other states |
+| `returned` negative | `400 Bad Request` | DTO validation |
+| Unknown `clientId` or `trayTypeId` | `400 Bad Request` | Validation service rejects |
 
 ### Related endpoints
 

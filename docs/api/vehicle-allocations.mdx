@@ -4,54 +4,68 @@ sidebarTitle: "Vehicle Allocations"
 description: "Assign vehicles to delivery routes and record product load quantities per vehicle for the NIGHT and MORNING distribution sessions each day."
 ---
 
-The Vehicle Allocations API plans the daily loading schedule. Before delivery starts, the night-shift operator decides which vehicle carries which products to which delivery groups, and which distributor is responsible for supplying each product category on that vehicle. The result is a `vehicle_allocation_paper` with one entry per (vehicle, product\_category, delivery\_session).
+The Vehicle Allocations API plans the daily loading schedule for one delivery session. The service reads the active execution session from the paper's status: `DRAFT` → `NIGHT`, `NIGHT_SUBMITTED` → `MORNING`. In `REOPENED`, either session may be re-saved.
 
-The allocation drives the purchase workflow (drivers know where to load) and the distributor transfer logic (mismatches between the supplying distributor and the client's owner distributor trigger transfers).
+The controller is mounted at `@Controller('vehicle-allocations')` with the compound path `:paperId/vehicle-allocations` for both GET and POST.
 
 ---
 
-## GET /vehicle-allocations/paper/:paperId
+## GET /vehicle-allocations/:paperId/vehicle-allocations
 
 ### Purpose
 
-Returns the full allocation plan for a paper. Used by the Vehicle Allocation screen and by the Purchase and Distributor Transfer modules.
+Returns the allocation grid for the active delivery session of the given paper: the `vehicle_allocation_paper`, its `vehicle_allocation` rows (per `(vehicle, distributor, category, product)`), and its `vehicle_distribution_assignment` rows (per `(vehicle, category)`), plus any metadata needed by the client.
+
+### Access control
+
+`EMPLOYEE` (and above).
 
 ### Response
 
-<ResponseField name="items" type="array">
-  Allocation rows with `vehicle_id`, `product_category_id`, `distributor_id`, `delivery_session`, and the child list of assigned delivery groups.
-</ResponseField>
+Returns HTTP **200** with the grid built by `VehicleAllocationService.getVehicleAllocations`.
 
 ---
 
-## POST /vehicle-allocations/paper/:paperId
+## POST /vehicle-allocations/:paperId/vehicle-allocations
 
 ### Purpose
 
-Upserts the allocation for the given paper. Replaces existing entries for the same (vehicle, product\_category, session) triple.
+Upserts the vehicle allocation for the active delivery session. Writes two related tables in a single transaction:
+
+- `vehicle_allocation` — per `(vehicle_allocation_paper_id, vehicle, distributor, category, product)` with `allocated_qty`.
+- `vehicle_distribution_assignment` — per `(vehicle_allocation_paper_id, vehicle, category)` recording which distributor's stock the vehicle is carrying for that category.
+
+### Access control
+
+`EMPLOYEE`. Editable when `WorkflowStateService.canEditVehicleAllocations(status, session)` returns true — that is, when `(status, session)` matches the active execution session, or when the paper is `REOPENED`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Allocation entries; each with `vehicle_id`, `product_category_id`, `distributor_id`, `delivery_session`, and `delivery_group_ids[]`.
+`SaveVehicleAllocationDto`:
+
+<ParamField body="allocations" type="array" required>
+  Array of `{ vehicleId, distributorId, category (MILK | NON_MILK), productId, allocatedQty }`.
+</ParamField>
+
+<ParamField body="assignments" type="array" required>
+  Array of `{ vehicleId, milkDistributorId?, nonMilkDistributorId? }`. Each vehicle appears once; unset fields keep the vehicle unassigned for that category.
 </ParamField>
 
 #### Example request
 
 ```json
-POST /vehicle-allocations/paper/128
+POST /vehicle-allocations/128/vehicle-allocations
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "items": [
-    {
-      "vehicle_id": 3,
-      "product_category_id": 1,
-      "distributor_id": 5,
-      "delivery_session": "MORNING",
-      "delivery_group_ids": [12, 13, 14]
-    }
+  "allocations": [
+    { "vehicleId": 3, "distributorId": 5, "category": "MILK",     "productId": 7,  "allocatedQty": 40 },
+    { "vehicleId": 3, "distributorId": 5, "category": "MILK",     "productId": 12, "allocatedQty": 15 },
+    { "vehicleId": 3, "distributorId": 6, "category": "NON_MILK", "productId": 21, "allocatedQty": 10 }
+  ],
+  "assignments": [
+    { "vehicleId": 3, "milkDistributorId": 5, "nonMilkDistributorId": 6 }
   ]
 }
 ```
@@ -60,9 +74,9 @@ Content-Type: application/json
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper is `FINALIZED` | `400 Bad Request` | Locked |
-| Distributor cannot supply the product category | `422 Unprocessable Entity` | `distributor_procurement_rule` mismatch |
-| Delivery group not on this paper | `422 Unprocessable Entity` | Group is not participating on this date |
+| Paper status/session combination not editable | `400 Bad Request` | Wrong session for the paper's current state and not `REOPENED` |
+| Distributor cannot supply the product's `(brand, product_group, category)` | `400 Bad Request` | No active `distributor_procurement_rule` |
+| Product's category does not match entry `category` | `400 Bad Request` | Validation service rejects |
 
 ### Related endpoints
 

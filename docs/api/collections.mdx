@@ -4,11 +4,11 @@ sidebarTitle: "Collections"
 description: "Record and retrieve milk and non-milk payment collections from route clients across the night, morning, and admin reconciliation phases."
 ---
 
-The Collections API records payments received from clients. Each `client_collection` row is keyed by `(order_sheet_id, client_id, category)` where `category` is either `MILK` or `NON_MILK`. Payments can arrive as cash, cheque, online transfer, bank deposit, or office-side amount handed over — every channel has its own column so end-of-day cash reconciliation can be verified.
+The Collections API records payments received from clients. Each `client_collection` row is keyed by `(order_sheet_id, client_id, category)` where `category` is either `MILK` or `NON_MILK`. Every physical channel (cash, cheque, online transfer, bank deposit, office-handed amount) has its own column so end-of-day cash reconciliation can be verified.
 
-The endpoints below are split into two save paths: employee entry (route-side) and admin entry (office-side). Both write to the same `client_collection` table but are gated on different paper states and different columns.
+The endpoints split three ways: **night** save, **morning** save, and **admin** save. Each save path is further split into two endpoints — one for `MILK` and one for `NON_MILK` — because the category is derived from the URL segment, not the request body. All three write to the same `client_collection` table but touch different columns and are gated on different paper states.
 
-All endpoints require a bearer token. Read access is open to `EMPLOYEE` and `ADMIN`; save endpoints check role explicitly.
+All endpoints require a bearer token. `EMPLOYEE` covers night/morning saves; `ADMIN` is required for admin saves.
 
 ---
 
@@ -16,7 +16,11 @@ All endpoints require a bearer token. Read access is open to `EMPLOYEE` and `ADM
 
 ### Purpose
 
-Returns all `client_collection` rows for a sheet, grouped by category. Used by the Collections screen to render the grid and by the delivery summary to compute outstanding amounts.
+Returns the collections view for a sheet: MILK and NON\_MILK grids side by side, including the underlying `client_collection` rows and any workflow flags the client needs.
+
+### Access control
+
+`EMPLOYEE` (and above).
 
 ### Path parameters
 
@@ -26,52 +30,39 @@ Returns all `client_collection` rows for a sheet, grouped by category. Used by t
 
 ### Response
 
-Returns HTTP **200** with an object keyed by category:
-
-```json
-{
-  "MILK": [
-    { "client_id": 101, "cash_collection": 500, "cheque_collection": 0, "online_collection": 0, "bank_deposit": 0, "office_amount_given": 0, "employee_remarks": null, "admin_remarks": null }
-  ],
-  "NON_MILK": [ ... ]
-}
-```
+Returns HTTP **200** with the collection grid built by `CollectionsService.getCollectionGrid(sheetId)`.
 
 ---
 
-## POST /collections/sheet/:sheetId/employee
+## POST /collections/sheet/:sheetId/milk/night-save
 
 ### Purpose
 
-Records collections captured at the route by the delivery employee. Writes `cash_collection`, `cheque_collection`, `online_collection`, and `employee_remarks` columns. Only editable while the paper is in `DRAFT`, `NIGHT_SUBMITTED`, or `MORNING_SUBMITTED` (not `FINALIZED`).
+Records `office_amount_given` for MILK clients during the night phase. Night save writes only `office_amount_given` (no cash, cheque, or online channels).
 
 ### Access control
 
-`EMPLOYEE` role required.
+`EMPLOYEE` (and above). Editable when `WorkflowStateService.canEditNightCollections(status)` returns true — that is, when the paper is in `DRAFT`, `NIGHT_SUBMITTED`, or `REOPENED`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Array of collection entries. Each item needs `client_id`, `category` (`MILK` or `NON_MILK`), and the amount fields to update.
+`SaveNightCollectionsDto`:
+
+<ParamField body="entries" type="array" required>
+  Array of `{ clientId: number, officeAmountGiven: number (>= 0) }`.
 </ParamField>
 
 #### Example request
 
 ```json
-POST /collections/sheet/42/employee
+POST /collections/sheet/42/milk/night-save
 Authorization: Bearer <token>
 Content-Type: application/json
 
 {
-  "items": [
-    {
-      "client_id": 101,
-      "category": "MILK",
-      "cash_collection": 500,
-      "cheque_collection": 0,
-      "online_collection": 250,
-      "employee_remarks": "Paid partial"
-    }
+  "entries": [
+    { "clientId": 101, "officeAmountGiven": 500 },
+    { "clientId": 102, "officeAmountGiven": 0 }
   ]
 }
 ```
@@ -80,26 +71,67 @@ Content-Type: application/json
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper is `FINALIZED` | `400 Bad Request` | Locked from further edits |
-| `category` not one of `MILK`, `NON_MILK` | `400 Bad Request` | Invalid enum |
-| Amount fields negative | `400 Bad Request` | Amounts must be `>= 0` |
+| Paper not in a night-collections-editable state | `400 Bad Request` | Not editable outside `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `officeAmountGiven` negative or non-numeric | `400 Bad Request` | DTO validation |
+| Client not on this sheet's delivery group | `400 Bad Request` | Validation service rejects |
 
 ---
 
-## POST /collections/sheet/:sheetId/admin
+## POST /collections/sheet/:sheetId/non-milk/night-save
+
+Same shape as the MILK variant above; the URL segment `non-milk` sets the category to `NON_MILK`.
+
+---
+
+## POST /collections/sheet/:sheetId/milk/morning-save
 
 ### Purpose
 
-Records office-side collections and reconciliation entries: `office_amount_given` (cash handed directly at the office), `bank_deposit` (amount deposited on behalf of the client), and `admin_remarks`. This path is used during the finalization review to true up any payment channel that did not go through the route.
+Records `cash_collection`, `cheque_collection`, and `employee_remarks` for MILK clients captured on the route by the delivery employee.
 
 ### Access control
 
-`ADMIN` role required.
+`EMPLOYEE` (and above). Editable when `WorkflowStateService.canEditMorningCollections(status)` returns true — that is, when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Array of entries with `client_id`, `category`, and the admin-side amount fields.
+`SaveMorningCollectionsDto`:
+
+<ParamField body="entries" type="array" required>
+  Array of `{ clientId: number, cashCollection: number (>= 0), chequeCollection: number (>= 0), employeeRemarks?: string }`.
+</ParamField>
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Morning collections locked |
+| Amount negative | `400 Bad Request` | DTO validation |
+
+---
+
+## POST /collections/sheet/:sheetId/non-milk/morning-save
+
+Same shape as the MILK variant above; category `NON_MILK`.
+
+---
+
+## POST /collections/sheet/:sheetId/milk/admin-save
+
+### Purpose
+
+Records office-side reconciliation entries for MILK clients: `online_collection`, `bank_deposit`, and `admin_remarks`. Used during finalization review to true up any payment channel that did not go through the route.
+
+### Access control
+
+`ADMIN` only. Editable when `WorkflowStateService.canAdminEditCollections(status)` returns true — that is, when the paper is in `MORNING_SUBMITTED` or `REOPENED`.
+
+### Request body
+
+`SaveAdminCollectionsDto`:
+
+<ParamField body="entries" type="array" required>
+  Array of `{ clientId: number, onlineCollection: number (>= 0), bankDeposit: number (>= 0), adminRemarks?: string }`.
 </ParamField>
 
 ### Validation and errors
@@ -107,8 +139,14 @@ Records office-side collections and reconciliation entries: `office_amount_given
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
 | Caller not `ADMIN` | `403 Forbidden` | Role check |
-| Paper is `FINALIZED` | `400 Bad Request` | Reopen the paper before editing |
-| Unknown client for this sheet | `422 Unprocessable Entity` | Client is not on the sheet's delivery group |
+| Paper not in `MORNING_SUBMITTED` or `REOPENED` | `400 Bad Request` | Admin collections locked in other states |
+| Amount negative | `400 Bad Request` | DTO validation |
+
+---
+
+## POST /collections/sheet/:sheetId/non-milk/admin-save
+
+Same shape as the MILK variant above; category `NON_MILK`.
 
 ### Related endpoints
 

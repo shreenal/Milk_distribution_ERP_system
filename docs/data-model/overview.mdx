@@ -45,43 +45,45 @@ The Milk Distribution ERP database is built around a single central document —
 ## Entity map (top-down)
 
 ```text
-order_paper (1 per day)
-├── order_sheet (1 per delivery group)
-│   ├── order_sheet_items (1 per client × product)
-│   │   ├── client_collection (payment channels)
-│   │   └── client_tray_transaction (crate accounting)
-│   └── (linked to master_group → master_client)
-├── purchase_paper (1 per vehicle × session)
-│   └── purchase_entry (1 per product loaded)
-├── vehicle_allocation_paper
-│   └── vehicle_allocation_entry
-├── dairy_tray_paper (depot-level trays)
-├── distributor_transfer (auto-generated, audit trail)
-├── cash_route_settlement (per vehicle, per session)
-├── cash_route_expense
-├── cash_direct_collection
-└── cash_bank_deposit
+order_paper (1 per day, unique on order_date)
+├── order_sheet (1 per delivery group, unique on (order_paper_id, group_id))
+│   ├── order_sheet_items (1 per (client, product_link), unique on (order_sheet_id, client_id, product_link_id))
+│   ├── client_collection (unique on (order_sheet_id, client_id, category))
+│   ├── client_tray_transaction (unique on (order_sheet_id, client_id, tray_type_id))
+│   └── cash_route_settlement (1 per order_sheet, unique on order_sheet_id)
+│       └── cash_route_expense (many per route settlement)
+├── purchase_paper (1 per order_paper, unique on order_paper_id)
+│   └── purchase_entry (unique on (purchase_paper_id, delivery_session, vehicle_id, product_link_id))
+├── vehicle_allocation_paper (1 per (order_paper, delivery_session))
+│   ├── vehicle_allocation (per (vehicle, distributor, category, product))
+│   └── vehicle_distribution_assignment (per (vehicle, category))
+├── dairy_tray_paper (1 per order_paper, unique on order_paper_id)
+│   └── dairy_tray_transaction (per (dairy_tray_paper, vehicle, tray_type))
+├── distributor_transfer (auto-generated on submit-morning)
+├── cash_direct_collection (unique on (order_paper_id, employee_id))
+└── cash_bank_deposit (many per (order_paper, bank))
 ```
 
 ## Master data (independent of paper)
 
-- `master_dairy`, `master_brand`, `master_product_type`, `master_product`, `master_product_variant`
-- `master_distributor`, `distributor_procurement_rule`, `distributor_product_rate`, `distributor_transfer_rule`
-- `master_client`, `master_group`, `master_client_category`
+- `master_dairy`, `master_brand`, `master_product_type`, `master_product_group`, `master_packaging_type`, `master_product`, `master_product_link`
+- `master_distributor`, `distributor_procurement_rule`, `distributor_product_rate`, `distributor_transfer_rule`, `master_group_supply_rule`
+- `master_client`, `master_group`, `master_client_category`, `master_client_rate_product`
 - `master_vehicle`, `master_driver`
 - `master_tray_type`, `product_tray_rule`
-- `master_bank`
-- `user` (auth)
+- `master_bank`, `master_employee`, `master_expense_type`
+- `users`, `roles` (auth)
 
 ## Enums used across tables
 
 | Enum | Values |
 | --- | --- |
-| `PaperStatus` | `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED` |
+| `OrderPaperStatus` | `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED` |
 | `DeliverySession` | `NIGHT`, `MORNING` |
 | `SupplyCategory` | `MILK`, `NON_MILK` |
-| `GatepassDatePolicy` | `SAME_DAY`, `NEXT_DAY` |
-| `Role` | `EMPLOYEE`, `ADMIN` |
+| `GatepassDatePolicy` | `SAME_DAY`, `PREVIOUS_DAY` |
+
+User roles are stored as rows in the `roles` table (referenced by `users.role_id`), not as a Prisma enum. Seeded values are `ADMIN` and `EMPLOYEE`.
 
 ## Related topics
 
