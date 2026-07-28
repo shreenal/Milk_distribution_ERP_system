@@ -17,7 +17,7 @@ The Paper module owns the daily `order_paper` record — the single container ev
 
 ## Business rules
 
-- Exactly one paper per `sale_date` (unique constraint).
+- Exactly one paper per calendar sale date. The DB-level uniqueness is on `order_paper.order_date` (`@unique @db.Date`), which the repository derives as `sale_date − 1 day` via `resolvePaperSaleDate`. `sale_date` itself is not `@unique`.
 - Sale date cannot be in the past or more than 30 days ahead.
 - Requires at least one active delivery group to create sheets.
 - Only Admins can finalize or reopen; the reopen reason is mandatory.

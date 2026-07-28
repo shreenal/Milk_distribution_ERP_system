@@ -17,9 +17,9 @@ Before the night shift begins:
 
 The paper is created via `POST /papers` with a `date` (the sale date). The endpoint is decorated `@Roles('EMPLOYEE')`, so either an `EMPLOYEE` or an `ADMIN` may call it (Admin passes the `EMPLOYEE` role check through the hierarchy in `RolesGuard`). Business practice is that an Admin owns paper creation; the code does not enforce that. The service:
 
-1. Rejects the request if `date` is before today or more than 30 days in the future. "Today" is evaluated in `Asia/Kolkata` (`DATE_CONFIG.TIMEZONE` in `paper.constants.ts`), not UTC.
+1. Rejects the request if `date` is before today or more than 30 days ahead. "Today" is computed in **UTC** — the service does `Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())`. `DATE_CONFIG.TIMEZONE = 'Asia/Kolkata'` is defined in `paper.constants.ts` but is not referenced anywhere in the comparison.
 2. Confirms at least one active delivery group exists.
-3. Inserts one `order_paper` row with `status = DRAFT` and `sale_date = date`.
+3. Inserts one `order_paper` row with `status = DRAFT`, `sale_date = date`, and `order_date = date − 1 day` (derived by `resolvePaperSaleDate`). The `@unique` on `order_date` enforces one paper per sale date.
 4. Auto-creates one `order_sheet` per active delivery group, linked to that paper.
 
 The paper is now visible on the operations screen with a status badge of `DRAFT`.
