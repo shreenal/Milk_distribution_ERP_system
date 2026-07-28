@@ -1,8 +1,130 @@
 ---
-title: Auth
-description: Auth documentation
+title: "Auth"
+description: "Auth documentation"
 ---
 
-# Auth
+The Auth API is the entry point for every session. All other endpoints require a JWT obtained from `POST /auth/login`.
 
-> This page is under construction.
+## `POST /auth/login`
+
+### Purpose
+
+Exchange a username and password for a JWT that identifies the user and their role for subsequent requests.
+
+### When it is called
+
+- When a user opens the app in the morning to start work.
+- When the token expires or the user is signed out.
+
+### Expected workflow
+
+<Steps>
+  <Step title="Client sends credentials">
+    Client submits username and password over HTTPS.
+  </Step>
+  <Step title="Server validates">
+    `AuthService.login()` looks up the user by `username`, verifies the password hash, and issues a signed JWT containing the user's id, username, and role.
+  </Step>
+  <Step title="Client stores token">
+    The token is stored (memory or secure storage) and sent as `Authorization: Bearer <token>` on every subsequent request.
+  </Step>
+</Steps>
+
+### Request
+
+```http
+POST /auth/login
+Content-Type: application/json
+
+{
+  "username": "operations01",
+  "password": "••••••••"
+}
+```
+
+### Response
+
+```json
+{
+  "access_token": "eyJhbGciOi...",
+  "user": {
+    "id": 12,
+    "username": "operations01",
+    "role": "EMPLOYEE"
+  }
+}
+```
+
+### Validation
+
+- `username` and `password` are required.
+- Password comparison uses a hashing algorithm; plaintext is never stored.
+
+### Errors
+
+| Condition | HTTP | Message |
+| --- | --- | --- |
+| Missing username or password | 400 | Validation error from `LoginDto` |
+| No such user | 401 | Invalid credentials |
+| Wrong password | 401 | Invalid credentials |
+
+### Related endpoints
+
+- `GET /auth/me` — verify the token and read the current user.
+
+---
+
+## `GET /auth/me`
+
+### Purpose
+
+Return the authenticated user's identity and role. Used by the frontend on load to hydrate the session.
+
+### When it is called
+
+- On app start after reading the stored token.
+- After any 401 response to determine whether re-login is needed.
+
+### Expected workflow
+
+The `JwtAuthGuard` validates the token and populates `req.user` with `{ id, username, role }`. The controller returns that object as-is.
+
+### Request
+
+```http
+GET /auth/me
+Authorization: Bearer <token>
+```
+
+### Response
+
+```json
+{
+  "id": 12,
+  "username": "operations01",
+  "role": "EMPLOYEE"
+}
+```
+
+### Validation
+
+- Requires a valid JWT via `Authorization: Bearer <token>`.
+
+### Errors
+
+| Condition | HTTP | Message |
+| --- | --- | --- |
+| Missing or malformed token | 401 | Unauthorized |
+| Expired token | 401 | Unauthorized |
+
+### Related endpoints
+
+- `POST /auth/login` — obtain the token in the first place.
+
+---
+
+## Authorization model
+
+The system uses two role names: `ADMIN` and `EMPLOYEE`. Every non-auth endpoint is decorated with `@Roles('ADMIN' | 'EMPLOYEE')` and guarded by `RolesGuard`, which reads the role off the JWT payload.
+
+See [Architecture — Authentication](/architecture/authentication) for the guard/decorator implementation and [Actors](/domain/actors) for the role permission matrix.

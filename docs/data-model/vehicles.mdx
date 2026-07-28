@@ -3,3 +3,118 @@ title: "Vehicles, Fleet Allocation, and Daily Purchase Entries"
 sidebarTitle: "Vehicles"
 description: "Reference for master_vehicle, master_driver, vehicle allocation papers, purchase_paper, purchase_entry, and the gatepass date policy per brand."
 ---
+
+Vehicles are the physical transport for products. The tables here cover the fleet, driver assignment, per-day allocation planning, and the purchase records that reconcile against actual dairy pickups.
+
+## `master_vehicle`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `vehicle_number` | string, unique | Registration number or internal code |
+| `vehicle_name` | string, nullable | Friendly name |
+| `capacity` | int, nullable | Payload capacity (units are a business convention; the schema does not enforce) |
+| `is_active` | boolean |  |
+
+Related: `master_driver`, `master_group`, `purchase_entries`, `vehicle_allocation`, `dairy_tray_transactions`, `vehicle_assignments`.
+
+## `master_driver`
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `name` | string |  |
+| `contact` | string, nullable |  |
+| `vehicle_id` | int, FK, nullable | The vehicle the driver is normally assigned to |
+| `is_active` | boolean |  |
+
+Drivers do not have user accounts. `vehicle_id` is a soft assignment used for reporting only — a driver may drive any vehicle on any given day if operations require.
+
+## `vehicle_allocation_paper`
+
+Purpose: groups the day's vehicle allocations per delivery session. There are up to two per paper: one for `NIGHT` and one for `MORNING`.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `order_paper_id` | int, FK |  |
+| `delivery_session` | `DeliverySession` | `NIGHT` or `MORNING` |
+
+Uniqueness: `@@unique([order_paper_id, delivery_session])`.
+
+## `vehicle_allocation`
+
+Purpose: per-`(vehicle, distributor, category, product)` planned quantity.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `vehicle_allocation_paper_id` | int, FK | Cascade on delete |
+| `vehicle_id` | int, FK |  |
+| `distributor_id` | int, FK | Whose stock the vehicle is carrying |
+| `product_id` | int, FK |  |
+| `category` | `SupplyCategory` |  |
+| `allocated_qty` | decimal(10,2) | Planned quantity |
+
+Uniqueness: `@@unique([vehicle_allocation_paper_id, vehicle_id, distributor_id, category, product_id])`.
+
+## `vehicle_distribution_assignment`
+
+Purpose: links a `(vehicle, category)` to the distributor whose stock it carries for that session. This is the header record; `vehicle_allocation` is the detail.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `vehicle_allocation_paper_id` | int, FK | Cascade on delete |
+| `vehicle_id` | int, FK |  |
+| `distributor_id` | int, FK |  |
+| `category` | `SupplyCategory` |  |
+
+Uniqueness: `@@unique([vehicle_allocation_paper_id, vehicle_id, category])`.
+
+## `purchase_paper`
+
+Purpose: one per `order_paper`, groups the day's purchase entries from all dairies.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `order_paper_id` | int, FK, unique | Cascade on delete |
+
+Uniqueness: `@@unique(order_paper_id)`.
+
+## `purchase_entry`
+
+Purpose: what a vehicle actually collected from the dairy, per product link, per session.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `purchase_paper_id` | int, FK | Cascade on delete |
+| `vehicle_id` | int, FK |  |
+| `product_id` | int, FK |  |
+| `product_link_id` | int, FK | (distributor, product) pair — see [Distributors](/data-model/distributors) |
+| `distributor_id` | int, FK | The distributor whose link this is |
+| `delivery_session` | `DeliverySession`, nullable | `NIGHT` or `MORNING` |
+| `category` | `SupplyCategory` |  |
+| `purchased_qty` | decimal(10,2) | Actual picked-up quantity |
+| `purchase_rate` | decimal(10,2) | Applied rate at pickup |
+| `purchase_amount` | decimal(12,2) | qty × rate |
+| `gatepass_date` | date | Set per the brand's `gatepass_date_policy` |
+
+Uniqueness: `@@unique([purchase_paper_id, delivery_session, vehicle_id, product_link_id])`.
+
+## `GatepassDatePolicy`
+
+An enum on `master_brand.gatepass_date_policy`:
+
+- `SAME_DAY` — the gatepass date equals the paper's `sale_date`.
+- `PREVIOUS_DAY` — the gatepass date is one day before `sale_date`.
+
+Purchase-entry saves default `gatepass_date` from this policy when the caller does not supply one.
+
+## Related pages
+
+- [Vehicle Allocation module](/modules/vehicle-allocation) — save logic and validation.
+- [Purchase module](/modules/purchase) — how entries are saved and reconciled.
+- [Order Paper](/data-model/order-paper) — the parent record for all of the above.

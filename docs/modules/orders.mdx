@@ -3,3 +3,74 @@ title: "Orders Module — Night and Morning Order Entry Per Sheet"
 sidebarTitle: "Orders"
 description: "How the Orders module saves night and morning order quantities per sheet, resolves billing rates, and calculates GST-inclusive and exclusive amounts."
 ---
+
+## Purpose
+
+The Orders module records what each client asked for the night before and what they actually received the next morning. Its output — `order_sheet_items` rows with night and morning quantities, rates, and computed bill amounts — is the direct input to billing and to the auto-generated distributor transfers.
+
+## Responsibilities
+
+- Return the current sheet and its items for the frontend.
+- Save night entries (`ordered_qty` and `night_selling_rate`) when the paper is in `DRAFT`.
+- Save morning entries (`delivered_qty`, `final_selling_rate`, and the `final_*` GST/amount columns) when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
+
+## Business rules
+
+- Night save requires `DRAFT`; morning save requires `NIGHT_SUBMITTED` or `REOPENED`.
+- Every line requires a client selling rate active on the paper's sale date.
+- The client must belong to the sheet's delivery group.
+- Duplicates within a single batch are rejected.
+- A morning save can only update an existing night item — you cannot deliver what was not ordered.
+
+See [Business Rules — Order Entry](/domain/business-rules) for the enumerated list.
+
+## Dependencies
+
+- `PrismaService` — reads and writes `order_sheet_items` and its relations.
+- `WorkflowStateService` — verifies the paper's current status before writes.
+- Master data — resolves `master_client_rate_product` on the sale date, `master_product` for GST, `master_product_link` for the distributor pairing.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/orders/sheet/:sheetId` | EMPLOYEE | Return the sheet header |
+| `GET` | `/orders/sheet/:sheetId/items` | EMPLOYEE | Return the items (grid data) |
+| `POST` | `/orders/sheet/:sheetId/night-save` | EMPLOYEE | Save ordered quantities; requires `DRAFT` |
+| `POST` | `/orders/sheet/:sheetId/morning-save` | EMPLOYEE | Save delivered quantities and final amounts; requires `NIGHT_SUBMITTED` or `REOPENED` |
+
+## Request flow
+
+```text
+POST /orders/sheet/:sheetId/night-save
+  → OrdersController
+  → OrdersService.saveNightEntriesService(sheetId, entries[])
+       for each entry:
+         resolve client rate on sale_date
+         upsert order_sheet_items (ordered_qty, night_selling_rate, night_bill_amount)
+```
+
+Morning save follows the same pattern but writes `delivered_qty` and the `final_*` columns.
+
+## Database tables
+
+- `order_sheet_items` — see [Order Sheet](/data-model/order-sheet).
+- `order_sheet` (read).
+- `master_client_rate_product`, `master_product`, `master_product_link` (read).
+
+## Lifecycle
+
+```text
+DRAFT       → POST /orders/sheet/:id/night-save   → night_* columns set
+NIGHT_SUB   → POST /orders/sheet/:id/morning-save → delivered_qty, final_* columns set
+              (item must already exist from night save)
+```
+
+## Future improvements
+
+- Return per-row error results instead of failing the whole batch on the first invalid line.
+- Support partial rate lookups: if a rate is expired mid-day but a same-effective row already exists on the paper, allow reuse.
+
+## Open questions
+
+- Should morning-save be allowed to create _new_ items for clients that were absent from night entry (walk-in delivery), or is this always an error?

@@ -3,3 +3,73 @@ title: "Distributor Transfers: Cross-Distributor Accounting"
 sidebarTitle: "Distributor Transfers"
 description: "Why distributor transfers exist, how they are auto-generated on morning submit, what each record contains, and how to regenerate them in REOPENED state."
 ---
+
+A **Distributor Transfer** records that one distributor's stock was used to serve another distributor's client. It is the ERP's answer to a common situation in multi-distributor operations: **who owes whom at the end of the day**.
+
+## Why they exist
+
+Each client has an **owner distributor** — the distributor whose books the client is billed under. But the actual stock that shows up on that client's doorstep may come from a different distributor, because the delivery group's supply rule points elsewhere.
+
+Concretely: suppose Client C is owned by Distributor X but sits in Delivery Group G whose `master_group_supply_rule` for MILK points to Distributor Y. On sale date S, Y loads its milk onto the vehicle that serves G. C receives milk from Y's stock, but X bills C. If nothing else happened, Y would have unbilled stock leaving its books and X would have a bill it did not source. The **distributor transfer** table records the reconciling entry: "on paper S, Y (supplier) supplied X (owner) with quantity Q of product P for billing group B."
+
+## When they are generated
+
+Distributor transfers are auto-generated on `POST /papers/:paperId/submit-morning`. The paper's submit-morning service:
+
+1. Confirms the paper is in `NIGHT_SUBMITTED`.
+2. Iterates the finalized delivered quantities in `order_sheet_items`.
+3. For each `(client, product_link, delivered_qty)` where the supplying distributor (resolved from the group supply rule for that client's delivery group and the product's category) differs from the client's owner distributor, computes a transfer row.
+4. Aggregates transfers to the unique key `(order_paper, supplier_distributor, owner_distributor, billing_group, product)`.
+5. Upserts into `distributor_transfer`.
+
+The transfer records reference the **billing group**, not the delivery group. Billing groups are how the two distributors settle at the end of a period.
+
+## Manual regeneration
+
+If corrections are made in `REOPENED` state — for example, delivered quantities are edited, a client rate was fixed, a supply rule was corrected — the existing transfer rows will be stale. The regenerate endpoint recomputes them:
+
+- `POST /distributor-transfer/:paperId/generate`
+
+This wipes the paper's existing `distributor_transfer` rows (via the cascade or an explicit delete) and rewrites them from the current `order_sheet_items` and rules.
+
+<Warning>
+  Regeneration is destructive. Any manual edits to transfer rows (if the schema ever allows that) are lost. In current code, transfers are always derived from order items, so this is safe to run.
+</Warning>
+
+## Reading transfers
+
+`GET /distributor-transfer/:paperId` returns all rows for the paper, typically grouped by `(supplier_distributor, owner_distributor)` on the frontend so that each distributor pair sees a single settlement statement for the day.
+
+## What is in a transfer row
+
+| Field | Meaning |
+| --- | --- |
+| `order_paper_id` | The day this transfer belongs to |
+| `supplier_distributor_id` | Whose stock was used |
+| `owner_distributor_id` | Whose client received the stock and who bills |
+| `billing_group_id` | The billing group under which the settlement should roll up |
+| `product_id` | The product transferred |
+| `transfer_qty` | The delivered quantity to reconcile |
+
+The uniqueness constraint on `(paper, supplier, owner, billing_group, product)` prevents duplicate rows for the same day.
+
+## Diagram
+
+```text
+Employee → POST /papers/:paperId/submit-morning
+              │
+              └── (side effect) auto-generate distributor_transfer rows
+                      based on order_sheet_items, group supply rules, and
+                      client owner_distributor_id
+
+(Optional in REOPENED state)
+Employee/Admin → POST /distributor-transfer/:paperId/generate  → regenerate rows
+
+Anytime →       GET /distributor-transfer/:paperId → grouped settlement view
+```
+
+## Related pages
+
+- [Distributor Transfer module](/modules/distributor-transfer) — implementation notes and edge cases.
+- [Relationships](/domain/relationships) — the graph of distributors, supply rules, and clients that this feature reconciles.
+- [Paper States](/workflows/paper-states) — the exact statuses in which transfers can be regenerated.

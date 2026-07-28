@@ -3,3 +3,76 @@ title: "Trays Module: Per-Client Tray Balance and Return Tracking"
 sidebarTitle: "Trays"
 description: "Tracks tray movements at the client level per order sheet, computing opening balances, expected takings, and closing balances via product tray rules."
 ---
+
+## Purpose
+
+The Trays module records physical crate movements. It has two closely related paths: at the client level (per-sheet, per-client, per-tray-type) and at the dairy level (per-paper, per-vehicle, per-tray-type). This module page covers both.
+
+## Responsibilities
+
+- Return the tray sheet for a given order sheet with running balances.
+- Upsert `client_tray_transaction` rows on save.
+- (Dairy tray tracking) return and save `dairy_tray_transaction` rows keyed by `(paper, vehicle, tray_type)`.
+- Compute `expected_trays_taken` for a client from delivered quantities and the applicable `product_tray_rule`.
+- Compute `closing_balance = opening_balance + trays_taken − trays_returned`.
+
+## Business rules
+
+- Writes require `NIGHT_SUBMITTED` or `REOPENED`.
+- One `client_tray_transaction` per `(order_sheet, client, tray_type)`.
+- One `dairy_tray_transaction` per `(dairy_tray_paper, vehicle, tray_type)`.
+- Opening balance is carried forward from the client's last known closing balance for the same tray type on the previous paper.
+
+## Dependencies
+
+- `PrismaService` — reads and writes tray transaction tables.
+- `WorkflowStateService` — status-gated writes.
+- Master data — `master_tray_type`, `product_tray_rule` for expected-trays computation.
+
+## Endpoints
+
+Client-level:
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/trays/sheet/:sheetId` | EMPLOYEE | Return the client-level tray sheet |
+| `POST` | `/trays/sheet/:sheetId/save` | EMPLOYEE | Save client-level tray rows |
+
+Dairy-level:
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/dairy-tray-tracking/:paperId` | EMPLOYEE | Return the dairy tray grid |
+| `POST` | `/dairy-tray-tracking/:paperId/save` | EMPLOYEE | Save dairy tray rows |
+
+## Request flow
+
+```text
+POST /trays/sheet/:sheetId/save
+  → TraysController
+  → TraysService.saveTrayEntriesService(sheetId, entries[])
+       compute opening from previous paper's closing (if not provided)
+       upsert client_tray_transaction (opening, taken, returned, closing)
+```
+
+## Database tables
+
+- `client_tray_transaction`, `dairy_tray_paper`, `dairy_tray_transaction`, `master_tray_type`, `product_tray_rule` — see [Trays data model](/data-model/trays).
+
+## Lifecycle
+
+```text
+NIGHT_SUBMITTED → POST /trays/sheet/:id/save
+                  POST /dairy-tray-tracking/:paperId/save
+FINALIZED       → read-only
+REOPENED        → writable again
+```
+
+## Future improvements
+
+- Reconciliation view that sums client-level taken minus returned against dairy-level returned minus taken per tray type, per day.
+- Alert on `expected_trays_taken` vs `trays_taken` mismatch.
+
+## Open questions
+
+- Should the tray-rule matching prefer active-only rules, or should inactive rules be considered when no active rule matches?

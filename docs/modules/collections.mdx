@@ -3,3 +3,70 @@ title: "Collections Module — Client Payment Collections per Sheet"
 sidebarTitle: "Collections"
 description: "How the Collections module records cash, cheque, and online payment amounts per client per sheet, with separate EMPLOYEE and ADMIN save paths."
 ---
+
+## Purpose
+
+The Collections module records money received from clients during the night and morning routes. Each row is one `client_collection` keyed by `(sheet, client, category)` — a client that participates in both MILK and NON\_MILK gets two rows per sheet.
+
+## Responsibilities
+
+- Return the collection grid for a sheet (all client × category rows with amounts and remarks).
+- Save employee-entered amounts for night save and morning save.
+- Allow Admin to correct amounts and remarks after morning submit via a separate admin-save path.
+
+## Business rules
+
+- Night save requires `DRAFT`; morning save requires `NIGHT_SUBMITTED` or `REOPENED`.
+- Admin save is available in `MORNING_SUBMITTED` and `REOPENED`. It edits admin-only fields (correction amounts and `admin_remarks`).
+- One row per `(order_sheet_id, client_id, category)` — enforced by DB unique index.
+- Employees write their own field set (cash, cheque, online, office amount, bank deposit, employee\_remarks). Admins write `admin_remarks` and adjustment amounts.
+
+## Dependencies
+
+- `PrismaService` — reads and writes `client_collection`.
+- `WorkflowStateService` — status-gated writes.
+- Master data — client and category resolution.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/collections/sheet/:sheetId` | EMPLOYEE | Return the collection grid |
+| `POST` | `/collections/sheet/:sheetId/milk/night-save` | EMPLOYEE | Save night collections for MILK |
+| `POST` | `/collections/sheet/:sheetId/non-milk/night-save` | EMPLOYEE | Save night collections for NON\_MILK |
+| `POST` | `/collections/sheet/:sheetId/milk/morning-save` | EMPLOYEE | Save morning collections for MILK |
+| `POST` | `/collections/sheet/:sheetId/non-milk/morning-save` | EMPLOYEE | Save morning collections for NON\_MILK |
+| `POST` | `/collections/sheet/:sheetId/milk/admin-save` | ADMIN | Correct MILK admin fields after morning submit |
+| `POST` | `/collections/sheet/:sheetId/non-milk/admin-save` | ADMIN | Correct NON\_MILK admin fields after morning submit |
+
+## Request flow
+
+```text
+POST /collections/sheet/:id/{category}/{night,morning}-save
+  → CollectionsController
+  → CollectionsService.save{Night,Morning}Collections(sheetId, category, dto)
+       for each client row:
+         upsert client_collection keyed by (sheet, client, category)
+```
+
+## Database tables
+
+- `client_collection` — see the [Data Model overview](/data-model/overview) for the schema.
+
+## Lifecycle
+
+```text
+DRAFT         → POST /collections/.../night-save
+NIGHT_SUB     → POST /collections/.../morning-save
+MORNING_SUB   → POST /collections/.../admin-save (Admin only)
+REOPENED      → any of the above (subject to role)
+```
+
+## Future improvements
+
+- Bulk import from POS/UPI transaction dumps.
+- Enforce that admin-save cannot zero out an amount without a mandatory `admin_remarks`.
+
+## Open questions
+
+- Should collections outside a client's declared categories be rejected outright, or accepted with a warning? Today the upsert would succeed.

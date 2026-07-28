@@ -3,3 +3,163 @@ title: "Complete Glossary of Milk Distribution ERP Domain Terms"
 sidebarTitle: "Glossary"
 description: "Definitions for every domain term in the milk distribution ERP: Order Paper, Sale Date, Gatepass, Tray Rules, Distributor Transfers, and more."
 ---
+
+Terms are grouped for readability, not alphabetized, so that related concepts sit next to each other. If a term is documented in more depth elsewhere, the link is inline.
+
+## Paper and lifecycle
+
+**Order Paper** — the daily document, one per calendar sale date, that anchors every operational record. See [Paper](/domain/paper).
+
+**Sale Date** — the calendar date the paper represents (the morning delivery date). Stored as `order_paper.sale_date`, unique across all papers.
+
+**Order Date** — a second `@unique @db.Date` column on `order_paper`, currently set equal to `sale_date`. Both are unique keys.
+
+**Paper Status** — one of `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED`. Controls which modules can write. See [Paper States](/workflows/paper-states).
+
+**Submit Night** — the Employee action that transitions `DRAFT` → `NIGHT_SUBMITTED`. Locks night orders and night collections.
+
+**Submit Morning** — the Employee action that transitions `NIGHT_SUBMITTED` → `MORNING_SUBMITTED`. Triggers auto-generation of distributor transfers.
+
+**Finalize** — the Admin action that transitions `MORNING_SUBMITTED` (or `REOPENED`) → `FINALIZED`. Locks the entire paper.
+
+**Reopen** — the Admin action that transitions `FINALIZED` → `REOPENED`. Requires a non-empty `reason`, which is stored permanently on the record. See [Reopen Workflow](/workflows/reopen-workflow).
+
+## Actors and roles
+
+**Admin** — a system role. Creates papers, finalizes, reopens, and edits admin-only fields. See [Actors](/domain/actors).
+
+**Employee** — a system role. Performs all day-to-day data entry.
+
+**Driver** — a person who operates a vehicle on a route. Tracked as `master_driver` but does not log in.
+
+**Client** — a retail outlet (shop, hotel, canteen) that receives deliveries. `master_client`.
+
+**Distributor** — a business entity that procures products from dairies and supplies them to clients. `master_distributor`.
+
+**Owner Distributor** — the distributor to whom a client is billed regardless of who physically supplied the product. `master_client.owner_distributor_id`.
+
+**Supplier Distributor** — on a given day for a given category, the distributor whose stock is used to serve a delivery group. Resolved through `master_group_supply_rule`.
+
+## Products, brands, and rates
+
+**Dairy** — a physical processing facility. `master_dairy`.
+
+**Brand** — a product brand belonging to one dairy. `master_brand`.
+
+**Product Group** — top-level product classification with a `SupplyCategory` (`MILK` or `NON_MILK`). `master_product_group`.
+
+**Product Type** — brand-specific subclassification within a product group. `master_product_type`.
+
+**Packaging Type** — physical package (pouch, bottle, tetrapak). `master_packaging_type`.
+
+**Product** — a concrete SKU: `(brand, product_group, product_type, packaging_type, packaging_size, packaging_unit)`. `master_product`.
+
+**Product Link** — a `(distributor, product)` pair. All rates hang off the link, not the product. `master_product_link`.
+
+**Distributor Product Rate** — purchase and default selling rate on a product link, effective-dated. `distributor_product_rate`.
+
+**Client Rate** — override selling rate for a specific client on a specific product link, effective-dated. `master_client_rate_product`.
+
+**Selling Rate (effective on sale date)** — the rate the ERP resolves for an order line by finding the client's most recent `master_client_rate_product` row whose `effective_from ≤ sale_date` and whose `effective_to` is null or `≥ sale_date`.
+
+**GST Percentage / GST Inclusive** — tax fields on `master_product`. When set, the line's `final_gst_percentage`, `final_gst_amount`, and `final_taxable_amount` are computed during save.
+
+## Supply and delivery structure
+
+**Delivery Group** — the route a client is on. All clients on a delivery group are visited by the same vehicle run. `master_client.delivery_group_id → master_group`.
+
+**Billing Group** — the group a client is billed under. Can differ from delivery group. `master_client.billing_group_id → master_group`.
+
+**Delivery Session** — `NIGHT` or `MORNING`, on `master_group.delivery_session`, indicating when a group is normally served.
+
+**Procurement Rule** — `distributor_procurement_rule`: what `(brand, product_group, category)` a distributor is authorized to procure.
+
+**Group Supply Rule** — `master_group_supply_rule`: which distributor supplies each `(delivery_group, category)`. Unique on `(group_id, category)`.
+
+**Transfer Rule** — `distributor_transfer_rule`: authorized `(supplier, owner)` distributor pairs for automatic distributor transfers.
+
+## Order entry and billing
+
+**Order Sheet** — one per active delivery group per paper. `order_sheet`.
+
+**Order Sheet Item** — one row per `(sheet, client, product_link)` with `ordered_qty`, `delivered_qty`, `night_selling_rate`, `night_bill_amount`, and the `final_*` columns computed at morning save.
+
+**Night Save** — saving the `ordered_qty` and `night_selling_rate` for order items while paper is in `DRAFT`.
+
+**Morning Save** — saving `delivered_qty`, `final_selling_rate`, and the `final_*` amounts while paper is in `NIGHT_SUBMITTED` or `REOPENED`.
+
+**Ordered Quantity** — what the client asked for the night before. `order_sheet_items.ordered_qty`.
+
+**Delivered Quantity** — what was actually delivered on the morning. `order_sheet_items.delivered_qty`.
+
+**Final Bill Amount** — the amount the client will be billed for the line, computed at morning save. `order_sheet_items.final_bill_amount`.
+
+## Collections and cash
+
+**Client Collection** — per-client, per-category amounts collected on the routes. `client_collection`.
+
+**Cash Collection** — physical cash collected at the client. `client_collection.cash_collection`.
+
+**Cheque Collection** — cheque amount received from the client.
+
+**Online Collection** — online transfer amount received (UPI, IMPS, NEFT).
+
+**Office Amount Given** — cash physically handed to the office by the employee against this client's balance.
+
+**Bank Deposit (client field)** — amount deposited into the bank directly on behalf of the client. Distinct from the `cash_bank_deposit` module which records paper-level deposits.
+
+**Admin Collection Fields** — `admin_remarks` and the correction amounts editable by Admin during `MORNING_SUBMITTED` or `REOPENED`.
+
+**Route Denominations** — physical currency breakdown for the cash returned from one route. `cash_route_settlement`.
+
+**Route Expense** — a route-level expense (fuel, tolls, small purchases) deducted from route cash. `cash_route_expense`.
+
+**Direct Collection** — cash handed directly to the office by an employee, broken down by denomination. `cash_direct_collection`.
+
+**Bank Deposit (module)** — a paper-level bank deposit with denominations and an optional deposit reference. `cash_bank_deposit`.
+
+## Purchase and allocation
+
+**Purchase Paper** — one per paper, groups the day's purchase entries. `purchase_paper`.
+
+**Purchase Entry** — one row per `(purchase_paper, delivery_session, vehicle, product_link)` recording what was picked up from the dairy. `purchase_entry`.
+
+**Gatepass Date** — the calendar date printed on the dairy gatepass for a purchase entry. Defaults to the paper's sale date if the brand's `gatepass_date_policy` is `SAME_DAY`, or one day earlier if `PREVIOUS_DAY`.
+
+**Gatepass Date Policy** — `SAME_DAY` or `PREVIOUS_DAY`, on `master_brand`. Determines the default gatepass date for purchase entries of that brand.
+
+**Vehicle Allocation Paper** — one per `(paper, delivery_session)`, groups the day's allocations for that session. `vehicle_allocation_paper`.
+
+**Vehicle Allocation** — one row per `(vehicle_allocation_paper, vehicle, distributor, category, product)` with `allocated_qty`. `vehicle_allocation`.
+
+**Vehicle Distribution Assignment** — one row per `(vehicle_allocation_paper, vehicle, category)` linking a vehicle to the distributor whose stock it will carry for that category. `vehicle_distribution_assignment`.
+
+## Trays
+
+**Tray Type** — a brand-specific tray identified by color. `master_tray_type`.
+
+**Tray Rule** — a mapping from some `(product_group, brand, product_type, packaging_type)` slice to a `tray_type_id`. Fields can be NULL to broaden the rule. `product_tray_rule`.
+
+**Client Tray Transaction** — per-`(sheet, client, tray_type)` opening balance, taken, returned, closing. `client_tray_transaction`.
+
+**Expected Trays Taken** — the tray count the system computes for the client based on their delivered quantities and the applicable tray rules. `client_tray_transaction.expected_trays_taken`.
+
+**Dairy Tray Paper** — one per paper for the dairy-side tray flow. `dairy_tray_paper`.
+
+**Dairy Tray Transaction** — per-`(dairy_tray_paper, vehicle, tray_type)` opening, taken, returned, closing. `dairy_tray_transaction`.
+
+## Cross-distributor transfers
+
+**Distributor Transfer** — an auto-generated row recording that Distributor A's stock served Distributor B's client on the paper, so that A and B can settle. `distributor_transfer`. See [Distributor Transfer](/modules/distributor-transfer).
+
+**Supplier Distributor (in transfer)** — the distributor whose stock was used.
+
+**Owner Distributor (in transfer)** — the distributor whose client received the stock and who bills the client.
+
+## Categories and enums
+
+**Supply Category** — `MILK` or `NON_MILK`. Used throughout to segregate flows that must be counted, priced, and settled separately.
+
+**Delivery Session** — `NIGHT` or `MORNING`. Used on vehicle allocation, purchase entry, and group defaults.
+
+**Gatepass Date Policy** — `SAME_DAY` or `PREVIOUS_DAY`. See above.

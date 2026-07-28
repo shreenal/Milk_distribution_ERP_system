@@ -3,3 +3,104 @@ title: "Morning Shift: Delivery, Collections, and Morning Submit"
 sidebarTitle: "Morning Shift"
 description: "How the morning team records delivered quantities, purchases, tray movements, collections, and cash settlement, then submits to close the morning phase."
 ---
+
+The **morning shift** is the second half of the day in the ERP. It begins when the paper is in `NIGHT_SUBMITTED` and ends when an employee submits the morning entry, moving the paper to `MORNING_SUBMITTED`. Cash settlement happens after morning submit and is documented in [Cash Settlement](/workflows/cash-settlement).
+
+## Preconditions
+
+- The paper is in `NIGHT_SUBMITTED`. If it is in `REOPENED`, the same morning endpoints are available (see [Reopen Workflow](/workflows/reopen-workflow)).
+- The night vehicle allocation exists — otherwise the morning purchase step has nothing to reconcile against.
+
+## Step 1 — Employees plan the morning vehicle allocation
+
+Some products are dispatched on morning routes, not night routes. Employees add or update morning-session allocations by calling the same endpoint used at night, and the service scopes writes to the morning `vehicle_allocation_paper`:
+
+- `POST /vehicle-allocations/:paperId/vehicle-allocations`
+
+The service uses `(paperId, MORNING)` to isolate morning allocations from night ones.
+
+## Step 2 — Employees record purchases from the dairy
+
+At the dairy, vehicles are loaded. Employees enter what was actually picked up per `(vehicle, product_link, delivery_session)`:
+
+- `POST /purchases/:paperId`
+
+Each entry contains `vehicle_id`, `product_link_id`, `delivery_session`, `purchased_qty`, `purchase_rate`, `purchase_amount`, `distributor_id`, `category`, and `gatepass_date`. The service:
+
+- Creates the `purchase_paper` if one does not already exist for the paper.
+- Upserts `purchase_entry` keyed by `(purchase_paper, delivery_session, vehicle, product_link)`.
+- Applies the brand's `gatepass_date_policy` to default `gatepass_date` when the caller does not provide one (`SAME_DAY` = paper sale date; `PREVIOUS_DAY` = sale date minus one).
+
+## Step 3 — Vehicles deliver, employees record delivered quantities
+
+On the route, drivers actually deliver the milk. Back in the system, employees enter the delivered quantity per client per product:
+
+- `POST /orders/sheet/:sheetId/morning-save`
+
+For each item:
+
+- The paper's status must be `NIGHT_SUBMITTED` or `REOPENED`. Otherwise the request is rejected.
+- A night order item for the same `(client, product_link)` must exist. You cannot deliver something that was not ordered.
+- The service updates `delivered_qty`, `final_selling_rate`, `final_gst_percentage`, `final_gst_amount`, `final_taxable_amount`, and `final_bill_amount` on the `order_sheet_items` row.
+
+## Step 4 — Employees record morning collections
+
+Just like night collections, but for money received during the morning route:
+
+- `POST /collections/sheet/:sheetId/milk/morning-save`
+- `POST /collections/sheet/:sheetId/non-milk/morning-save`
+
+The service upserts the same `client_collection` row keyed by `(sheet, client, category)` — it merges morning amounts into whatever was already saved at night.
+
+## Step 5 — Employees record tray movements at clients
+
+For each client, per tray type, employees record trays taken and trays returned during the morning delivery:
+
+- `POST /trays/sheet/:sheetId/save`
+
+The service upserts `client_tray_transaction` rows keyed by `(sheet, client, tray_type)` and computes `closing_balance = opening_balance + trays_taken − trays_returned`.
+
+## Step 6 — Employees record dairy tray movements
+
+At the dairy, the vehicles return with empty trays. Employees record the balance per `(vehicle, tray_type)`:
+
+- `POST /dairy-tray-tracking/:paperId/save`
+
+The service creates the `dairy_tray_paper` if it doesn't exist, then upserts `dairy_tray_transaction` rows.
+
+## Step 7 — Employee submits the morning entry
+
+Once morning orders, morning collections, purchases, and trays are complete, an employee calls:
+
+- `POST /papers/:paperId/submit-morning`
+
+The service:
+
+- Validates the transition `NIGHT_SUBMITTED → MORNING_SUBMITTED` (or `REOPENED → MORNING_SUBMITTED` in the reopen path, if implemented; see [Paper States](/workflows/paper-states) for exact rules).
+- Updates the paper's status and stamps `morning_entry_submitted_at`.
+- **Triggers auto-generation of distributor transfers.** See [Distributor Transfer](/workflows/distributor-transfer) for how this works.
+
+## After morning submit
+
+- Order, purchase, tray, and morning-collection endpoints are now closed for regular employees. Only Admin-only collection fields and the Cash Settlement module accept writes.
+- The paper is now visible to Admins for finalization review.
+
+## Diagram
+
+```text
+Employee → POST /vehicle-allocations/:paperId/vehicle-allocations  (MORNING session)
+Employee → POST /purchases/:paperId
+Employee → POST /orders/sheet/:id/morning-save
+Employee → POST /collections/sheet/:id/{milk,non-milk}/morning-save
+Employee → POST /trays/sheet/:id/save
+Employee → POST /dairy-tray-tracking/:paperId/save
+Employee → POST /papers/:paperId/submit-morning  → status becomes MORNING_SUBMITTED
+                                                    (auto-generates distributor_transfer[])
+```
+
+## Related pages
+
+- [Night Shift](/workflows/night-shift) — the previous phase.
+- [Cash Settlement](/workflows/cash-settlement) — what happens next.
+- [Distributor Transfer](/workflows/distributor-transfer) — auto-generated on morning submit.
+- [Paper Finalization](/workflows/paper-finalization) — the admin closing step.

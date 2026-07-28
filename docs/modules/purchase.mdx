@@ -3,3 +3,64 @@ title: "Purchase Module: Dairy Procurement per Paper Vehicle"
 sidebarTitle: "Purchase"
 description: "Records actual product quantities purchased from dairies per vehicle per paper, computing gatepass dates and purchase amounts from rate tables."
 ---
+
+## Purpose
+
+The Purchase module records what each vehicle actually picked up from the dairy for each product link, for each delivery session. It is the counterpart to Vehicle Allocation (the plan) — Purchase records the reality.
+
+## Responsibilities
+
+- Create the `purchase_paper` on first save for a given paper.
+- Upsert `purchase_entry` rows keyed by `(purchase_paper, delivery_session, vehicle, product_link)`.
+- Apply the brand's `gatepass_date_policy` to default `gatepass_date` when not provided.
+
+## Business rules
+
+- Writes require `NIGHT_SUBMITTED` or `REOPENED`.
+- `gatepass_date_policy` = `SAME_DAY` sets default gatepass to sale date; `PREVIOUS_DAY` sets it to sale date minus one.
+- The distributor on a purchase entry must match the distributor on the product link.
+
+## Dependencies
+
+- `PrismaService` — reads and writes `purchase_paper`, `purchase_entry`.
+- `WorkflowStateService` — status-gated writes.
+- Master data — reads `master_product_link` and `master_brand` (for the gatepass policy).
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/purchases/:paperId` | EMPLOYEE | Return purchases for a paper |
+| `POST` | `/purchases/:paperId` | EMPLOYEE | Save (upsert) purchase entries |
+
+## Request flow
+
+```text
+POST /purchases/:paperId
+  → PurchaseController
+  → PurchaseService.savePurchases(paperId, dto)
+       ensure purchase_paper exists (create if missing)
+       for each entry:
+         default gatepass_date from brand policy if omitted
+         upsert purchase_entry (purchased_qty, purchase_rate, purchase_amount)
+```
+
+## Database tables
+
+- `purchase_paper`, `purchase_entry` — see [Vehicles](/data-model/vehicles).
+
+## Lifecycle
+
+```text
+NIGHT_SUBMITTED / REOPENED   → POST /purchases/:paperId (upsert)
+FINALIZED                    → read-only via GET /purchases/:paperId
+```
+
+## Future improvements
+
+- Reconciliation view against `vehicle_allocation` to flag discrepancies between planned and actual quantities.
+- Support returning products to the dairy as negative entries or as a separate `purchase_return` table.
+
+## Open questions
+
+- Should `purchase_amount` be recomputed from `purchased_qty × purchase_rate` on save, or trusted from the client? Today it is stored as-provided, which risks drift.

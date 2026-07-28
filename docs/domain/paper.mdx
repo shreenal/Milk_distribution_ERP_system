@@ -3,3 +3,144 @@ title: "The Order Paper: Central Daily Document of the ERP"
 sidebarTitle: "Order Paper"
 description: "A complete explanation of what an Order Paper is, why it exists, what it contains, and how its five lifecycle states drive every operational module."
 ---
+
+Every operational record in the system belongs to exactly one **Order Paper**. The paper is the daily document — one per calendar sale date — that anchors orders, collections, purchases, trays, transfers, and cash. Its status is the master gate: it decides which module can write and which is read-only. If you understand nothing else about this ERP, understand the paper.
+
+## What "one paper per day" means
+
+The `order_paper` table has a unique constraint on `sale_date`. There cannot be two papers for the same date, and there is no such thing as a paper without a date. When you say "yesterday's numbers" or "today's collections," you are always talking about the paper for that sale date.
+
+- **`sale_date`** is the business date the paper represents — the date the morning delivery happens. It is entered by an Admin at paper creation.
+- **`order_date`** is a separate `@unique @db.Date` column that in current code is set to the same value as `sale_date`. Both are constrained to be unique per date.
+- **`created_at`** is the wall-clock timestamp when the paper was generated (usually the previous evening when night entry begins).
+
+## Why this design
+
+The paper exists because the business day is not a real-time stream. It is a set of discrete steps that happen in a fixed order: order, load, deliver, collect, count, close. Every step produces facts that must line up against the same day. Without a single container:
+
+- Collections could not be tied to the delivery they paid for.
+- Purchases could not be checked against the allocation they were meant to fulfill.
+- Distributor transfers could not be generated because there would be no boundary to compute them over.
+- Reopening a specific day for correction would be structurally impossible.
+
+The paper is that container. Everything else in the schema hangs off `order_paper_id` or off an `order_sheet` that hangs off `order_paper_id`.
+
+## The lifecycle in one picture
+
+```text
+        create (Admin)
+             │
+             ▼
+         ┌───────┐  submit-night (Employee)  ┌──────────────────┐
+         │ DRAFT │ ─────────────────────────▶│ NIGHT_SUBMITTED  │
+         └───────┘                           └────────┬─────────┘
+                                                      │ submit-morning (Employee)
+                                                      ▼
+                                             ┌──────────────────┐
+                                             │ MORNING_SUBMITTED│
+                                             └────────┬─────────┘
+                                                      │ finalize (Admin)
+                                                      ▼
+                                             ┌──────────────────┐
+                                  ┌─reopen──▶│    FINALIZED     │
+                                  │ (Admin)  └──────────────────┘
+                                  │
+                          ┌───────┴──────┐
+                          │  REOPENED    │─── finalize (Admin) ──┐
+                          └──────────────┘                        │
+                                  ▲                               │
+                                  └───────────────────────────────┘
+```
+
+Only these transitions are legal:
+
+| From | To | Who | Notes |
+| --- | --- | --- | --- |
+| `-` | `DRAFT` | Admin | `POST /papers` creates the paper for a given `date`. |
+| `DRAFT` | `NIGHT_SUBMITTED` | Employee | `POST /papers/:id/submit-night`. Locks night order and night collection writes. |
+| `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | Employee | `POST /papers/:id/submit-morning`. Auto-generates distributor transfers. |
+| `MORNING_SUBMITTED` | `FINALIZED` | Admin | `POST /papers/:id/finalize`. Freezes everything. |
+| `FINALIZED` | `REOPENED` | Admin | `POST /papers/:id/reopen` with a non-empty `reason`. |
+| `REOPENED` | `FINALIZED` | Admin | Re-finalize; no need to walk back through night/morning submission. |
+
+Any other transition (skipping steps, going backward, repeating a step) is rejected by `WorkflowStateService.validateTransition()`.
+
+## What each status allows
+
+<AccordionGroup>
+  <Accordion title="DRAFT">
+    - **Orders**: night save (ordered quantities) allowed.
+    - **Collections**: night save allowed.
+    - **Vehicle Allocation**: night-session save allowed.
+    - Everything else: read-only or not yet meaningful.
+  </Accordion>
+
+  <Accordion title="NIGHT_SUBMITTED">
+    - **Orders**: morning save (delivered quantities) allowed.
+    - **Collections**: morning save allowed.
+    - **Purchase**, **Vehicle Allocation** (morning session), **Trays**, **Dairy Tray Tracking**: writes allowed.
+    - **Night saves**: blocked.
+  </Accordion>
+
+  <Accordion title="MORNING_SUBMITTED">
+    - **Cash Settlement**: writes allowed (route denominations, expenses, direct collections, bank deposits).
+    - **Collections**: admin-only fields editable by Admin.
+    - **Order/purchase/tray/allocation**: read-only.
+    - **Delivery Summary**: read-only view is meaningful now.
+  </Accordion>
+
+  <Accordion title="FINALIZED">
+    Nothing writable. The paper is locked. Reads are unrestricted. To change anything, an Admin must reopen the paper with a reason.
+  </Accordion>
+
+  <Accordion title="REOPENED">
+    Behaves like `MORNING_SUBMITTED` for the purpose of accepting writes: morning saves, collections (both employee and admin fields), purchase, trays, dairy trays, cash settlement, and distributor transfer regeneration are all available again. The Admin re-finalizes when done. `reopened_at` and `reopen_reason` are preserved on the record permanently.
+  </Accordion>
+</AccordionGroup>
+
+See [Paper States](/workflows/paper-states) for the state machine expressed as validation rules and [Reopen Workflow](/workflows/reopen-workflow) for how corrections are handled.
+
+## What hangs off the paper
+
+```text
+order_paper
+├── order_sheet[]                    — one per active delivery group on this date
+│   ├── order_sheet_items[]          — (client, product) with night + morning qty, rates, GST
+│   ├── client_collection[]          — one per (client, category)
+│   ├── client_tray_transaction[]    — one per (client, tray_type)
+│   └── cash_route_settlement        — denominations + expenses for this route
+├── purchase_paper                   — dairy-side pickups
+│   └── purchase_entry[]             — (vehicle, session, product_link)
+├── vehicle_allocation_paper[]       — one per (paper, session)
+│   ├── vehicle_allocation[]         — (vehicle, distributor, category, product) with qty
+│   └── vehicle_distribution_assignment[]
+├── dairy_tray_paper                 — one per paper
+│   └── dairy_tray_transaction[]     — (vehicle, tray_type)
+├── distributor_transfer[]           — auto-generated at submit-morning
+├── cash_direct_collection[]         — (employee) denominations
+└── cash_bank_deposit[]              — (bank) denominations
+```
+
+Every child relationship uses `onDelete: Cascade` in the schema. Deleting a paper (rare, used only in tests) removes every downstream row.
+
+## Common misconceptions
+
+<Warning>
+  **The paper is not a "session" or "shift"**. It represents the _entire day_, both shifts, and the closing steps. A single paper crosses two calendar clock evenings: it is created and night-entered on evening N-1 and closed on the morning/afternoon of day N.
+</Warning>
+
+<Warning>
+  **A paper does not "end" when the driver finishes the route**. It ends when the Admin finalizes it. Morning submission just marks that delivery is done and hands control to Cash Settlement.
+</Warning>
+
+<Warning>
+  **Reopening does not undo the earlier submissions**. It only unlocks the writeable modules again. `night_entry_submitted_at` and `morning_entry_submitted_at` remain set; only `reopened_at` and `reopen_reason` are added.
+</Warning>
+
+## Related pages
+
+- [Business Overview](/domain/business-overview) — how the paper fits into the whole business.
+- [Business Rules](/domain/business-rules) — every constraint the paper enforces.
+- [Paper States workflow](/workflows/paper-states) — the state machine.
+- [Paper module](/modules/paper) — the implementation.
+- [Order Paper data model](/data-model/order-paper) — schema-level reference.

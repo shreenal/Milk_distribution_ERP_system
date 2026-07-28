@@ -3,3 +3,66 @@ title: "Vehicle Allocation: Daily Loading Plan per Delivery Session"
 sidebarTitle: "Vehicle Allocation"
 description: "Plans which vehicle carries which products for each delivery session, and assigns each vehicle to its supply distributor per product category."
 ---
+
+## Purpose
+
+The Vehicle Allocation module lays out the day's loading plan. For each delivery session (NIGHT or MORNING), it records which vehicle carries which distributor's stock for each `(category, product)` combination.
+
+## Responsibilities
+
+- Manage one `vehicle_allocation_paper` per `(order_paper, delivery_session)`.
+- Assign `(vehicle, category)` to a distributor via `vehicle_distribution_assignment`.
+- Record per-product planned quantities via `vehicle_allocation`.
+
+## Business rules
+
+- Night-session writes require `DRAFT`; morning-session writes require `NIGHT_SUBMITTED` or `REOPENED`.
+- One assignment per `(paper, session, vehicle, category)`; one allocation per `(paper, session, vehicle, distributor, category, product)`.
+- The `distributor` on an assignment must have an active procurement rule for the product's brand and product group.
+
+## Dependencies
+
+- `PrismaService` — reads and writes `vehicle_allocation_paper`, `vehicle_allocation`, `vehicle_distribution_assignment`.
+- `WorkflowStateService` — status-gated writes.
+- Master data — verifies procurement rules and product links.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/vehicle-allocations/:paperId/vehicle-allocations` | EMPLOYEE | Return the allocations for a paper (both sessions) |
+| `POST` | `/vehicle-allocations/:paperId/vehicle-allocations` | EMPLOYEE | Save allocations and assignments |
+
+## Request flow
+
+```text
+POST /vehicle-allocations/:paperId/vehicle-allocations
+  → VehicleAllocationController
+  → VehicleAllocationService.saveVehicleAllocations(paperId, dto)
+       ensure vehicle_allocation_paper exists per (paper, session)
+       upsert vehicle_distribution_assignment rows
+       upsert vehicle_allocation rows
+```
+
+## Database tables
+
+- `vehicle_allocation_paper`, `vehicle_allocation`, `vehicle_distribution_assignment` — see [Vehicles](/data-model/vehicles).
+
+## Lifecycle
+
+```text
+DRAFT           → night-session allocation writable
+NIGHT_SUBMITTED → morning-session allocation writable
+MORNING_SUB     → read-only
+FINALIZED       → read-only
+REOPENED        → morning-session writable again
+```
+
+## Future improvements
+
+- Copy-forward from yesterday's allocation as a starting point for today.
+- Warn when the sum of allocated quantities does not match sum of ordered quantities.
+
+## Open questions
+
+- Should a `vehicle_allocation` row with `allocated_qty = 0` be preserved or deleted on save?

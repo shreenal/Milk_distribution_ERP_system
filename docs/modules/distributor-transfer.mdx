@@ -3,3 +3,70 @@ title: "Distributor Transfer: Inter-Distributor Stock Reconciliation"
 sidebarTitle: "Distributor Transfer"
 description: "Auto-generates inter-distributor transfer records when the supplier distributor differs from the client's owner distributor, enabling stock reconciliation."
 ---
+
+## Purpose
+
+The Distributor Transfer module reconciles stock movements between distributors when one distributor's stock is used to serve another distributor's client. It is triggered automatically on morning submit and can be regenerated manually.
+
+## Responsibilities
+
+- On `submit-morning`, compute and upsert `distributor_transfer` rows based on delivered quantities, group supply rules, and client owner distributors.
+- Provide a read endpoint that returns the day's transfers, typically grouped for settlement.
+- Provide a regenerate endpoint that recomputes the transfers from scratch.
+
+## Business rules
+
+- Transfers exist only when supplier distributor (from group supply rule) differs from owner distributor (from client).
+- Aggregation key: `(paper, supplier_distributor, owner_distributor, billing_group, product)`.
+- Regeneration only allowed when the paper is in `MORNING_SUBMITTED` or `REOPENED`.
+- The `distributor_transfer_rule` whitelist can restrict which supplier→owner pairs are eligible; pairs not present in the whitelist are skipped.
+
+## Dependencies
+
+- `PrismaService` — reads `order_sheet_items`, `master_group_supply_rule`, `master_client`, and writes `distributor_transfer`.
+- `WorkflowStateService` — status-gated writes.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/distributor-transfer/:paperId` | EMPLOYEE | Return the paper's transfers (grouped) |
+| `POST` | `/distributor-transfer/:paperId/generate` | EMPLOYEE | Recompute transfers from current data |
+
+Also invoked internally by `PaperService.submitMorningEntryService()`.
+
+## Request flow
+
+```text
+POST /papers/:paperId/submit-morning      (side effect)
+POST /distributor-transfer/:paperId/generate
+  → DistributorTransferService.generateTransfer(paperId)
+       for each delivered order_sheet_item:
+         resolve supplying distributor via group supply rule + category
+         if supplier != client.owner_distributor:
+           accumulate into (supplier, owner, billing_group, product)
+       upsert distributor_transfer for each key
+```
+
+## Database tables
+
+- `distributor_transfer` — see [Distributors](/data-model/distributors).
+- Reads: `order_sheet_items`, `master_group_supply_rule`, `master_client`, `master_product`, `distributor_transfer_rule`.
+
+## Lifecycle
+
+```text
+NIGHT_SUBMITTED → (nothing yet)
+MORNING_SUBMITTED (on submit) → auto-generate transfers
+MORNING_SUBMITTED / REOPENED  → POST /distributor-transfer/:paperId/generate to recompute
+FINALIZED                     → read-only
+```
+
+## Future improvements
+
+- Track `generated_at` and `generated_by` on each transfer row for audit purposes.
+- Compute a monetary settlement using the supplier's purchase rate or a mutually agreed transfer rate instead of just qty.
+
+## Open questions
+
+- What should happen when `distributor_transfer_rule` for a needed pair is missing? Currently the transfer is silently skipped; a warning to the operator would be safer.

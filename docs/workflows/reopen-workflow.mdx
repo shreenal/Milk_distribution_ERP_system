@@ -3,3 +3,98 @@ title: "Reopen Workflow: Correcting a Finalized Order Paper"
 sidebarTitle: "Reopen Workflow"
 description: "When and how an admin reopens a finalized paper, what data becomes editable in REOPENED state, how to re-finalize, and what audit fields are preserved."
 ---
+
+The **reopen workflow** is the ERP's controlled way to correct a finalized paper. It exists because real-world deliveries produce mistakes: a delivered quantity was wrongly entered, a denomination count was off, a client's rate was fixed after the day was closed. Rather than editing rows silently, an Admin must reopen the paper with a documented reason, make the corrections, and re-finalize.
+
+## When to reopen
+
+Reopen a paper when:
+
+- A delivered quantity or bill amount was recorded incorrectly and needs to be fixed.
+- A cash denomination or bank deposit was entered wrong.
+- A distributor transfer must be regenerated because supply rules or delivered quantities have been corrected.
+- An admin-only collection remark or amount adjustment is needed.
+
+Do **not** reopen for cosmetic issues (typos in remarks, unless they matter for audit), master data changes (new client, new rate — those go forward from the next paper), or reports that are missing lines (fix the report query instead of reopening).
+
+## The reopen endpoint
+
+`POST /papers/:paperId/reopen`
+
+Request body:
+
+```json
+{ "reason": "Correction to Client 45's delivered qty on route 3; extra 2 crates were missed." }
+```
+
+The service:
+
+- Rejects the request if the paper is not in `FINALIZED`.
+- Rejects the request if `reason` is null or an empty/whitespace string.
+- Updates `status` to `REOPENED`.
+- Stamps `reopened_at` with the current timestamp.
+- Sets `reopen_reason` to the exact string provided.
+
+Only Admins can call this endpoint (`@Roles('ADMIN')`).
+
+## What becomes editable
+
+In `REOPENED`, the paper accepts writes on the same set of modules that are writable in `NIGHT_SUBMITTED` and `MORNING_SUBMITTED` combined:
+
+- Morning-save on `order_sheet_items` (delivered qty, final rate, final amounts).
+- Both night-save and morning-save on `client_collection`, plus Admin Save.
+- Purchase entries.
+- Trays and dairy trays.
+- Cash Settlement (route denominations, route expenses, direct collections, bank deposits).
+- Distributor Transfer regeneration.
+
+Night saves for order items are **not** re-enabled by reopen. If a night quantity was wrong, correct the delivered quantity to match reality — the delivered quantity is what drives billing.
+
+## Re-finalizing
+
+`POST /papers/:paperId/finalize`
+
+From `REOPENED`, the finalize endpoint transitions the paper straight back to `FINALIZED`. It does not require re-submitting night or morning entries because those submissions already happened; the timestamps `night_entry_submitted_at` and `morning_entry_submitted_at` are still set from the original run.
+
+The service stamps `finalized_at` again. `reopened_at` and `reopen_reason` are **not** cleared — they remain as a permanent record of the correction.
+
+## Audit trail
+
+After a reopen and re-finalize, the paper's timestamp fields look like:
+
+- `night_entry_submitted_at` — original night submit (untouched).
+- `morning_entry_submitted_at` — original morning submit (untouched).
+- `finalized_at` — the _most recent_ finalization; overwritten each time.
+- `reopened_at` — the _most recent_ reopen; overwritten each time.
+- `reopen_reason` — the _most recent_ reopen reason; overwritten each time.
+
+<Warning>
+  The system currently records only the most recent reopen event. If a paper is reopened, re-finalized, and reopened again, the earlier reason is overwritten. If your business needs multi-reopen history, add an audit table before relying on `reopen_reason` for compliance.
+</Warning>
+
+## Diagram
+
+```text
+Admin → POST /papers/:paperId/reopen   { reason: "..." }
+              │
+              ▼
+        status = REOPENED, reopen_reason = "..."
+
+Employee/Admin → correct data via the usual save endpoints
+                  (orders morning, collections, purchase, trays, cash settlement)
+
+Employee/Admin → POST /distributor-transfer/:paperId/generate  (if needed)
+
+Admin → POST /papers/:paperId/finalize
+              │
+              ▼
+        status = FINALIZED, finalized_at updated
+        reopened_at and reopen_reason preserved
+```
+
+## Related pages
+
+- [Paper States](/workflows/paper-states) — where reopen fits in the state machine.
+- [Paper Finalization](/workflows/paper-finalization) — the re-finalize step.
+- [Distributor Transfer](/workflows/distributor-transfer) — often regenerated after a reopen.
+- [Business Rules](/domain/business-rules) — the rules that reopen must satisfy.
