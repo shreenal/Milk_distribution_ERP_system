@@ -18,7 +18,7 @@ Generates the daily order paper for a given date. Creates the top-level `order_p
 
 ### When it is called
 
-Called once per day by the night-shift operator, typically the evening before the delivery date. Attempting to generate a paper for a date that already has one returns a conflict error.
+Called once per day by the night-shift operator, typically the evening before the delivery date. If a paper already exists for the requested date, the existing paper is returned as-is — no error is raised.
 
 ### Request body
 
@@ -40,7 +40,7 @@ Content-Type: application/json
 
 ### Response
 
-Returns HTTP **201** with the newly created paper record, including all generated sheets.
+Returns HTTP **201** (Nest default for `@Post`) with the paper record. When a new paper is created, all delivery-group `order_sheet` rows are generated alongside it. When a paper already exists for the date, the existing record is returned unchanged.
 
 <ResponseField name="id" type="number">
   The `paperId` used by every other endpoint.
@@ -54,16 +54,19 @@ Returns HTTP **201** with the newly created paper record, including all generate
   Always `DRAFT` immediately after creation.
 </ResponseField>
 
-<ResponseField name="order_sheets" type="array">
-  One entry per delivery group participating on this date, each with its own line items.
+<ResponseField name="order_sheet" type="array">
+  One entry per delivery group participating on this date. Present in the aggregate returned by `GET /papers/:paperId`; the create response contains at minimum the paper row itself.
 </ResponseField>
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| `date` missing or malformed | `400 Bad Request` | Must be `YYYY-MM-DD` |
-| Paper already exists for date | `409 Conflict` | One paper per date is allowed |
+| `date` missing | `400 Bad Request` | `Required field "date" is missing` |
+| `date` malformed | `400 Bad Request` | `Invalid date format` |
+| `date` is in the past | `400 Bad Request` | `Cannot perform operations on past dates` |
+| `date` more than 30 days ahead | `400 Bad Request` | `Cannot generate paper more than 30 days ahead` |
+| No active groups configured | `400 Bad Request` | `No active groups found to generate sheets` |
 | Caller is not `EMPLOYEE` or `ADMIN` | `403 Forbidden` | Role check failure |
 
 ---
@@ -72,7 +75,7 @@ Returns HTTP **201** with the newly created paper record, including all generate
 
 ### Purpose
 
-Convenience endpoint that returns the paper whose `sale_date` matches today's server date. Used by the client on app start to jump straight to the active paper without needing to know its ID.
+Convenience endpoint that returns the paper whose `sale_date` matches today's server date. If no paper exists for today, the service falls back to returning the most recent paper on record. Used by the client on app start to jump straight to a paper without needing to know its ID.
 
 ### Request
 
@@ -80,7 +83,23 @@ No body or query parameters. Requires a valid bearer token.
 
 ### Response
 
-Returns HTTP **200** with the paper object (same shape as `GET /papers/:paperId`) or **404** if no paper exists for today.
+Returns HTTP **200** with a wrapper object:
+
+```json
+{
+  "type": "TODAY" | "LATEST",
+  "paper": { /* full paper aggregate */ }
+}
+```
+
+- `type: "TODAY"` — a paper exists for the current date.
+- `type: "LATEST"` — no paper for today; the most recent historical paper is returned.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| No papers exist in the system at all | `400 Bad Request` | `No papers found in system` |
 
 ---
 
@@ -93,7 +112,7 @@ Lists papers, optionally filtered by date. Used by admins to page through histor
 ### Query parameters
 
 <ParamField query="date" type="string">
-  Optional. If provided, filters results to the paper matching that exact date. Without this parameter, returns a chronological list of all papers.
+  Optional. If provided, returns the single paper matching that exact date (as an object, not an array). Without this parameter, returns a chronological array of all papers.
 </ParamField>
 
 #### Example request
@@ -105,7 +124,14 @@ Authorization: Bearer <token>
 
 ### Response
 
-Returns HTTP **200** with an array of paper summaries (id, sale\_date, status). Empty array if no matches.
+Returns HTTP **200**. When `date` is omitted, the response is an array of paper records. When `date` is provided, the response is a single paper record.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| `date` malformed | `400 Bad Request` | `Invalid date format` |
+| `date` provided but no paper on that date | `400 Bad Request` | `Order paper not found` |
 
 ---
 
@@ -130,7 +156,7 @@ Returns the full paper aggregate. See [Order Paper data model](/data-model/order
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
 | `paperId` not a positive integer | `400 Bad Request` | Nest `ParseIntPipe` failure |
-| No paper with that id | `404 Not Found` | Paper does not exist |
+| No paper with that id | `400 Bad Request` | `Order paper not found` (the codebase throws `BadRequestException`, not `NotFoundException` — see [Error Handling](/architecture/error-handling)) |
 
 ---
 
@@ -150,8 +176,8 @@ Transitions the paper from `DRAFT` to `NIGHT_SUBMITTED`. Called once the night-s
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper not in `DRAFT` | `400 Bad Request` | Invalid transition |
-| Missing required night entries | `422 Unprocessable Entity` | Lists the sheets that are incomplete |
+| Paper not in `DRAFT` | `400 Bad Request` | `Cannot transition from <status> to NIGHT_SUBMITTED` |
+| Missing required night entries | `400 Bad Request` | `Night entry incomplete for sheet "<groupName>"` (or the specific validator message) |
 
 ---
 
@@ -169,8 +195,8 @@ On success, this endpoint auto-generates the `distributor_transfer` records that
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper not in `NIGHT_SUBMITTED` | `400 Bad Request` | Invalid transition |
-| Missing morning entries | `422 Unprocessable Entity` | Details the incomplete sheets |
+| Paper not in `NIGHT_SUBMITTED` (or `REOPENED`) | `400 Bad Request` | `Cannot transition from <status> to MORNING_SUBMITTED` |
+| Missing morning entries | `400 Bad Request` | Message from the relevant readiness validator |
 
 ---
 
@@ -189,8 +215,9 @@ Transitions the paper from `MORNING_SUBMITTED` to `FINALIZED`. Once finalized, n
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
 | Caller not `ADMIN` | `403 Forbidden` | Role check failure |
-| Paper not in `MORNING_SUBMITTED` | `400 Bad Request` | Invalid transition |
-| Admin-side collections incomplete | `422 Unprocessable Entity` | Delivery summary or cash settlement has unresolved rows |
+| Paper not in `MORNING_SUBMITTED` | `400 Bad Request` | `Cannot transition from <status> to FINALIZED` |
+| Reopened paper without morning resubmit | `400 Bad Request` | `After reopening from <previousStatus>, you must resubmit morning entry before finalizing` |
+| Admin-side collections incomplete | `400 Bad Request` | Message from the finalize readiness validator |
 
 ---
 
@@ -215,8 +242,7 @@ Transitions a `FINALIZED` paper to `REOPENED` so an admin can correct data. Requ
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
 | Caller not `ADMIN` | `403 Forbidden` | Role check failure |
-| Paper not in `FINALIZED` | `400 Bad Request` | Only finalized papers can be reopened |
-| `reason` missing or empty | `400 Bad Request` | Reason is required for audit |
+| Paper not in `FINALIZED` | `400 Bad Request` | `Cannot transition from <status> to REOPENED` |
 
 After reopen, re-run `submit-morning` and `finalize` to close the paper again. See [Reopen Workflow](/workflows/reopen-workflow) for details.
 
