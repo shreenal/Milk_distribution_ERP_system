@@ -19,8 +19,8 @@ Everything in the ERP hangs off one document per day called the **Order Paper**.
 
 Only two kinds of people log in: **Admins** and **Employees**. Everyone else in the story — drivers, distributors, clients, dairies — is data that Admins and Employees enter and refer to. See [Actors](/domain/actors) for the full permissions matrix.
 
-- **Admins** create the paper, finalize it, reopen it, and can edit a small set of admin-only correction fields.
-- **Employees** do all the data entry: night orders, morning deliveries, collections, purchases, vehicle allocation, tray movements, and cash settlement.
+- **Admins** finalize the paper, reopen it, and edit a small set of admin-only correction fields (`online_collection`, `bank_deposit`, `admin_remarks` on `client_collection`).
+- **Employees** do all the data entry: paper creation, night orders, morning deliveries, collections, purchases, vehicle allocation, tray movements, and cash settlement. Business practice is that an Admin owns paper creation, but the endpoint (`POST /papers`) is decorated `@Roles('EMPLOYEE')`, so Employees can technically create papers too.
 
 ## The core concepts, in one paragraph
 

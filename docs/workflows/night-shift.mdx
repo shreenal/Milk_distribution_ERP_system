@@ -31,7 +31,7 @@ Employees walk their routes (or take orders by phone) and, for each order sheet,
 For each item, the service:
 
 - Confirms the paper's status is `DRAFT`. Any other status is rejected.
-- Resolves the client's selling rate for the product on the paper's sale date. Missing rate → the entire batch is rejected.
+- Resolves the selling rate via `OrdersRepository.getSellingRate` — client-specific rate first (`master_client_rate_product`), then falls back to the distributor's default rate (`distributor_product_rate`). If neither is active on the sale date, the entire batch is rejected.
 - Rejects duplicates within the batch (same `(client, product_link)` twice).
 - Confirms the client belongs to the sheet's delivery group.
 - Upserts `order_sheet_items` with `ordered_qty`, `night_selling_rate`, and `night_bill_amount = ordered_qty × night_selling_rate`.
@@ -86,7 +86,7 @@ Employee → POST /papers/:paperId/submit-night   → status becomes NIGHT_SUBMI
 
 <AccordionGroup>
   <Accordion title="Save is rejected: no active rate">
-    A client has no `master_client_rate_product` row that covers the sale date. Fix the client rate before retrying the save.
+    Neither an active `master_client_rate_product` for the `(client, product_link)` nor an active `distributor_product_rate` on the `product_link` covers the sale date. Add a client rate, or make sure the distributor's default rate is active, before retrying.
   </Accordion>
 
   <Accordion title="Save is rejected: client not in delivery group">

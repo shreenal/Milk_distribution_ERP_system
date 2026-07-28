@@ -10,9 +10,9 @@ Terms are grouped for readability, not alphabetized, so that related concepts si
 
 **Order Paper** — the daily document, one per calendar sale date, that anchors every operational record. See [Paper](/domain/paper).
 
-**Sale Date** — the calendar date the paper represents (the morning delivery date). Stored as `order_paper.sale_date`, unique across all papers.
+**Sale Date** — the calendar date the paper represents (the morning delivery date). Stored as `order_paper.sale_date` (`@db.Date`, not itself `@unique`). One paper per date is enforced by the `@unique` on `order_date` (see below), which is set to the same value.
 
-**Order Date** — a second `@unique @db.Date` column on `order_paper`, currently set equal to `sale_date`. Both are unique keys.
+**Order Date** — the `@unique @db.Date` column on `order_paper`, currently set equal to `sale_date`. This is the column that actually enforces one paper per date; `sale_date` is not itself `@unique`.
 
 **Paper Status** — one of `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED`. Controls which modules can write. See [Paper States](/workflows/paper-states).
 
@@ -26,7 +26,7 @@ Terms are grouped for readability, not alphabetized, so that related concepts si
 
 ## Actors and roles
 
-**Admin** — a system role. Creates papers, finalizes, reopens, and edits admin-only fields. See [Actors](/domain/actors).
+**Admin** — a system role. Finalizes, reopens, and edits admin-only collection fields. Business practice is that Admin also owns paper creation, though `POST /papers` is decorated `@Roles('EMPLOYEE')` in code. See [Actors](/domain/actors).
 
 **Employee** — a system role. Performs all day-to-day data entry.
 
@@ -60,7 +60,7 @@ Terms are grouped for readability, not alphabetized, so that related concepts si
 
 **Client Rate** — override selling rate for a specific client on a specific product link, effective-dated. `master_client_rate_product`.
 
-**Selling Rate (effective on sale date)** — the rate the ERP resolves for an order line by finding the client's most recent `master_client_rate_product` row whose `effective_from ≤ sale_date` and whose `effective_to` is null or `≥ sale_date`.
+**Selling Rate (effective on sale date)** — the rate the ERP resolves for an order line in `OrdersRepository.getSellingRate`. It first tries the client's most recent active `master_client_rate_product` row for the `(client, product_link)` pair whose `effective_from ≤ sale_date` and `effective_to` is null or `≥ sale_date`. If no client rate matches, it falls back to the most recent active `distributor_product_rate` on the same `product_link`. Only if neither exists does the save fail.
 
 **GST Percentage / GST Inclusive** — tax fields on `master_product`. When set, the line's `final_gst_percentage`, `final_gst_amount`, and `final_taxable_amount` are computed during save.
 
@@ -108,7 +108,7 @@ Terms are grouped for readability, not alphabetized, so that related concepts si
 
 **Bank Deposit (client field)** — amount deposited into the bank directly on behalf of the client. Distinct from the `cash_bank_deposit` module which records paper-level deposits.
 
-**Admin Collection Fields** — `admin_remarks` and the correction amounts editable by Admin during `MORNING_SUBMITTED` or `REOPENED`.
+**Admin Collection Fields** — `online_collection`, `bank_deposit`, and `admin_remarks` on `client_collection`, editable by Admin during `MORNING_SUBMITTED` or `REOPENED` via `POST /collections/sheet/:sheetId/{milk,non-milk}/admin-save`.
 
 **Route Denominations** — physical currency breakdown for the cash returned from one route. `cash_route_settlement`.
 

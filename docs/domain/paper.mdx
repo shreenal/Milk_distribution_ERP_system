@@ -8,10 +8,10 @@ Every operational record in the system belongs to exactly one **Order Paper**. T
 
 ## What "one paper per day" means
 
-The `order_paper` table has a unique constraint on `sale_date`. There cannot be two papers for the same date, and there is no such thing as a paper without a date. When you say "yesterday's numbers" or "today's collections," you are always talking about the paper for that sale date.
+Uniqueness at the DB level is on `order_paper.order_date`, not `sale_date`. In current code, `order_date` is set to the same value the caller passed in as `date` when creating a paper, so in practice there is one paper per calendar date — but the constraint is enforced by `order_date @unique @db.Date`, not by `sale_date` (which is `@db.Date` without a unique). There is no such thing as a paper without a date. When you say "yesterday's numbers" or "today's collections," you are always talking about the paper for that date.
 
-- **`sale_date`** is the business date the paper represents — the date the morning delivery happens. It is entered by an Admin at paper creation.
-- **`order_date`** is a separate `@unique @db.Date` column that in current code is set to the same value as `sale_date`. Both are constrained to be unique per date.
+- **`sale_date`** is the business date the paper represents — the date the morning delivery happens. It is entered by the caller (typically an Admin, though `POST /papers` is `@Roles('EMPLOYEE')` so an Employee may also create) at paper creation.
+- **`order_date`** is the `@unique @db.Date` column that actually enforces one paper per date. In current code it is set to the same value as `sale_date`. `sale_date` itself is not `@unique`.
 - **`created_at`** is the wall-clock timestamp when the paper was generated (usually the previous evening when night entry begins).
 
 ## Why this design
@@ -28,7 +28,7 @@ The paper is that container. Everything else in the schema hangs off `order_pape
 ## The lifecycle in one picture
 
 ```text
-        create (Admin)
+        create (Employee or Admin)
              │
              ▼
          ┌───────┐  submit-night (Employee)  ┌──────────────────┐
@@ -56,7 +56,7 @@ Only these transitions are legal:
 
 | From | To | Who | Notes |
 | --- | --- | --- | --- |
-| `-` | `DRAFT` | Admin | `POST /papers` creates the paper for a given `date`. |
+| `-` | `DRAFT` | Employee (or Admin) | `POST /papers` is `@Roles('EMPLOYEE')`, so Employees can create; Admin also allowed via the `RolesGuard` hierarchy. Business practice is Admin-driven. |
 | `DRAFT` | `NIGHT_SUBMITTED` | Employee | `POST /papers/:id/submit-night`. Locks night order and night collection writes. |
 | `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | Employee | `POST /papers/:id/submit-morning`. Auto-generates distributor transfers. |
 | `MORNING_SUBMITTED` | `FINALIZED` | Admin | `POST /papers/:id/finalize`. Freezes everything. |

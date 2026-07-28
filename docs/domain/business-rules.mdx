@@ -10,7 +10,7 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
 
 <AccordionGroup>
   <Accordion title="One paper per sale date">
-    The system enforces a uniqueness rule on the sale date. If you attempt to create a paper for a date that already has one, the system returns the existing paper rather than creating a duplicate. This prevents the chaos of having two sets of orders, collections, and purchases for the same business day.
+    The system enforces a uniqueness rule at the database level on `order_paper.order_date` (schema: `order_date DateTime @unique @db.Date`). `sale_date` is not itself `@unique`, but `order_date` is populated from the same input, so in practice one paper exists per calendar date. If `POST /papers` is called for a date that already has a paper, `PaperService.generatePaperService` looks it up via `findPaperBySaleDate` and returns the existing paper rather than creating a duplicate. This prevents the chaos of having two sets of orders, collections, and purchases for the same business day.
   </Accordion>
 
   <Accordion title="No papers for past dates">
@@ -70,7 +70,7 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
   </Accordion>
 
   <Accordion title="A selling rate must exist for every order line">
-    Before saving either a night or morning entry, the system looks up the client's selling rate for the specific product on the paper's sale date. If no active rate is found — meaning no rate whose effective date range covers the sale date — the entry fails. An order line without a price cannot be billed.
+    Before saving either a night or morning entry, the system resolves a selling rate for the `(client, product_link)` on the paper's sale date. `OrdersRepository.getSellingRate` first looks for an active `master_client_rate_product` whose effective window covers the sale date; if none matches, it falls back to the most recent active `distributor_product_rate` on that product link. Only if **both** are missing does the entry fail with a `BadRequestException`. An order line without a resolvable price cannot be billed.
   </Accordion>
 
   <Accordion title="Duplicate entries within a single save operation are rejected">
@@ -141,12 +141,12 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
     When a paper transitions to `MORNING_SUBMITTED`, the system automatically generates distributor transfer records for every delivered order line where the supplying distributor differs from the owning distributor. You do not manually create these records during normal operations.
   </Accordion>
 
-  <Accordion title="Transfers can only be manually edited in REOPENED status">
-    If a transfer record needs to be corrected after finalization, you reopen the paper and edit the transfer directly. Transfer records are not editable at any other status.
+  <Accordion title="Manual regeneration is intended for REOPENED papers">
+    `POST /distributor-transfer/:paperId/generate` recomputes and replaces the paper's transfer rows. The `DistributorTransferService.generateTransfer` method itself does not check paper status, but `WorkflowStateService.canEditDistributorTransfers` returns true only for `REOPENED`, so the frontend is expected to restrict manual regeneration to that state. Auto-generation from `submit-morning` runs regardless of state (as part of the paper transition).
   </Accordion>
 
-  <Accordion title="Only configured transfer pairs can generate transfers">
-    A transfer record can only be generated if an active transfer rule exists between the supplier distributor and the owner distributor. If no rule is configured for a given pair, the system will not generate a transfer for that combination, even if the supply rules would logically require one.
+  <Accordion title="Every required transfer pair must have an active transfer rule">
+    Generation resolves the set of `(supplier_distributor, owner_distributor)` pairs required by the paper's delivered items and then calls `DistributorTransferValidationService.validateTransferRules`. If any required pair has no active `distributor_transfer_rule`, generation aborts with a `BadRequestException` — the pair is **not** silently skipped. Configure the transfer rules before submitting the morning entry (or before regenerating).
   </Accordion>
 </AccordionGroup>
 
