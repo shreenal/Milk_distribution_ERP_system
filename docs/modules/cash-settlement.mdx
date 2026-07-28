@@ -3,3 +3,69 @@ title: "Cash Settlement: End-of-Day Multi-Channel Reconciliation"
 sidebarTitle: "Cash Settlement"
 description: "End-of-day cash reconciliation covering route denominations, route expenses, direct office collections, and bank deposits keyed to a single order paper."
 ---
+
+## Purpose
+
+The Cash Settlement module records the physical accounting of money at the end of a business day: cash returned from routes broken down by denomination, expenses incurred on routes, cash handed directly to the office by employees, and cash deposited into banks.
+
+## Responsibilities
+
+- Return a single settlement payload for a paper (all four sections).
+- Upsert `cash_route_settlement` and its `cash_route_expense` children per order sheet.
+- Upsert `cash_direct_collection` per `(paper, employee)`.
+- Upsert `cash_bank_deposit` per `(paper, bank)`.
+
+## Business rules
+
+- Writes require `MORNING_SUBMITTED` or `REOPENED`.
+- Uniqueness: one `cash_route_settlement` per `order_sheet_id`, one `cash_direct_collection` per `(paper, employee)`.
+- The system does not enforce reconciliation. It stores the pieces and expects an Admin to verify before finalizing.
+
+## Dependencies
+
+- `PrismaService` — reads and writes the four cash tables.
+- `WorkflowStateService` — status-gated writes.
+- Master data — `master_expense_type`, `master_bank`, `master_employee`.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/cash-settlement/:paperId` | EMPLOYEE | Return all four sections for the paper |
+| `POST` | `/cash-settlement/:paperId/route-expenses` | EMPLOYEE | Save route expenses |
+| `POST` | `/cash-settlement/:paperId/route-denominations` | EMPLOYEE | Save route denominations |
+| `POST` | `/cash-settlement/:paperId/direct-collections` | EMPLOYEE | Save direct collections |
+| `POST` | `/cash-settlement/:paperId/bank-deposits` | EMPLOYEE | Save bank deposits |
+
+## Request flow
+
+```text
+POST /cash-settlement/:paperId/*
+  → CashSettlementController
+  → CashSettlementService.<method>
+       upsert into the corresponding table keyed by
+         cash_route_settlement.order_sheet_id, or
+         cash_direct_collection (paper, employee), or
+         cash_bank_deposit (row per entry with bank_id)
+```
+
+## Database tables
+
+- `cash_route_settlement`, `cash_route_expense`, `cash_direct_collection`, `cash_bank_deposit` — see [Cash Settlement data model](/data-model/cash-settlement).
+
+## Lifecycle
+
+```text
+MORNING_SUBMITTED → POST /cash-settlement/:id/*
+FINALIZED         → read-only via GET
+REOPENED          → writable again
+```
+
+## Future improvements
+
+- Server-side reconciliation: compute expected route cash = collections − expenses and warn when denominations do not match.
+- Attach photos of physical deposit slips to `cash_bank_deposit`.
+
+## Open questions
+
+- Should `cash_bank_deposit` allow multiple deposits into the same bank on the same paper, and if so what should the natural key be?

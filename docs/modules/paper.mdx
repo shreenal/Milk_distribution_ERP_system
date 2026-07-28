@@ -3,3 +3,88 @@ title: "Paper Module — Daily Order Paper Lifecycle Management"
 sidebarTitle: "Paper"
 description: "How the Paper module creates, transitions, and manages the daily order paper that drives every other module's workflow in the Milk Distribution ERP."
 ---
+
+## Purpose
+
+The Paper module owns the daily `order_paper` record — the single container everything else in the system belongs to. It is the only module that can transition paper status, and every other module reads the paper's status before allowing writes.
+
+## Responsibilities
+
+- Create the day's paper for a given `sale_date`, and auto-generate one `order_sheet` per active delivery group.
+- Read the paper by ID, by date, or "today's" paper.
+- Transition status: submit-night, submit-morning, finalize, reopen.
+- Enforce the state machine via `WorkflowStateService.validateTransition()`.
+
+## Business rules
+
+- Exactly one paper per `sale_date` (unique constraint).
+- Sale date cannot be in the past or more than 30 days ahead.
+- Requires at least one active delivery group to create sheets.
+- Only Admins can finalize or reopen; the reopen reason is mandatory.
+- Reopen preserves earlier timestamps; only `finalized_at`, `reopened_at`, `reopen_reason` are affected by the correction loop.
+
+See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) for the full list.
+
+## Dependencies
+
+- `PrismaService` — writes and reads `order_paper` and `order_sheet`.
+- `WorkflowStateService` — the shared state-machine validator.
+- Master data — reads `master_group` to auto-create sheets.
+- Distributor Transfer service — invoked at `submit-morning` to auto-generate transfers.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `POST` | `/papers` | EMPLOYEE\* | Create paper for the given `date`; auto-creates sheets |
+| `GET` | `/papers/today` | EMPLOYEE | Return today's paper (or 404 if none) |
+| `GET` | `/papers` | EMPLOYEE | List papers, optionally filtered by `date` |
+| `GET` | `/papers/:paperId` | EMPLOYEE | Read one paper with sheets |
+| `POST` | `/papers/:paperId/submit-night` | EMPLOYEE | Transition `DRAFT → NIGHT_SUBMITTED` |
+| `POST` | `/papers/:paperId/submit-morning` | EMPLOYEE | Transition `NIGHT_SUBMITTED → MORNING_SUBMITTED`; auto-generate transfers |
+| `POST` | `/papers/:paperId/finalize` | ADMIN | Transition `MORNING_SUBMITTED` or `REOPENED` → `FINALIZED` |
+| `POST` | `/papers/:paperId/reopen` | ADMIN | Transition `FINALIZED → REOPENED` (requires `reason`) |
+
+\* The `POST /papers` route is currently annotated `@Roles('EMPLOYEE')` in the controller but the paper-creation business rule expects Admin ownership. See [Open Questions](#open-questions).
+
+## Request flow
+
+```text
+HTTP request → PaperController
+             → JwtAuthGuard (auth) → RolesGuard (role)
+             → PaperService.<action>
+             → WorkflowStateService.validateTransition() (for status changes)
+             → PrismaService (order_paper[, order_sheet[]])
+             → (submit-morning only) DistributorTransferService.generateTransfer()
+             ← response
+```
+
+## Database tables
+
+- `order_paper` — see [Order Paper data model](/data-model/order-paper).
+- `order_sheet` — one per active delivery group per paper. See [Order Sheet](/data-model/order-sheet).
+
+## Lifecycle
+
+Every paper lives through the sequence:
+
+```text
+POST /papers                → DRAFT
+POST /papers/:id/submit-night   → NIGHT_SUBMITTED
+POST /papers/:id/submit-morning → MORNING_SUBMITTED     (side effect: distributor_transfer[])
+POST /papers/:id/finalize       → FINALIZED
+(optional) POST /papers/:id/reopen  → REOPENED → finalize → FINALIZED
+```
+
+See [Paper States](/workflows/paper-states) for the full state machine and [Reopen Workflow](/workflows/reopen-workflow) for the correction loop.
+
+## Future improvements
+
+- Enforce Admin-only on `POST /papers` in the controller decorator to match the business rule.
+- Add a multi-reopen audit trail so that `reopen_reason` is not overwritten on repeated reopens.
+- Add an idempotency key to `submit-morning` so a repeat call does not re-run distributor transfer generation.
+
+## Open questions
+
+- Should `POST /papers` be Admin-only or Employee-callable? Current code diverges from the actor documentation.
+- Should `submit-morning` also verify that Cash Settlement has been entered? Today it does not.

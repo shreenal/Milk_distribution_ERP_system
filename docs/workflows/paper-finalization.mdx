@@ -3,3 +3,72 @@ title: "Paper Finalization: Admin Review and Closing the Day"
 sidebarTitle: "Finalization"
 description: "How an admin reviews admin-level collections after morning submit, validates completeness, and finalizes the paper to create an immutable daily record."
 ---
+
+**Finalization** is the Admin action that closes a day. It transitions the paper from `MORNING_SUBMITTED` (or `REOPENED`) to `FINALIZED`. After that, no module accepts writes for this paper until it is reopened.
+
+## When to finalize
+
+Finalize the paper only after these are complete:
+
+- Delivered quantities entered for every client that was scheduled to receive product.
+- Morning collections entered on every route.
+- Trays and dairy trays counted.
+- Cash settlement complete: route denominations, route expenses, direct collections, and bank deposits entered.
+- Distributor transfers reviewed. They were auto-generated at morning submit, but you can inspect them at `GET /distributor-transfer/:paperId` and regenerate if anything was corrected in `REOPENED` state.
+- Admin-only collection fields reviewed and any corrections applied via `POST /collections/sheet/:sheetId/{milk,non-milk}/admin-save`.
+
+## The review sequence
+
+Most admins follow this sequence on the operations screen:
+
+<Steps>
+  <Step title="Open the Delivery Summary">
+    Call `GET /delivery-summary/:paperId` (or open the [Delivery Summary screen](/frontend/delivery-summary-screen)) to see billing-group and product-level totals. Spot-check totals against manual paper records or the dairy gatepass.
+  </Step>
+  <Step title="Open Cash Settlement">
+    Call `GET /cash-settlement/:paperId` (or open the [Cash Settlement screen](/frontend/cash-settlement-screen)). Confirm route denominations sum to expected collections minus expenses; confirm direct collections and bank deposits match physical evidence.
+  </Step>
+  <Step title="Open Distributor Transfers">
+    Call `GET /distributor-transfer/:paperId`. If the transfers do not reflect the day's actual flows (for example because a rate or supply rule was fixed after morning submit), call `POST /distributor-transfer/:paperId/generate` to regenerate the rows. This is only available when the paper is in `MORNING_SUBMITTED` or `REOPENED`.
+  </Step>
+  <Step title="Apply admin-only corrections">
+    If any collection row needs an amount corrected or an admin remark added, use `POST /collections/sheet/:sheetId/{milk,non-milk}/admin-save`.
+  </Step>
+  <Step title="Finalize">
+    Call `POST /papers/:paperId/finalize`. The service validates the transition, stamps `finalized_at`, and updates status.
+  </Step>
+</Steps>
+
+## What finalization does at the database level
+
+`WorkflowStateService.validateTransition()` accepts the transition and:
+
+- Updates `order_paper.status` to `FINALIZED`.
+- Stamps `finalized_at` with the current timestamp.
+- Leaves `reopened_at` and `reopen_reason` untouched (they only get cleared on a fresh workflow, never automatically).
+
+There is no bulk recomputation on finalize. All amounts on `order_sheet_items` and `client_collection` were already computed at their respective save endpoints.
+
+## What finalization blocks
+
+Once the paper is `FINALIZED`:
+
+- Every order, collection, purchase, tray, dairy tray, vehicle allocation, and cash settlement endpoint that writes returns a business-rule error naming the current status.
+- Every read endpoint continues to work as normal.
+- Reopening is the only way to unlock writes again.
+
+## Common mistakes
+
+<Warning>
+  Finalizing before cash settlement is complete is a common mistake. The finalize action does not verify that route denominations, direct collections, or bank deposits are entered — an admin can technically finalize an incomplete day. The recovery is to reopen with a reason like "cash settlement not entered" and complete the missing entries.
+</Warning>
+
+<Warning>
+  Finalizing without regenerating distributor transfers after edits leaves stale transfer records. If you edit collections or purchases in `REOPENED` and did not regenerate transfers before finalizing, the transfer rows may not match the final numbers. Regenerate first.
+</Warning>
+
+## Related pages
+
+- [Reopen Workflow](/workflows/reopen-workflow) — how to correct a finalized paper.
+- [Paper States](/workflows/paper-states) — the exact validations that gate this transition.
+- [Business Rules — Paper Lifecycle](/domain/business-rules) — the enumerated rules.

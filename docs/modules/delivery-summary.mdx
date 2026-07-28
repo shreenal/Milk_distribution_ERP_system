@@ -3,3 +3,64 @@ title: "Delivery Summary: Billing Group Final Amount Rollup"
 sidebarTitle: "Delivery Summary"
 description: "Read-only billing summary aggregating final bill amounts from all order sheet items by billing group, for admin review before paper finalization."
 ---
+
+## Purpose
+
+The Delivery Summary module is a read-only rollup used by Admins to review the day's billed amounts before finalizing the paper. It groups `order_sheet_items` by billing group and product and returns totals suitable for spot-checking against physical evidence and dairy gatepasses.
+
+## Responsibilities
+
+- Aggregate `final_bill_amount`, `final_taxable_amount`, `final_gst_amount`, and `delivered_qty` across all sheets in a paper.
+- Group results by billing group (and by product within each billing group).
+- Return the payload as a single JSON structure suitable for the [Delivery Summary screen](/frontend/delivery-summary-screen).
+
+## Business rules
+
+- Read-only. There are no writes.
+- Values are computed from what is currently persisted; no caching or freezing.
+- The endpoint works regardless of paper status; it is most meaningful in `MORNING_SUBMITTED` and later.
+
+## Dependencies
+
+- `PrismaService` — reads `order_sheet`, `order_sheet_items`, `master_client`, `master_group`, `master_product`.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/delivery-summary/:paperId` | EMPLOYEE | Return billing group and product rollups |
+
+## Request flow
+
+```text
+GET /delivery-summary/:paperId
+  → DeliverySummaryController
+  → DeliverySummaryService.getBillingGroupSummary(paperId)
+       load all order_sheet_items for the paper (joined to client and product)
+       group by client.billing_group_id, then by product
+       sum delivered_qty and final_* amounts
+       return grouped payload
+```
+
+## Database tables
+
+Reads only:
+
+- `order_sheet_items` (see [Order Sheet](/data-model/order-sheet)).
+- `order_sheet`, `master_client`, `master_group`, `master_product`.
+
+## Lifecycle
+
+```text
+Any status → GET /delivery-summary/:paperId returns current totals
+Typical usage: after MORNING_SUBMITTED, before FINALIZED
+```
+
+## Future improvements
+
+- Add a distributor rollup alongside the billing-group rollup for owner-vs-supplier reconciliation.
+- Support drill-down to per-client detail directly from the summary endpoint.
+
+## Open questions
+
+- Should the endpoint include unbilled items (delivered but with `final_bill_amount = 0` or null) in a separate section for Admin attention?

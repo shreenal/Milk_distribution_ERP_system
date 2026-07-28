@@ -3,3 +3,97 @@ title: "Distributors: Procurement Rules and Transfer Relationships"
 sidebarTitle: "Distributors"
 description: "Reference for master_distributor, procurement rules that define sourcing permissions, distributor transfer rules, and product rate ownership."
 ---
+
+Distributors are the middle layer of the domain graph: they source from dairies and supply to clients. The tables on this page configure who can procure what, who supplies which delivery group, which two distributors are allowed to transfer between each other, and which rates apply.
+
+## `master_distributor`
+
+Purpose: identity record for a business entity that procures products from dairies and supplies them to clients.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `name` | string, unique | Human-readable distributor name |
+| `contact` | string, nullable | Phone or email of primary contact |
+| `email` | string, nullable |  |
+| `is_active` | boolean, default true | Only active distributors appear in supply/procurement rule lookups |
+
+Related tables (by relation, not column): `procurement_rules`, `group_supply_rules`, `transfer_suppliers`, `transfer_owners`, `purchase_entries`, `owned_clients`, `vehicle_allocation`, `vehicle_assignments`, `saved_supplier_transfers`, `saved_owner_transfers`, `product_links`.
+
+## `distributor_procurement_rule`
+
+Purpose: defines what `(brand, product_group, category)` a distributor is authorized to procure. Without an active rule for the corresponding combination, the distributor cannot appear as the supplier for that combination on a paper.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `distributor_id` | int, FK |  |
+| `brand_id` | int, FK |  |
+| `product_group_id` | int, FK |  |
+| `category` | `SupplyCategory` | `MILK` or `NON_MILK` |
+| `is_active` | boolean, default true |  |
+
+Uniqueness: `@@unique([distributor_id, category, brand_id, product_group_id])` — at most one active rule per combination.
+
+## `master_group_supply_rule`
+
+Purpose: which distributor supplies which delivery group for each supply category. This is the table that determines the "supplier distributor" for a client's line.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `group_id` | int, FK to `master_group` | The delivery group |
+| `category` | `SupplyCategory` | `MILK` or `NON_MILK` |
+| `distributor_id` | int, FK | The distributor supplying this category to this group |
+| `is_active` | boolean |  |
+
+Uniqueness: `@@unique([group_id, category])` — one supplier per (delivery group, category). This is what enables split supply: milk from Distributor X, non-milk from Distributor Y for the same delivery group.
+
+## `distributor_transfer_rule`
+
+Purpose: whitelist of allowed `(supplier_distributor, owner_distributor)` pairs for automatic distributor transfer generation. If a pair is not present, the transfer is not created even when the supply rule and owner distributor differ.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `supplier_distributor_id` | int, FK | Whose stock is used |
+| `owner_distributor_id` | int, FK | Whose client is billed |
+| `is_active` | boolean |  |
+
+Uniqueness: `@@unique([supplier_distributor_id, owner_distributor_id])`.
+
+## `master_product_link`
+
+Purpose: the `(distributor, product)` pair that owns rates. See [Products](/data-model/products) for the full rate stack.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `distributor_id` | int, FK |  |
+| `product_id` | int, FK |  |
+| `is_active` | boolean |  |
+
+Uniqueness: `@@unique([distributor_id, product_id])`.
+
+## `distributor_product_rate`
+
+Purpose: purchase and default selling rate on a product link, effective-dated.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `product_link_id` | int, FK |  |
+| `purchase_rate` | decimal(10,2) |  |
+| `selling_rate` | decimal(10,2) | Default selling rate; overridden per-client by `master_client_rate_product` |
+| `effective_from` | datetime |  |
+| `effective_to` | datetime, nullable | Null means "still in effect" |
+| `is_active` | boolean |  |
+
+Uniqueness: `@@unique([product_link_id, effective_from])`.
+
+## Related pages
+
+- [Relationships](/domain/relationships) — how distributors, groups, and clients tie together.
+- [Distributor Transfer](/workflows/distributor-transfer) — how supply rules and transfer rules combine to produce transfers.
+- [Clients & Groups](/data-model/clients-groups) — where `owner_distributor_id` lives.
+- [Products](/data-model/products) — the rate stack on product links.

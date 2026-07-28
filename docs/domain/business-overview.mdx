@@ -1,8 +1,57 @@
 ---
-title: Business Overview
-description: Business Overview documentation
+title: "Business Overview"
+description: "Business Overview documentation"
 ---
 
-# Business Overview
+This system is the daily operations backbone for a milk distribution business. The business buys milk and non-milk dairy products from **dairies** through one or more **distributors**, loads them onto **vehicles** at night and again in the morning, delivers them to **clients** (shops, hotels, canteens) along fixed routes called **delivery groups**, collects cash and other payments on the routes, and returns unsold stock and empty **trays** back to the dairy. The next day, someone has to know exactly what was ordered, what was delivered, what was paid, what came back, and who owes whom. That is what the ERP records.
 
-> This page is under construction.
+## What the business actually does
+
+A single business day is not one event. It is two shifts stitched together around one document, and the ERP mirrors that structure exactly.
+
+- **Night shift.** Employees walk the routes, take orders from each client for the _next_ morning's delivery, and collect any cash the client wants to hand over that evening. Back at the office, they plan which vehicle will carry which products for which distributor.
+- **Morning shift.** Vehicles are loaded at the dairy against the plan (the **purchase** step), driven along the routes, and the actual delivered quantity is recorded per client. More collections happen at the door. Empty trays come back to the dairy and get counted.
+- **End of day.** Cash on each route is broken down by denomination, direct collections by office staff are entered, bank deposits are recorded, and an admin reviews and **finalizes** the day. Finalization locks the numbers. If something is wrong, the admin **reopens** with a written reason, fixes it, and re-finalizes.
+
+Everything in the ERP hangs off one document per day called the **Order Paper**. One calendar sale date, one paper. The paper's status (`DRAFT` → `NIGHT_SUBMITTED` → `MORNING_SUBMITTED` → `FINALIZED`, with an optional `REOPENED` loop) is the master switch that decides which module can write and which is read-only. Read [Paper](/domain/paper) next, because nearly every other rule in the system refers back to it.
+
+## Who is involved
+
+Only two kinds of people log in: **Admins** and **Employees**. Everyone else in the story — drivers, distributors, clients, dairies — is data that Admins and Employees enter and refer to. See [Actors](/domain/actors) for the full permissions matrix.
+
+- **Admins** create the paper, finalize it, reopen it, and can edit a small set of admin-only correction fields.
+- **Employees** do all the data entry: night orders, morning deliveries, collections, purchases, vehicle allocation, tray movements, and cash settlement.
+
+## The core concepts, in one paragraph
+
+A **Distributor** buys from a **Dairy** through one or more **Brands** and supplies **Products** grouped by **Product Group** (MILK or NON\_MILK) to **Clients** organized into **Delivery Groups** (route order) and **Billing Groups** (who bills whom). Each morning, one **Order Paper** for that sale date contains one **Order Sheet** per active delivery group, and each sheet contains **Order Sheet Items** — the (client, product, night qty, delivered qty, rate) rows that become the day's bill. Cash comes in through **Client Collections** on the route and **Direct Collections** at the office; it goes out to the bank through **Bank Deposits**. Trays are physical crates that products travel in; the system tracks them at two places: **Client Tray Transactions** (what each client took and returned) and **Dairy Tray Transactions** (what each vehicle returned to the dairy). When a distributor's client is supplied by another distributor's stock (because of the group supply rules), a **Distributor Transfer** is auto-generated at morning submission so the two distributors can settle up.
+
+## What the ERP is not
+
+- It is not a POS. There is no per-transaction sale at a counter; the unit of sale is a day-per-client-per-product line on the order sheet.
+- It is not accounting software. It records what was billed and what was collected, but does not maintain a general ledger, run journal entries, or produce GST returns. GST fields exist on products but the system stores rates and amounts only for the sale line, not tax filings.
+- It is not a route optimizer. Delivery groups and the order of clients within them are configured by hand and do not change based on traffic, load, or geography.
+- It is not multi-tenant. One installation serves one business.
+
+## How to read the rest of these docs
+
+If you are new, follow the order below. The system's rules only make sense in this sequence, and skipping ahead will make later pages look arbitrary.
+
+<Steps>
+  <Step title="Understand the domain">
+    Start here, then read [Paper](/domain/paper), [Actors](/domain/actors), [Modules](/domain/modules), [Relationships](/domain/relationships), [Business Rules](/domain/business-rules), and finally the [Glossary](/domain/glossary).
+  </Step>
+  <Step title="Follow a day through the workflows">
+    Read [Night Shift](/workflows/night-shift) → [Morning Shift](/workflows/morning-shift) → [Paper Finalization](/workflows/paper-finalization) → [Cash Settlement](/workflows/cash-settlement) → [Distributor Transfer](/workflows/distributor-transfer). Then read the [Paper States](/workflows/paper-states) state machine and the [Reopen Workflow](/workflows/reopen-workflow).
+  </Step>
+  <Step title="Look at the data">
+    The [Data Model overview](/data-model/overview) lists every entity. `order_paper` and `order_sheet_items` are the two tables you will look at most.
+  </Step>
+  <Step title="Then, and only then, read the code">
+    [Architecture](/architecture/overview) and the per-module pages under [Modules](/modules/paper) map the domain onto the NestJS backend. [API Reference](/api/papers) documents the HTTP surface. [Frontend](/frontend/orders-page) covers the screens.
+  </Step>
+</Steps>
+
+<Note>
+  If a rule surprises you, read [Business Rules](/domain/business-rules) before assuming it is a bug. Most of what looks like arbitrary validation is enforcing the physical reality of the delivery business — you cannot bill for a product with no rate, you cannot deliver something that was never ordered, and you cannot change a finalized day without leaving a written reason.
+</Note>

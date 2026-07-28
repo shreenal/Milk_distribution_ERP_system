@@ -3,3 +3,103 @@ title: "Night Shift: Generating the Paper Through Night Submit"
 sidebarTitle: "Night Shift"
 description: "How the evening team generates the order paper, enters ordered quantities, records night collections, assigns vehicles, and locks it for morning delivery."
 ---
+
+The **night shift** is the first half of a business day in the ERP. It begins in the evening of the calendar day _before_ the sale date and ends when an employee submits the night entry, transitioning the paper from `DRAFT` to `NIGHT_SUBMITTED`. This page walks through the shift as a story, in the order the actions happen.
+
+## Preconditions
+
+Before the night shift begins:
+
+- Master data must be current: active clients, delivery groups, distributors, group supply rules, product links, and client rates that cover the target sale date.
+- No paper yet exists for the target sale date. (If one exists, the create endpoint returns the existing paper instead of creating a duplicate.)
+
+## Step 1 — Admin creates the paper
+
+The **Admin** calls `POST /papers` with a `date` (the sale date). The service:
+
+1. Rejects the request if `date` is before today (UTC) or more than 30 days in the future.
+2. Confirms at least one active delivery group exists.
+3. Inserts one `order_paper` row with `status = DRAFT` and `sale_date = date`.
+4. Auto-creates one `order_sheet` per active delivery group, linked to that paper.
+
+The paper is now visible on the operations screen with a status badge of `DRAFT`.
+
+## Step 2 — Employees enter night orders
+
+Employees walk their routes (or take orders by phone) and, for each order sheet, save the client's ordered quantity for each product. The request is `POST /orders/sheet/:sheetId/night-save` with an array of items.
+
+For each item, the service:
+
+- Confirms the paper's status is `DRAFT`. Any other status is rejected.
+- Resolves the client's selling rate for the product on the paper's sale date. Missing rate → the entire batch is rejected.
+- Rejects duplicates within the batch (same `(client, product_link)` twice).
+- Confirms the client belongs to the sheet's delivery group.
+- Upserts `order_sheet_items` with `ordered_qty`, `night_selling_rate`, and `night_bill_amount = ordered_qty × night_selling_rate`.
+
+At this point the paper is a night plan: for each route and each client, we know what they asked for and at what rate.
+
+## Step 3 — Employees record night collections
+
+While on the route, employees also receive payments. For each order sheet and each supply category the client participates in, the employee saves the amounts collected. Endpoints:
+
+- `POST /collections/sheet/:sheetId/milk/night-save`
+- `POST /collections/sheet/:sheetId/non-milk/night-save`
+
+The request contains, per client, `cash_collection`, `cheque_collection`, `online_collection`, `office_amount_given`, `bank_deposit`, and `employee_remarks`. The row keyed by `(order_sheet_id, client_id, category)` is upserted.
+
+## Step 4 — Employees plan the night vehicle allocation
+
+For each vehicle and each distributor whose stock the vehicle will carry that night, the employee records the planned quantity by product. Endpoint:
+
+- `POST /vehicle-allocations/:paperId/vehicle-allocations`
+
+The service creates or updates the `vehicle_allocation_paper` row for `(paper, NIGHT)` and its child `vehicle_allocation` rows keyed by `(vehicle, distributor, category, product)`. It also writes `vehicle_distribution_assignment` rows (`(vehicle, category)` → distributor) so the morning purchase step can find them.
+
+<Note>
+  Vehicle allocation is per-session, not per-paper. The morning session gets its own set of allocations later.
+</Note>
+
+## Step 5 — Employee submits the night entry
+
+Once night orders, night collections, and the night vehicle allocation are complete, an employee calls `POST /papers/:paperId/submit-night`. The service:
+
+- Validates the transition `DRAFT → NIGHT_SUBMITTED` via `WorkflowStateService.validateTransition()`.
+- Updates the paper's `status` to `NIGHT_SUBMITTED` and stamps `night_entry_submitted_at`.
+
+## After night submit
+
+- Night order and night collection endpoints are now closed. Any attempt to save them returns a business-rule error.
+- Morning entry endpoints (delivered qty, purchase, morning collections, trays, dairy trays, morning vehicle allocation) are now open.
+- The night session is effectively frozen and ready for delivery.
+
+## Diagram
+
+```text
+Admin → POST /papers                       (creates DRAFT + auto sheets)
+Employee → POST /orders/sheet/:id/night-save
+Employee → POST /collections/sheet/:id/{milk,non-milk}/night-save
+Employee → POST /vehicle-allocations/:paperId/vehicle-allocations (NIGHT session)
+Employee → POST /papers/:paperId/submit-night   → status becomes NIGHT_SUBMITTED
+```
+
+## Common issues on the night shift
+
+<AccordionGroup>
+  <Accordion title="Save is rejected: no active rate">
+    A client has no `master_client_rate_product` row that covers the sale date. Fix the client rate before retrying the save.
+  </Accordion>
+
+  <Accordion title="Save is rejected: client not in delivery group">
+    A save attempted to include a client that is not in the sheet's delivery group. Verify the client's `delivery_group_id` and re-open the correct order sheet.
+  </Accordion>
+
+  <Accordion title="submit-night rejected">
+    Paper status was not `DRAFT`. Check whether the paper has already been submitted, and query `/papers/:paperId` to see the current status.
+  </Accordion>
+</AccordionGroup>
+
+## Related pages
+
+- [Morning Shift](/workflows/morning-shift) — what happens next.
+- [Paper States](/workflows/paper-states) — the full state machine.
+- [Orders module](/modules/orders) and [Vehicle Allocation module](/modules/vehicle-allocation) — deeper implementation notes.

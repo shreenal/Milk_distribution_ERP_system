@@ -3,3 +3,132 @@ title: "Paper States: The Order Paper Workflow State Machine"
 sidebarTitle: "Paper States"
 description: "All five paper states, every allowed transition, who triggers each, what validations run, what side effects fire, and what data is editable in each state."
 ---
+
+The `order_paper.status` field is a `PaperStatus` enum with exactly five values: `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED`. Every write in the system consults it. This page is the definitive reference for what each state means, what transitions are legal, and what side effects each transition triggers.
+
+## States
+
+| State | Meaning | Reached by |
+| --- | --- | --- |
+| `DRAFT` | Paper created; night entry in progress | Paper creation by Admin |
+| `NIGHT_SUBMITTED` | Night phase closed; morning phase in progress | `POST /papers/:id/submit-night` by Employee |
+| `MORNING_SUBMITTED` | Delivery done; awaiting cash settlement \+ admin review | `POST /papers/:id/submit-morning` by Employee |
+| `FINALIZED` | Locked; day is closed | `POST /papers/:id/finalize` by Admin |
+| `REOPENED` | Correction mode after finalize | `POST /papers/:id/reopen` by Admin with a reason |
+
+## Transitions
+
+Only these five transitions are legal. Any other attempted move is rejected by `WorkflowStateService.validateTransition()` with a business-rule error.
+
+| From | To | Role | Endpoint | Side effects |
+| --- | --- | --- | --- | --- |
+| `-` | `DRAFT` | Admin | `POST /papers` | Auto-creates one `order_sheet` per active delivery group |
+| `DRAFT` | `NIGHT_SUBMITTED` | Employee | `POST /papers/:id/submit-night` | Stamps `night_entry_submitted_at` |
+| `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | Employee | `POST /papers/:id/submit-morning` | Stamps `morning_entry_submitted_at`; auto-generates `distributor_transfer` rows |
+| `MORNING_SUBMITTED` | `FINALIZED` | Admin | `POST /papers/:id/finalize` | Stamps `finalized_at` |
+| `FINALIZED` | `REOPENED` | Admin | `POST /papers/:id/reopen` | Stamps `reopened_at`, sets `reopen_reason` |
+| `REOPENED` | `FINALIZED` | Admin | `POST /papers/:id/finalize` | Stamps `finalized_at` (does not clear `reopened_at` or `reopen_reason`) |
+
+## State diagram
+
+```text
+    create
+      │
+      ▼
+   ┌───────┐    submit-night     ┌──────────────────┐
+   │ DRAFT │ ──────────────────▶ │ NIGHT_SUBMITTED  │
+   └───────┘                     └────────┬─────────┘
+                                          │ submit-morning
+                                          ▼
+                                 ┌──────────────────┐
+                                 │ MORNING_SUBMITTED│
+                                 └────────┬─────────┘
+                                          │ finalize
+                                          ▼
+                    ┌───reopen─────┐  ┌─────────────┐
+                    │              ▼  │ FINALIZED   │
+                    │            REOPENED           │
+                    │              │  └─────────────┘
+                    │              │        ▲
+                    │              └── finalize ─┘
+                    │
+                    (Admin only, with reason)
+```
+
+## Editability per state
+
+<AccordionGroup>
+  <Accordion title="DRAFT — editable modules">
+    - Orders (night save)
+    - Collections (night save)
+    - Vehicle Allocation (night session)
+
+    Everything else is read-only or not yet meaningful.
+  </Accordion>
+
+  <Accordion title="NIGHT_SUBMITTED — editable modules">
+    - Orders (morning save)
+    - Collections (morning save)
+    - Purchase
+    - Vehicle Allocation (morning session)
+    - Trays
+    - Dairy Tray Tracking
+
+    Night saves are blocked.
+  </Accordion>
+
+  <Accordion title="MORNING_SUBMITTED — editable modules">
+    - Cash Settlement (route denominations, route expenses, direct collections, bank deposits)
+    - Collections admin fields (`admin_remarks`) via Admin Save
+    - Distributor Transfer regeneration
+    - Everything else: read-only
+  </Accordion>
+
+  <Accordion title="FINALIZED — editable modules">
+    None. The only allowed write is `reopen`, which requires Admin and a non-empty reason.
+  </Accordion>
+
+  <Accordion title="REOPENED — editable modules">
+    Same set as `MORNING_SUBMITTED`, plus the modules writable in `NIGHT_SUBMITTED`:
+
+    - Orders (morning save)
+    - Collections (morning save \+ admin save)
+    - Purchase
+    - Trays and Dairy Tray Tracking
+    - Cash Settlement
+    - Distributor Transfer regeneration
+
+    Note: night saves are not re-enabled by reopen. If a night quantity is wrong, the correct action is to reopen, then correct the delivered/morning quantity to reflect what actually happened.
+  </Accordion>
+</AccordionGroup>
+
+## Who triggers what
+
+| Endpoint | Role |
+| --- | --- |
+| `POST /papers` | ADMIN (in the controller the route currently allows EMPLOYEE for generation; business rule and DTO expectation is ADMIN. See [Business Rules](/domain/business-rules).) |
+| `POST /papers/:id/submit-night` | EMPLOYEE |
+| `POST /papers/:id/submit-morning` | EMPLOYEE |
+| `POST /papers/:id/finalize` | ADMIN |
+| `POST /papers/:id/reopen` | ADMIN |
+
+The `Roles` decorator on the controller enforces the role check at request time; the state machine enforces the transition legality.
+
+## Timestamp fields
+
+| Column | Set on | Cleared |
+| --- | --- | --- |
+| `night_entry_submitted_at` | `submit-night` | Never |
+| `morning_entry_submitted_at` | `submit-morning` | Never |
+| `finalized_at` | `finalize` (every time, including after re-finalize from REOPENED) | Never |
+| `reopened_at` | `reopen` | Never |
+| `reopen_reason` | `reopen` | Never |
+
+The timestamps form an audit trail. Once a paper has ever been submitted or finalized, that fact is preserved permanently in these columns.
+
+## Related pages
+
+- [Paper](/domain/paper) — narrative overview of the paper lifecycle.
+- [Reopen Workflow](/workflows/reopen-workflow) — the correction cycle in detail.
+- [Business Rules — Paper Lifecycle](/domain/business-rules) — the constraints enforced at each transition.
+- [Paper module](/modules/paper) — implementation.

@@ -3,3 +3,94 @@ title: "Trays: Types, Rules, and Daily Opening/Closing Balances"
 sidebarTitle: "Trays"
 description: "Reference for master_tray_type, hierarchical product_tray_rule matching, client_tray_transaction, and the dairy_tray_paper vehicle-level tray tracking."
 ---
+
+Trays are physical crates that products are moved in. They circulate between the dairy, the vehicles, and the clients. The ERP tracks tray balances at two levels — at each client and at each vehicle-to-dairy hand-off — because both sides of the loop must reconcile.
+
+## `master_tray_type`
+
+Purpose: identifies a specific tray owned by a brand, distinguished by color.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `brand_id` | int, FK | The brand that owns this tray design |
+| `color` | string | Colloquial identifier (for example, "red", "blue") |
+| `description` | string, nullable |  |
+| `is_active` | boolean |  |
+
+Uniqueness: `@@unique([brand_id, color])`.
+
+## `product_tray_rule`
+
+Purpose: maps a slice of the product hierarchy to the tray type expected to carry it. Any of the four grouping fields may be `NULL` to broaden the rule; the most-specific matching active rule wins at runtime.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `product_group_id` | int, FK, nullable |  |
+| `brand_id` | int, FK, nullable |  |
+| `product_type_id` | int, FK, nullable |  |
+| `packaging_type_id` | int, FK, nullable |  |
+| `tray_type_id` | int, FK | The tray this slice uses |
+| `applies_to_packaging` | boolean, default true | Whether the rule applies at the packaging level |
+| `is_active` | boolean |  |
+
+Index: `@@index([product_group_id, brand_id, product_type_id, packaging_type_id])`.
+
+Matching precedence at runtime: the more of the four fields a rule sets to non-null, the more specific it is. A rule with all four set beats a rule with three, which beats a rule with two, and so on. The most-specific active rule is chosen; ties should not exist by convention.
+
+## `client_tray_transaction`
+
+Purpose: per-client, per-tray-type running balance for one day.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `order_sheet_id` | int, FK | Cascade on delete |
+| `client_id` | int, FK |  |
+| `tray_type_id` | int, FK |  |
+| `opening_balance` | int, default 0 | Carried forward from the previous paper |
+| `trays_taken` | int, default 0 | Trays delivered to the client |
+| `trays_returned` | int, default 0 | Trays returned from the client |
+| `closing_balance` | int, default 0 | opening \+ taken − returned |
+| `expected_trays_taken` | int, nullable | System-computed expectation based on delivered quantities and applicable tray rules |
+| `remarks` | string, nullable |  |
+
+Uniqueness: `@@unique([order_sheet_id, client_id, tray_type_id])`.
+
+## `dairy_tray_paper`
+
+Purpose: one row per paper representing the dairy-side tray flow for the day.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `order_paper_id` | int, FK, unique | Cascade on delete |
+
+## `dairy_tray_transaction`
+
+Purpose: per-vehicle, per-tray-type balance at the dairy for one day.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `dairy_tray_paper_id` | int, FK | Cascade on delete |
+| `vehicle_id` | int, FK |  |
+| `tray_type_id` | int, FK |  |
+| `opening_balance` | int, default 0 |  |
+| `trays_taken` | int, default 0 | Trays a vehicle took _from_ the dairy |
+| `trays_returned` | int, default 0 | Trays a vehicle returned _to_ the dairy |
+| `closing_balance` | int, default 0 |  |
+| `remarks` | string, nullable |  |
+
+Uniqueness: `@@unique([dairy_tray_paper_id, vehicle_id, tray_type_id])`.
+
+## Reconciliation
+
+The two tables `client_tray_transaction` and `dairy_tray_transaction` describe the two ends of the same physical trays. They are not linked by foreign key; reconciliation is done by the operations team who compare totals per tray type across the paper. Discrepancies typically indicate missing tray entries at a client or an uncounted return at the dairy.
+
+## Related pages
+
+- [Trays module](/modules/trays) — save logic.
+- [Products](/data-model/products) — product hierarchy that `product_tray_rule` matches against.
+- [Vehicles](/data-model/vehicles) — vehicles that appear in dairy tray transactions.

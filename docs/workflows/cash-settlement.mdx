@@ -3,3 +3,80 @@ title: "Cash Settlement: Reconciling the Day's Physical Cash"
 sidebarTitle: "Cash Settlement"
 description: "How route denominations, route expenses, direct collections, and bank deposits are recorded and reconciled for each day's paper during the morning shift."
 ---
+
+**Cash Settlement** is the closing money step of the day. It happens after morning submit and before finalization. Its job is to physically account for every rupee collected: what came back on the routes, what the office collected directly, what got spent on the routes, and what ended up in the bank.
+
+## Preconditions
+
+- Paper is in `MORNING_SUBMITTED` (or `REOPENED`).
+- Client collections are complete for both night and morning phases.
+- Route expenses (fuel, tolls, small purchases) have been noted down on paper by the drivers.
+
+## The four inputs
+
+Cash Settlement has four write endpoints under `POST /cash-settlement/:paperId`:
+
+<AccordionGroup>
+  <Accordion title="Route denominations">
+    `POST /cash-settlement/:paperId/route-denominations`
+
+    Per order sheet (per route), the physical currency breakdown returned by the route: counts of ₹2000, ₹500, ₹200, ₹100, ₹50, ₹20, ₹10 notes and total coin value. Stored in `cash_route_settlement` keyed by `order_sheet_id` (unique).
+  </Accordion>
+
+  <Accordion title="Route expenses">
+    `POST /cash-settlement/:paperId/route-expenses`
+
+    Per order sheet, one or more expense rows: `(expense_type, amount, remarks)`. Stored in `cash_route_expense` linked to the route's `cash_route_settlement`. Expense types are master data (`master_expense_type`).
+  </Accordion>
+
+  <Accordion title="Direct collections">
+    `POST /cash-settlement/:paperId/direct-collections`
+
+    Per employee, the physical currency breakdown of cash they handed directly to the office (outside of the route). Stored in `cash_direct_collection` keyed by `(order_paper_id, employee_id)`.
+  </Accordion>
+
+  <Accordion title="Bank deposits">
+    `POST /cash-settlement/:paperId/bank-deposits`
+
+    Per bank, the physical currency breakdown of cash deposited plus a deposit reference number. Stored in `cash_bank_deposit`.
+  </Accordion>
+</AccordionGroup>
+
+The read endpoint `GET /cash-settlement/:paperId` returns all four in one payload.
+
+## How the numbers reconcile
+
+The system does not enforce a reconciliation; it displays the pieces and expects the Admin to verify. The manual reconciliation is:
+
+```text
+Sum of client_collection.cash_collection across all sheets
+  − Sum of cash_route_expense.amount across all routes
+  = Sum of cash_route_settlement denominations (in ₹)
+    + Sum of cash_direct_collection denominations
+    + Sum of cash_bank_deposit denominations (if deposits happen out of route cash)
+```
+
+If a mismatch shows up, the fix is typically:
+
+1. Recount physical cash on the disputed route.
+2. Correct denominations via a re-save.
+3. Or, if the mismatch is because a client's cash entry was wrong, use Admin Save on the collection first, then re-save the denomination.
+
+## Diagram
+
+```text
+Route ends → driver hands cash to office
+Employee → POST /cash-settlement/:paperId/route-denominations
+Employee → POST /cash-settlement/:paperId/route-expenses
+Employee → POST /cash-settlement/:paperId/direct-collections
+Employee → POST /cash-settlement/:paperId/bank-deposits
+Admin → GET  /cash-settlement/:paperId   (verify totals)
+Admin → POST /papers/:paperId/finalize   (only after all inputs are entered)
+```
+
+## Related pages
+
+- [Cash Settlement module](/modules/cash-settlement) — implementation.
+- [Cash Settlement data model](/data-model/cash-settlement) — the four tables and their columns.
+- [Paper Finalization](/workflows/paper-finalization) — the next step.
+- [Reopen Workflow](/workflows/reopen-workflow) — used when a denomination or expense error is found after finalization.
