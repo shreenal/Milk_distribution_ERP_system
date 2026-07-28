@@ -10,11 +10,11 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
 
 <AccordionGroup>
   <Accordion title="One paper per sale date">
-    The system enforces a uniqueness rule at the database level on `order_paper.order_date` (schema: `order_date DateTime @unique @db.Date`). `sale_date` is not itself `@unique`, but `order_date` is populated from the same input, so in practice one paper exists per calendar date. If `POST /papers` is called for a date that already has a paper, `PaperService.generatePaperService` looks it up via `findPaperBySaleDate` and returns the existing paper rather than creating a duplicate. This prevents the chaos of having two sets of orders, collections, and purchases for the same business day.
+    The system enforces a uniqueness rule at the database level on `order_paper.order_date` (schema: `order_date DateTime @unique @db.Date`). `sale_date` is not itself `@unique`; `order_date` is computed as `sale_date − 1 day` by `resolvePaperSaleDate` (representing the evening the paper is generated for the next morning's delivery). Because the derivation is deterministic, one paper exists per calendar sale date. If `POST /papers` is called for a sale date that already has a paper, `PaperService.generatePaperService` looks it up via `findPaperBySaleDate` and returns the existing paper rather than creating a duplicate. This prevents the chaos of having two sets of orders, collections, and purchases for the same business day.
   </Accordion>
 
   <Accordion title="No papers for past dates">
-    You cannot create a paper with a sale date earlier than today. Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead. "Today" is evaluated in the `Asia/Kolkata` timezone (`DATE_CONFIG.TIMEZONE` in `paper.constants.ts`).
+    You cannot create a paper with a sale date earlier than today. Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead. In current code, "today" is evaluated in **UTC** — the service constructs `todayUtc = Date.UTC(year, month, day)` from `new Date()`. `DATE_CONFIG.TIMEZONE = 'Asia/Kolkata'` is defined in `paper.constants.ts` but is not actually referenced by the comparison, so operators in IST close to midnight UTC may see the day roll over differently than the wall clock suggests.
   </Accordion>
 
   <Accordion title="Maximum 30 days in the future">

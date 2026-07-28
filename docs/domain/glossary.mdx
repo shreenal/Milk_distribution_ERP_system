@@ -10,9 +10,9 @@ Terms are grouped for readability, not alphabetized, so that related concepts si
 
 **Order Paper** — the daily document, one per calendar sale date, that anchors every operational record. See [Paper](/domain/paper).
 
-**Sale Date** — the calendar date the paper represents (the morning delivery date). Stored as `order_paper.sale_date` (`@db.Date`, not itself `@unique`). One paper per date is enforced by the `@unique` on `order_date` (see below), which is set to the same value.
+**Sale Date** — the calendar date the paper represents (the morning delivery date). Stored as `order_paper.sale_date` (`@db.Date`, not itself `@unique`). Passed in as the `date` field on `POST /papers`. One paper per date is enforced by the `@unique` on `order_date` (see below), which is derived as `sale_date − 1 day`.
 
-**Order Date** — the `@unique @db.Date` column on `order_paper`, currently set equal to `sale_date`. This is the column that actually enforces one paper per date; `sale_date` is not itself `@unique`.
+**Order Date** — the `@unique @db.Date` column on `order_paper`, computed as `sale_date − 1 day` by `resolvePaperSaleDate` in `paper.repository.ts`. Represents the evening the paper is generated. This is the column that actually enforces one paper per date; `sale_date` is not itself `@unique`.
 
 **Paper Status** — one of `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED`. Controls which modules can write. See [Paper States](/workflows/paper-states).
 

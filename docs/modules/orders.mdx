@@ -46,7 +46,7 @@ POST /orders/sheet/:sheetId/night-save
   → OrdersController
   → OrdersService.saveNightEntriesService(sheetId, entries[])
        for each entry:
-         resolve client rate on sale_date
+         resolve selling rate: client rate → distributor default (fallback)
          upsert order_sheet_items (ordered_qty, night_selling_rate, night_bill_amount)
 ```
 

@@ -8,10 +8,10 @@ Every operational record in the system belongs to exactly one **Order Paper**. T
 
 ## What "one paper per day" means
 
-Uniqueness at the DB level is on `order_paper.order_date`, not `sale_date`. In current code, `order_date` is set to the same value the caller passed in as `date` when creating a paper, so in practice there is one paper per calendar date — but the constraint is enforced by `order_date @unique @db.Date`, not by `sale_date` (which is `@db.Date` without a unique). There is no such thing as a paper without a date. When you say "yesterday's numbers" or "today's collections," you are always talking about the paper for that date.
+Uniqueness at the DB level is on `order_paper.order_date`, not `sale_date`. `POST /papers` takes the `date` field as the **sale date** (the morning delivery date). The service computes `order_date = sale_date − 1 day` (the previous evening when the paper is generated) and writes both columns. So in practice one paper exists per calendar sale date, but the DB constraint is enforced on the derived `order_date`, not on `sale_date` (which is `@db.Date` without a unique). There is no such thing as a paper without a date.
 
-- **`sale_date`** is the business date the paper represents — the date the morning delivery happens. It is entered by the caller (typically an Admin, though `POST /papers` is `@Roles('EMPLOYEE')` so an Employee may also create) at paper creation.
-- **`order_date`** is the `@unique @db.Date` column that actually enforces one paper per date. In current code it is set to the same value as `sale_date`. `sale_date` itself is not `@unique`.
+- **`sale_date`** is the business date the paper represents — the date the morning delivery happens. It is passed in as the `date` field on `POST /papers`.
+- **`order_date`** is the `@unique @db.Date` column that actually enforces one paper per date. It is computed as `sale_date − 1 day` by `resolvePaperSaleDate` in `paper.repository.ts`. `sale_date` itself is not `@unique`.
 - **`created_at`** is the wall-clock timestamp when the paper was generated (usually the previous evening when night entry begins).
 
 ## Why this design
