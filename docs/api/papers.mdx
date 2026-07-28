@@ -1,8 +1,227 @@
 ---
-title: Papers
-description: Papers documentation
+title: "Papers API — Daily Sale Paper Lifecycle Endpoints"
+sidebarTitle: "Papers"
+description: "Create, query, and advance daily sale papers through their full lifecycle from DRAFT to FINALIZED, with support for reopening and correction."
 ---
 
-# Papers
+The Papers API is the backbone of the daily operational cycle. Every order, collection, purchase, tray movement, and cash reconciliation is anchored to a single `order_paper` row identified by its `paperId`. The endpoints below generate a new paper for a given date, retrieve existing papers, and drive the paper through its five workflow states: `DRAFT` → `NIGHT_SUBMITTED` → `MORNING_SUBMITTED` → `FINALIZED` (with an optional `REOPENED` branch for corrections).
 
-> This page is under construction.
+All endpoints require an `Authorization: Bearer <token>` header. The token's `role` claim determines who can call which mutating endpoint — read endpoints are open to `EMPLOYEE` and `ADMIN`, while `finalize` and `reopen` are restricted to `ADMIN`.
+
+---
+
+## POST /papers
+
+### Purpose
+
+Generates the daily order paper for a given date. Creates the top-level `order_paper` row along with all child `order_sheet` rows (one per delivery group) and pre-populates each sheet with the eligible clients based on supply rules in effect on that date.
+
+### When it is called
+
+Called once per day by the night-shift operator, typically the evening before the delivery date. Attempting to generate a paper for a date that already has one returns a conflict error.
+
+### Request body
+
+<ParamField body="date" type="string" required>
+  The sale date in `YYYY-MM-DD` format. Represents the day the goods will be delivered.
+</ParamField>
+
+#### Example request
+
+```json
+POST /papers
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "date": "2026-07-29"
+}
+```
+
+### Response
+
+Returns HTTP **201** with the newly created paper record, including all generated sheets.
+
+<ResponseField name="id" type="number">
+  The `paperId` used by every other endpoint.
+</ResponseField>
+
+<ResponseField name="sale_date" type="string">
+  ISO date of the paper.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Always `DRAFT` immediately after creation.
+</ResponseField>
+
+<ResponseField name="order_sheets" type="array">
+  One entry per delivery group participating on this date, each with its own line items.
+</ResponseField>
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| `date` missing or malformed | `400 Bad Request` | Must be `YYYY-MM-DD` |
+| Paper already exists for date | `409 Conflict` | One paper per date is allowed |
+| Caller is not `EMPLOYEE` or `ADMIN` | `403 Forbidden` | Role check failure |
+
+---
+
+## GET /papers/today
+
+### Purpose
+
+Convenience endpoint that returns the paper whose `sale_date` matches today's server date. Used by the client on app start to jump straight to the active paper without needing to know its ID.
+
+### Request
+
+No body or query parameters. Requires a valid bearer token.
+
+### Response
+
+Returns HTTP **200** with the paper object (same shape as `GET /papers/:paperId`) or **404** if no paper exists for today.
+
+---
+
+## GET /papers
+
+### Purpose
+
+Lists papers, optionally filtered by date. Used by admins to page through historical papers or to look up a specific date.
+
+### Query parameters
+
+<ParamField query="date" type="string">
+  Optional. If provided, filters results to the paper matching that exact date. Without this parameter, returns a chronological list of all papers.
+</ParamField>
+
+#### Example request
+
+```http
+GET /papers?date=2026-07-15
+Authorization: Bearer <token>
+```
+
+### Response
+
+Returns HTTP **200** with an array of paper summaries (id, sale\_date, status). Empty array if no matches.
+
+---
+
+## GET /papers/:paperId
+
+### Purpose
+
+Retrieves a complete paper by ID, including all order sheets, sheet items, and child collections. This is the primary read endpoint used by every screen in the app.
+
+### Path parameters
+
+<ParamField path="paperId" type="number" required>
+  Numeric primary key of the paper.
+</ParamField>
+
+### Response
+
+Returns the full paper aggregate. See [Order Paper data model](/data-model/order-paper) for the exact shape.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| `paperId` not a positive integer | `400 Bad Request` | Nest `ParseIntPipe` failure |
+| No paper with that id | `404 Not Found` | Paper does not exist |
+
+---
+
+## POST /papers/:paperId/submit-night
+
+### Purpose
+
+Transitions the paper from `DRAFT` to `NIGHT_SUBMITTED`. Called once the night-shift operator has finished entering ordered quantities, night-side collections, and vehicle allocations. After this call, night-shift data becomes read-only and the morning workflow unlocks.
+
+### Behavior
+
+- Validates that all required night-side entries exist for every sheet.
+- Runs the workflow state machine; rejects the call if the paper is not currently in `DRAFT`.
+- Emits no external side effects — purely a state change.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper not in `DRAFT` | `400 Bad Request` | Invalid transition |
+| Missing required night entries | `422 Unprocessable Entity` | Lists the sheets that are incomplete |
+
+---
+
+## POST /papers/:paperId/submit-morning
+
+### Purpose
+
+Transitions the paper from `NIGHT_SUBMITTED` to `MORNING_SUBMITTED`. Called once the morning-shift operator has recorded delivered quantities, purchase entries, tray movements, and morning-side collections.
+
+### Side effects
+
+On success, this endpoint auto-generates the `distributor_transfer` records that reconcile stock between distributors when a client's `owner_distributor` differs from the supplying distributor. See [Distributor Transfer workflow](/workflows/distributor-transfer) for the full rules.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper not in `NIGHT_SUBMITTED` | `400 Bad Request` | Invalid transition |
+| Missing morning entries | `422 Unprocessable Entity` | Details the incomplete sheets |
+
+---
+
+## POST /papers/:paperId/finalize
+
+### Purpose
+
+Transitions the paper from `MORNING_SUBMITTED` to `FINALIZED`. Once finalized, no user (including admins) can edit any child record without going through the reopen workflow.
+
+### Access control
+
+`ADMIN` role only. `EMPLOYEE` tokens receive `403 Forbidden`.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Caller not `ADMIN` | `403 Forbidden` | Role check failure |
+| Paper not in `MORNING_SUBMITTED` | `400 Bad Request` | Invalid transition |
+| Admin-side collections incomplete | `422 Unprocessable Entity` | Delivery summary or cash settlement has unresolved rows |
+
+---
+
+## POST /papers/:paperId/reopen
+
+### Purpose
+
+Transitions a `FINALIZED` paper to `REOPENED` so an admin can correct data. Requires a documented reason that is stored on the paper for audit.
+
+### Request body
+
+<ParamField body="reason" type="string" required>
+  Free-text explanation. Persisted verbatim on the paper.
+</ParamField>
+
+### Access control
+
+`ADMIN` role only.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Caller not `ADMIN` | `403 Forbidden` | Role check failure |
+| Paper not in `FINALIZED` | `400 Bad Request` | Only finalized papers can be reopened |
+| `reason` missing or empty | `400 Bad Request` | Reason is required for audit |
+
+After reopen, re-run `submit-morning` and `finalize` to close the paper again. See [Reopen Workflow](/workflows/reopen-workflow) for details.
+
+### Related endpoints
+
+- [Orders API](/api/orders) — write ordered/delivered quantities on a paper's sheets
+- [Collections API](/api/collections) — record client payments on a paper
+- [Delivery Summary API](/api/delivery-summary) — read billing totals before finalization

@@ -1,8 +1,67 @@
 ---
-title: Products
-description: Products documentation
+title: "Products: Five-Level Hierarchy, Rates, and GST Config"
+sidebarTitle: "Products"
+description: "Developer reference for the five-level product hierarchy, distributor product links, rate tables, and GST inclusive/exclusive billing configuration."
 ---
 
-# Products
+Products in the ERP are organized as a five-level hierarchy that mirrors how dairies package and price their goods. Everything else — rate tables, tray rules, GST config — hangs off the `master_product` row at the bottom of this hierarchy.
 
-> This page is under construction.
+## The five levels
+
+```text
+master_dairy          (e.g. "Amul", "Mother Dairy")
+└── master_brand      (e.g. "Amul Gold", "Amul Cow")
+    └── master_product_type  (e.g. "Milk 500ml pouch", "Curd 200g cup")
+        └── master_product   (e.g. "Amul Gold Milk 500ml FCM")
+            └── master_product_variant  (optional; e.g. "Homogenized")
+```
+
+The five tables are linked by simple foreign keys with cascade behavior — deleting a dairy would remove all its brands, product types, and products.
+
+## master\_product columns of interest
+
+| Column | Purpose |
+| --- | --- |
+| `id` | PK, referenced by every operational table |
+| `name` | Human name |
+| `product_type_id` | FK — parent in the hierarchy |
+| `default_rate` | Fallback rate when no distributor/client override applies |
+| `gst_inclusive` | Boolean controlling billing mode (see [Order Sheet](/data-model/order-sheet)) |
+| `gst_rate` | Percentage GST |
+| `product_category_id` | Groups products for vehicle allocation (`MILK`, `CURD`, `NON_MILK`, etc.) |
+| `is_active` | Soft delete |
+
+## Rate tables
+
+Rates flow through three tables from most-specific to least:
+
+### master\_client\_rate\_product
+
+Client-specific override. Highest priority. Composite unique `(client_id, product_id)`.
+
+### distributor\_product\_rate
+
+Rate the distributor charges for the product. Composite unique `(distributor_id, product_id)`. Also carries `effective_from` and `effective_to` for time-varying rates.
+
+### master\_product.default\_rate
+
+Global fallback. Rarely used in practice but keeps saves from failing when a rate is temporarily missing.
+
+## GST config
+
+Two fields on `master_product` drive billing:
+
+- **`gst_inclusive`** — when true, the entered rate is taken to already include GST and the tax is backed out. When false, GST is added on top.
+- **`gst_rate`** — the percentage rate.
+
+Both are snapshotted onto `order_sheet_items` at save time so historical bills stay accurate even after config changes.
+
+## Product tray rules
+
+The link between products and trays lives in `product_tray_rule` — see [Trays data model](/data-model/trays) for the full matching hierarchy. Rules can be scoped at any level of the product hierarchy (specific product, product type, or brand-wide), and the module picks the most specific match.
+
+## Related topics
+
+- [Order Sheet Items](/data-model/order-sheet) — where rate/GST are snapshotted
+- [Trays](/data-model/trays) — `product_tray_rule` matching
+- [Products & rates: Orders Module](/modules/orders) — rate resolution algorithm

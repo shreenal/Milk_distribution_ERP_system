@@ -1,8 +1,108 @@
 ---
-title: Cash Settlement
-description: Cash Settlement documentation
+title: "Cash Settlement API — End-of-Day Cash Reconciliation"
+sidebarTitle: "Cash Settlement"
+description: "Record and retrieve end-of-day cash reconciliation data including route denominations, route expenses, direct collections, and bank deposits."
 ---
 
-# Cash Settlement
+The Cash Settlement API captures every rupee accounted for at the end of the day. Cash arrives from four distinct channels: route-side denominations counted per vehicle, route expenses paid out of that same cash, direct office collections (walk-in payments), and bank deposits. Each channel has its own table but they all share a single `order_paper` foreign key so the ledger balances on a per-day basis.
 
-> This page is under construction.
+`ADMIN` role is required for every save endpoint. Read is available to both roles.
+
+---
+
+## GET /cash-settlement/paper/:paperId
+
+### Purpose
+
+Returns the complete cash reconciliation for a paper, spanning all four channels.
+
+### Response
+
+<ResponseField name="route_settlements" type="array">
+  One `cash_route_settlement` per (vehicle, session) with denomination breakdown.
+</ResponseField>
+
+<ResponseField name="route_expenses" type="array">
+  Cash paid out on-route (fuel, tolls, adjustments).
+</ResponseField>
+
+<ResponseField name="direct_collections" type="array">
+  Walk-in payments taken at the office.
+</ResponseField>
+
+<ResponseField name="bank_deposits" type="array">
+  Amounts deposited to bank accounts on behalf of the day.
+</ResponseField>
+
+---
+
+## POST /cash-settlement/paper/:paperId/route-settlement
+
+### Purpose
+
+Records the denomination-level cash count from each vehicle at end of shift. Denominations are stored as counts (`d_2000`, `d_500`, `d_200`, `d_100`, `d_50`, `d_20`, `d_10`, `d_coins_amount`) rather than a single total, so the physical count is auditable.
+
+### Access control
+
+`ADMIN` role.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Entries with `vehicle_id`, `delivery_session`, denomination fields.
+</ParamField>
+
+---
+
+## POST /cash-settlement/paper/:paperId/route-expense
+
+### Purpose
+
+Records cash paid out from the route bag before it was returned. Common categories: fuel, tolls, driver advances.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Entries with `vehicle_id`, `delivery_session`, `category`, `amount`, and optional `remarks`.
+</ParamField>
+
+---
+
+## POST /cash-settlement/paper/:paperId/direct-collection
+
+### Purpose
+
+Records office-side cash receipts not attached to a specific route. Typically walk-in payments from clients settling account balances.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Entries with `client_id`, `amount`, and optional `remarks`.
+</ParamField>
+
+---
+
+## POST /cash-settlement/paper/:paperId/bank-deposit
+
+### Purpose
+
+Records amounts deposited to a bank account for the day.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Entries with `bank_id`, `amount`, and optional `reference` (deposit slip number).
+</ParamField>
+
+### Validation and errors (all save endpoints)
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Caller not `ADMIN` | `403 Forbidden` | Role check |
+| Paper is `FINALIZED` | `400 Bad Request` | Reopen the paper first |
+| Negative amount | `400 Bad Request` | Must be `>= 0` |
+
+### Related endpoints
+
+- [Collections API](/api/collections) — per-client payment entries that roll up into these totals
+- [Cash Settlement module](/modules/cash-settlement) — service-layer reconciliation rules

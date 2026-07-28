@@ -1,8 +1,117 @@
 ---
-title: Collections
-description: Collections documentation
+title: "Collections API — Payment Collection Entry Endpoints"
+sidebarTitle: "Collections"
+description: "Record and retrieve milk and non-milk payment collections from route clients across the night, morning, and admin reconciliation phases."
 ---
 
-# Collections
+The Collections API records payments received from clients. Each `client_collection` row is keyed by `(order_sheet_id, client_id, category)` where `category` is either `MILK` or `NON_MILK`. Payments can arrive as cash, cheque, online transfer, bank deposit, or office-side amount handed over — every channel has its own column so end-of-day cash reconciliation can be verified.
 
-> This page is under construction.
+The endpoints below are split into two save paths: employee entry (route-side) and admin entry (office-side). Both write to the same `client_collection` table but are gated on different paper states and different columns.
+
+All endpoints require a bearer token. Read access is open to `EMPLOYEE` and `ADMIN`; save endpoints check role explicitly.
+
+---
+
+## GET /collections/sheet/:sheetId
+
+### Purpose
+
+Returns all `client_collection` rows for a sheet, grouped by category. Used by the Collections screen to render the grid and by the delivery summary to compute outstanding amounts.
+
+### Path parameters
+
+<ParamField path="sheetId" type="number" required>
+  Order sheet primary key.
+</ParamField>
+
+### Response
+
+Returns HTTP **200** with an object keyed by category:
+
+```json
+{
+  "MILK": [
+    { "client_id": 101, "cash_collection": 500, "cheque_collection": 0, "online_collection": 0, "bank_deposit": 0, "office_amount_given": 0, "employee_remarks": null, "admin_remarks": null }
+  ],
+  "NON_MILK": [ ... ]
+}
+```
+
+---
+
+## POST /collections/sheet/:sheetId/employee
+
+### Purpose
+
+Records collections captured at the route by the delivery employee. Writes `cash_collection`, `cheque_collection`, `online_collection`, and `employee_remarks` columns. Only editable while the paper is in `DRAFT`, `NIGHT_SUBMITTED`, or `MORNING_SUBMITTED` (not `FINALIZED`).
+
+### Access control
+
+`EMPLOYEE` role required.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Array of collection entries. Each item needs `client_id`, `category` (`MILK` or `NON_MILK`), and the amount fields to update.
+</ParamField>
+
+#### Example request
+
+```json
+POST /collections/sheet/42/employee
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "client_id": 101,
+      "category": "MILK",
+      "cash_collection": 500,
+      "cheque_collection": 0,
+      "online_collection": 250,
+      "employee_remarks": "Paid partial"
+    }
+  ]
+}
+```
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper is `FINALIZED` | `400 Bad Request` | Locked from further edits |
+| `category` not one of `MILK`, `NON_MILK` | `400 Bad Request` | Invalid enum |
+| Amount fields negative | `400 Bad Request` | Amounts must be `>= 0` |
+
+---
+
+## POST /collections/sheet/:sheetId/admin
+
+### Purpose
+
+Records office-side collections and reconciliation entries: `office_amount_given` (cash handed directly at the office), `bank_deposit` (amount deposited on behalf of the client), and `admin_remarks`. This path is used during the finalization review to true up any payment channel that did not go through the route.
+
+### Access control
+
+`ADMIN` role required.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Array of entries with `client_id`, `category`, and the admin-side amount fields.
+</ParamField>
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Caller not `ADMIN` | `403 Forbidden` | Role check |
+| Paper is `FINALIZED` | `400 Bad Request` | Reopen the paper before editing |
+| Unknown client for this sheet | `422 Unprocessable Entity` | Client is not on the sheet's delivery group |
+
+### Related endpoints
+
+- [Cash Settlement API](/api/cash-settlement) — end-of-day cash reconciliation aggregating all channels
+- [Delivery Summary API](/api/delivery-summary) — verify total collected vs. total billed before finalizing
+- [Collections Module](/modules/collections) — service-layer rules governing which columns update in which state

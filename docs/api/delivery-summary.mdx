@@ -1,8 +1,60 @@
 ---
-title: Delivery Summary
-description: Delivery Summary documentation
+title: "Delivery Summary API — Route Billing Group Totals"
+sidebarTitle: "Delivery Summary"
+description: "Retrieve aggregated final billing amounts grouped by billing group for a day's paper, used by admins to verify route totals before finalization."
 ---
 
-# Delivery Summary
+The Delivery Summary API is a read-only rollup that admins consult before finalizing a paper. It aggregates every `order_sheet_items.final_amount` by billing group so the admin can compare the day's billed totals against expected route revenue and collected payments.
 
-> This page is under construction.
+There are no write endpoints — the summary is derived from live data on every call.
+
+---
+
+## GET /delivery-summary/paper/:paperId
+
+### Purpose
+
+Returns billing totals for a paper, grouped by billing group.
+
+### Response
+
+<ResponseField name="items" type="array">
+  One entry per billing group with `billing_group_id`, `billing_group_name`, `total_billed`, `total_collected`, `outstanding`, and `client_count`.
+</ResponseField>
+
+<ResponseField name="grand_total" type="object">
+  Sum across all billing groups.
+</ResponseField>
+
+#### Example response
+
+```json
+{
+  "items": [
+    {
+      "billing_group_id": 1,
+      "billing_group_name": "Route A",
+      "total_billed": 45320.50,
+      "total_collected": 42100.00,
+      "outstanding": 3220.50,
+      "client_count": 38
+    }
+  ],
+  "grand_total": {
+    "billed": 45320.50,
+    "collected": 42100.00,
+    "outstanding": 3220.50
+  }
+}
+```
+
+### Behavior
+
+- `total_billed` includes GST per each product's inclusive/exclusive config.
+- `total_collected` sums all four channels (cash, cheque, online, bank deposit, office amount given).
+- Available in every paper state; used by admins to gate the `finalize` transition.
+
+### Related endpoints
+
+- [Collections API](/api/collections) — the source of `total_collected`
+- [Delivery Summary Module](/modules/delivery-summary) — the aggregation query

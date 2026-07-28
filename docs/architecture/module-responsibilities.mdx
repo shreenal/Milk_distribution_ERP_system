@@ -1,8 +1,48 @@
 ---
-title: Module Responsibilities
-description: Module Responsibilities documentation
+title: "Milk Distribution ERP — Backend Module Responsibilities"
+sidebarTitle: "Modules"
+description: "Per-module responsibility table for the Milk Distribution ERP backend, including key service methods, dependencies, and shared cross-cutting services."
 ---
 
-# Module Responsibilities
+Each backend module owns one slice of the domain. Boundaries are defined by which entity the module writes to; multi-entity workflows compose these modules through the shared `WorkflowStateService` rather than crossing directly into another module's tables.
 
-> This page is under construction.
+## Module table
+
+| Module | Owns writes to | Key service methods | Depends on |
+| --- | --- | --- | --- |
+| `auth` | `user` | `login`, `validateUser`, `verifyToken` | (no domain dependencies) |
+| `paper` | `order_paper`, `order_sheet` | `generatePaper`, `submitNight`, `submitMorning`, `finalize`, `reopen` | `workflow`, `orders`, `distributor-transfer` |
+| `orders` | `order_sheet_items` | `getSheet`, `saveNightItems`, `saveMorningItems` | `workflow`, `products`, `clients` |
+| `collections` | `client_collection` | `getSheetCollections`, `saveEmployeeEntry`, `saveAdminEntry` | `workflow` |
+| `purchase` | `purchase_paper`, `purchase_entry` | `getPurchasePaper`, `savePurchaseEntries` | `workflow`, `products`, `vehicle-allocation` |
+| `vehicle-allocation` | `vehicle_allocation_paper`, `vehicle_allocation_entry` | `getAllocation`, `saveAllocation` | `workflow` |
+| `trays` | `client_tray_transaction` | `getSheetTrays`, `saveTrays` | `workflow`, `products` (rule matching) |
+| `dairy-tray-tracking` | `dairy_tray_paper` | `getDairyTrays`, `saveDairyTrays` | `workflow`, `trays` |
+| `cash-settlement` | `cash_route_settlement`, `cash_route_expense`, `cash_direct_collection`, `cash_bank_deposit` | `getSettlement`, `saveRouteSettlement`, `saveExpense`, `saveDirect`, `saveBankDeposit` | `workflow`, `collections` |
+| `distributor-transfer` | `distributor_transfer` | `getTransfers`, `regenerate` | `workflow`, `orders`, `vehicle-allocation` |
+| `delivery-summary` | (read-only) | `getSummary` | `collections`, `orders` |
+| `workflow` | (no writes) | `canEditOrders`, `canEditCollections`, `validateTransition` | (no domain dependencies) |
+| `clients` | `master_client`, `master_group` | `getClient`, `getGroup`, `getBillingGroups` | (no domain dependencies) |
+| `products` | `master_product`, `master_client_rate_product`, `product_tray_rule` | `resolveRate`, `resolveTrayRule`, `getGstConfig` | (no domain dependencies) |
+
+## Shared cross-cutting services
+
+Two services are injected across almost every module:
+
+- **`WorkflowStateService`** — pure boolean methods keyed on `PaperStatus`. Every write-side service calls it before mutating; no module implements state gating on its own.
+- **`PrismaService`** — the singleton Prisma client, used by services (via `$transaction`) and repositories (via query builders).
+
+Two shared repositories live under `common/repositories`:
+
+- **`OrderItemsRepository`** — reused by `orders`, `delivery-summary`, and `distributor-transfer`.
+
+## Why the split matters
+
+- **Feature isolation:** a bug in `cash-settlement` never touches order data.
+- **Testability:** each module can be tested against a small set of collaborators.
+- **Auditability:** each mutating action lives in exactly one service, so tracing "who wrote this field" is a single search.
+
+## Related topics
+
+- [Architecture Overview](/architecture/overview)
+- [Request Flow](/architecture/request-flow)

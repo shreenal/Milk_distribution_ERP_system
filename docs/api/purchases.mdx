@@ -1,8 +1,111 @@
 ---
-title: Purchases
-description: Purchases documentation
+title: "Purchases API — Vehicle Purchase Entry Endpoints"
+sidebarTitle: "Purchases"
+description: "Record and retrieve daily inbound stock purchase entries per vehicle, distributor, and delivery session for the milk distribution ERP."
 ---
 
-# Purchases
+The Purchases API records inbound stock. Each morning (and evening for two-session flows), vehicles pull up to a dairy, load product, and receive a gate pass. Those loads are captured as `purchase_entry` rows attached to a `purchase_paper` scoped to the day's `order_paper` and a delivery session (`NIGHT` or `MORNING`). Purchase amounts feed the distributor's payables and appear on the daily P&L.
 
-> This page is under construction.
+Both `EMPLOYEE` and `ADMIN` can call these endpoints. The paper's workflow state determines whether writes succeed.
+
+---
+
+## GET /purchases/paper/:paperId
+
+### Purpose
+
+Returns every purchase entry recorded against the given paper, grouped by vehicle and delivery session. Used by the Purchase screen to render the entry grid and by the delivery summary to reconcile inbound vs. outbound volumes.
+
+### Path parameters
+
+<ParamField path="paperId" type="number" required>
+  Order paper primary key.
+</ParamField>
+
+### Response
+
+Returns HTTP **200** with an array of `purchase_paper` objects, each containing `purchase_entries[]`.
+
+<ResponseField name="vehicle_id" type="number">
+  Vehicle that made the run.
+</ResponseField>
+
+<ResponseField name="distributor_id" type="number">
+  Distributor supplying the product.
+</ResponseField>
+
+<ResponseField name="delivery_session" type="string">
+  `NIGHT` or `MORNING`.
+</ResponseField>
+
+<ResponseField name="gatepass_date" type="string">
+  Computed per brand policy (same-day or next-day). See [Vehicles data model](/data-model/vehicles).
+</ResponseField>
+
+<ResponseField name="entries" type="array">
+  Line items with `product_id`, `quantity`, `rate`, and `amount`.
+</ResponseField>
+
+---
+
+## POST /purchases/paper/:paperId
+
+### Purpose
+
+Upserts purchase entries for a specific vehicle and session. Recomputes `gatepass_date` per brand policy and calculates `amount` from the distributor's product rate table.
+
+### Request body
+
+<ParamField body="vehicle_id" type="number" required>
+  Which vehicle made the pickup.
+</ParamField>
+
+<ParamField body="distributor_id" type="number" required>
+  Supplying distributor.
+</ParamField>
+
+<ParamField body="delivery_session" type="string" required>
+  `NIGHT` or `MORNING`.
+</ParamField>
+
+<ParamField body="entries" type="array" required>
+  Line items with `product_id` and `quantity`.
+</ParamField>
+
+#### Example request
+
+```json
+POST /purchases/paper/128
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "vehicle_id": 3,
+  "distributor_id": 5,
+  "delivery_session": "MORNING",
+  "entries": [
+    { "product_id": 7, "quantity": 40 },
+    { "product_id": 12, "quantity": 15 }
+  ]
+}
+```
+
+### Behavior
+
+- Rates are resolved from `distributor_product_rate` at the paper's `sale_date`.
+- `gatepass_date` is derived from `master_brand.gatepass_date_policy` (`SAME_DAY` or `NEXT_DAY`).
+- Writes are blocked when the paper is `FINALIZED`.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper is `FINALIZED` | `400 Bad Request` | Locked |
+| `delivery_session` not `NIGHT` or `MORNING` | `400 Bad Request` | Invalid enum |
+| Product has no rate at that distributor | `422 Unprocessable Entity` | Rate resolution failed |
+| `quantity` negative | `400 Bad Request` | Must be `>= 0` |
+
+### Related endpoints
+
+- [Vehicle Allocations API](/api/vehicle-allocations) — plan which vehicles carry which products
+- [Purchase Module](/modules/purchase) — server-side rate resolution and gatepass rules

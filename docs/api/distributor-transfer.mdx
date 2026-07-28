@@ -1,8 +1,51 @@
 ---
-title: Distributor Transfer
-description: Distributor Transfer documentation
+title: "Distributor Transfer API — Stock Transfer Records"
+sidebarTitle: "Distributor Transfers"
+description: "Retrieve and regenerate inter-distributor stock transfer records created when one distributor supplies stock billed under another distributor's group."
 ---
 
-# Distributor Transfer
+The Distributor Transfer API surfaces the auto-generated inter-distributor transfer records that reconcile stock ownership when Distributor A supplies product delivered to a client belonging to Distributor B. These records are generated on `submit-morning` and must be regenerated after a paper is reopened and morning data is edited.
 
-> This page is under construction.
+The endpoints below are read-mostly: transfers are created by the paper workflow, not by direct client calls. The exception is `regenerate`, which recomputes the entire day's transfers in place.
+
+---
+
+## GET /distributor-transfer/paper/:paperId
+
+### Purpose
+
+Returns every `distributor_transfer` row generated for the paper.
+
+### Response
+
+<ResponseField name="items" type="array">
+  Transfer rows with `from_distributor_id`, `to_distributor_id`, `product_id`, `quantity`, `rate`, `amount`, and `source_sheet_item_id[]` (audit trail linking each transfer back to the sheet items that caused it).
+</ResponseField>
+
+---
+
+## POST /distributor-transfer/paper/:paperId/regenerate
+
+### Purpose
+
+Deletes existing transfer rows for the paper and rebuilds them from the current sheet items. Intended for use after `REOPENED` state edits have changed which distributor supplied which product for which client.
+
+### Access control
+
+`ADMIN` role required.
+
+### Behavior
+
+- Only allowed while the paper is in `MORNING_SUBMITTED` or `REOPENED`. Returns `400` in `DRAFT`, `NIGHT_SUBMITTED`, or `FINALIZED`.
+- Rebuild is transactional; either all rows regenerate or none change.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Caller not `ADMIN` | `403 Forbidden` | Role check |
+| Paper not in eligible state | `400 Bad Request` | Regenerate only allowed in `MORNING_SUBMITTED` or `REOPENED` |
+
+### Related workflow
+
+See [Distributor Transfer workflow](/workflows/distributor-transfer) for the full generation algorithm.

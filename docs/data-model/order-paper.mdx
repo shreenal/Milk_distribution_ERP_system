@@ -1,8 +1,61 @@
 ---
-title: Order Paper
-description: Order Paper documentation
+title: "Order Paper: Daily Order Document and Status Lifecycle"
+sidebarTitle: "Order Paper"
+description: "Reference for the order_paper entity — the top-level daily container — including its status enum, date fields, and relationships to order sheets."
 ---
 
-# Order Paper
+The `order_paper` table is the daily container that anchors every operational record in the system. Exactly one row exists per calendar sale date. Its `status` field drives the workflow state machine — every other module consults it before allowing writes.
 
-> This page is under construction.
+## Schema
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK, autoincrement | Referenced by every child table |
+| `sale_date` | date, unique | The delivery date; one paper per date |
+| `status` | `PaperStatus` enum | See below |
+| `night_submitted_at` | datetime, nullable | Set on `submit-night` |
+| `morning_submitted_at` | datetime, nullable | Set on `submit-morning` |
+| `finalized_at` | datetime, nullable | Set on `finalize` |
+| `reopened_at` | datetime, nullable | Set on `reopen`; not cleared on re-finalize |
+| `reopen_reason` | text, nullable | Preserved verbatim; audit trail |
+| `created_at`, `updated_at` | datetime | Standard timestamps |
+
+## PaperStatus enum
+
+| Value | Meaning | Writes allowed |
+| --- | --- | --- |
+| `DRAFT` | Just generated; night entry in progress | orders (night), collections (night), vehicle-allocation |
+| `NIGHT_SUBMITTED` | Night shift closed; delivery in progress | orders (morning), collections (morning), purchase, trays, dairy-tray |
+| `MORNING_SUBMITTED` | Morning shift closed; awaiting admin review | collections (admin), cash-settlement, delivery-summary read |
+| `FINALIZED` | Immutable | None; requires `reopen` |
+| `REOPENED` | Finalized then reopened by admin | Same set as `MORNING_SUBMITTED`; refinalization needed |
+
+Transitions are enforced by `WorkflowStateService.validateTransition()`. See [Paper States](/workflows/paper-states) for the state machine diagram.
+
+## Child relationships
+
+```text
+order_paper
+├── order_sheet[]              — one per delivery group participating that day
+├── purchase_paper[]           — one per (vehicle, session)
+├── vehicle_allocation_paper[] — one per session
+├── dairy_tray_paper[]         — one per (vehicle, session, tray_type)
+├── distributor_transfer[]     — auto-generated on submit-morning
+├── cash_route_settlement[]    — one per (vehicle, session)
+├── cash_route_expense[]
+├── cash_direct_collection[]
+└── cash_bank_deposit[]
+```
+
+All child relationships use `onDelete: Cascade` at the schema level, so deleting a paper (rare — usually done only in test setups) removes every downstream record.
+
+## Uniqueness constraints
+
+- `@@unique([sale_date])` — one paper per date, enforced at the DB level.
+- All child tables that reference `order_paper` also enforce their own composite uniqueness (e.g. `client_collection` on `(order_sheet_id, client_id, category)`).
+
+## Related topics
+
+- [Paper States workflow](/workflows/paper-states)
+- [Order Sheet Items](/data-model/order-sheet)
+- [Paper Module](/modules/paper)

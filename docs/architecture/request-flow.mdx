@@ -1,8 +1,106 @@
 ---
-title: Request Flow
-description: Request Flow documentation
+title: "Milk Distribution ERP — HTTP Request Flow Explained"
+sidebarTitle: "Request Flow"
+description: "Step-by-step lifecycle of an HTTP request through the NestJS backend, from JWT guard and workflow state check to Prisma transaction and response."
 ---
 
-# Request Flow
+Every mutating request in the ERP API passes through the same seven-stage pipeline. Understanding it makes the codebase far easier to trace, because each layer has one clear job.
 
-> This page is under construction.
+## The seven stages
+
+```text
+┌─────────────────────────────────────────────────────────────────┐
+│  1. HTTPS termination                                           │
+│  2. Global ValidationPipe (whitelist + transform)               │
+│  3. JwtAuthGuard  →  attaches request.user                      │
+│  4. RolesGuard    →  checks @Roles(...)                         │
+│  5. Controller    →  parses params, delegates to service        │
+│  6. Service       →  runs business logic inside prisma.$tx      │
+│  7. HttpExceptionFilter (only on error)  →  formats response    │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+## Stage 1 — HTTPS termination
+
+Handled by whatever reverse proxy or platform load-balancer sits in front of the Node process. The application itself listens on `PORT` (default 3000) over plain HTTP.
+
+## Stage 2 — Global ValidationPipe
+
+Registered in `main.ts`:
+
+```typescript
+app.useGlobalPipes(
+  new ValidationPipe({ whitelist: true, transform: true }),
+);
+```
+
+- **`whitelist: true`** strips any property from the request body that isn't declared on the DTO. Prevents accidental overwrites of protected fields.
+- **`transform: true`** converts route params and query strings to their declared TypeScript types (`ParseIntPipe` on `paperId`, string-to-Date coercion for query dates).
+
+Failures raise `BadRequestException` (`400`) before the controller ever runs.
+
+## Stage 3 — JwtAuthGuard
+
+Reads the `Authorization: Bearer <token>` header, verifies the JWT signature with `JWT_SECRET`, and rejects expired or malformed tokens with `401`. On success it attaches the decoded payload to `request.user`.
+
+## Stage 4 — RolesGuard
+
+Reads the `@Roles(...)` decorator on the handler and compares against `request.user.role`. Mismatch → `403 Forbidden`. See [Authentication](/architecture/authentication).
+
+## Stage 5 — Controller
+
+The controller has three responsibilities and only three:
+
+1. Parse and coerce path/query/body parameters.
+2. Call the corresponding service method.
+3. Return the service's result.
+
+Controllers contain **no business logic**. Example:
+
+```typescript
+@Post(':paperId/submit-morning')
+@Roles('EMPLOYEE')
+async submitMorningEntry(
+  @Param('paperId', ParseIntPipe) paperId: number,
+) {
+  return this.paperService.submitMorningEntryService(paperId);
+}
+```
+
+## Stage 6 — Service and validation
+
+The service is where all rules live. A typical mutating service method:
+
+1. Loads the affected paper via the repository.
+2. Delegates to a `<module>-validation.service.ts` to check workflow state, referential integrity, and business rules.
+3. Opens a Prisma `$transaction` to perform the mutation atomically.
+4. Returns the updated aggregate.
+
+The `WorkflowStateService` is injected almost universally to answer questions like `canEditOrders(paper.status)`. No module implements state gating independently.
+
+## Stage 7 — HttpExceptionFilter
+
+Registered as a global filter, `HttpExceptionFilter` catches every `HttpException` (or subclass) thrown anywhere in the request lifecycle and converts it into the standard error envelope:
+
+```json
+{
+  "statusCode": 422,
+  "message": "Paper is FINALIZED — reopen to edit",
+  "error": "Unprocessable Entity",
+  "path": "/orders/sheet/42/morning",
+  "timestamp": "2026-07-28T05:30:00.000Z"
+}
+```
+
+Uncaught, non-HTTP exceptions become `500 Internal Server Error` with the same shape.
+
+## Where the guards don't run
+
+The single `POST /auth/login` route omits `@UseGuards(JwtAuthGuard)` because a caller cannot yet have a token. `ValidationPipe` and `HttpExceptionFilter` still run.
+
+## Related topics
+
+- [Architecture Overview](/architecture/overview)
+- [Authentication](/architecture/authentication)
+- [Error Handling](/architecture/error-handling)
+- [Module Responsibilities](/architecture/module-responsibilities)

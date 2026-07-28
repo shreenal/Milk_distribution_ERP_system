@@ -1,8 +1,56 @@
 ---
-title: Dairy Tray Tracking
-description: Dairy Tray Tracking documentation
+title: "Dairy Tray Tracking API — Depot Vehicle Tray Endpoints"
+sidebarTitle: "Dairy Trays"
+description: "Track crate and tray movement at the depot level, recording how many trays each vehicle carries out on a run and returns to the dairy per tray type."
 ---
 
-# Dairy Tray Tracking
+The Dairy Tray Tracking API is the depot-side counterpart to the client-side [Trays API](/api/trays). Where Trays tracks the (client × tray\_type) balance, Dairy Tray Tracking records how many trays each vehicle takes out to the field and how many it brings back to the dairy at the end of the session. Discrepancies point to trays still in the field or lost stock.
 
-> This page is under construction.
+Records are stored in `dairy_tray_paper`, one row per (paper, vehicle, tray\_type, delivery\_session).
+
+---
+
+## GET /dairy-tray-tracking/paper/:paperId
+
+### Purpose
+
+Returns the depot-level tray record for the paper, grouped by vehicle and delivery session.
+
+### Response
+
+<ResponseField name="items" type="array">
+  Entries with `vehicle_id`, `tray_type_id`, `delivery_session`, `trays_out`, `trays_in`, and `variance` (`trays_out - trays_in - trays_still_with_clients`).
+</ResponseField>
+
+---
+
+## POST /dairy-tray-tracking/paper/:paperId
+
+### Purpose
+
+Upserts depot tray movement rows for the paper.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Entries with `vehicle_id`, `tray_type_id`, `delivery_session` (`NIGHT` or `MORNING`), `trays_out`, `trays_in`.
+</ParamField>
+
+### Behavior
+
+- `trays_out` and `trays_in` are captured directly from the depot operator.
+- `variance` is computed from client-side transactions on the same paper.
+- Writes blocked in `FINALIZED` state.
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper is `FINALIZED` | `400 Bad Request` | Locked |
+| Invalid `delivery_session` | `400 Bad Request` | Must be `NIGHT` or `MORNING` |
+| Negative counts | `400 Bad Request` | Must be `>= 0` |
+
+### Related endpoints
+
+- [Trays API](/api/trays) — client-side crate accounting
+- [Modules — Trays](/modules/trays) — how the two sides reconcile

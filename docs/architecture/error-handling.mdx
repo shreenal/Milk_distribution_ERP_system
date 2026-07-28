@@ -1,8 +1,210 @@
 ---
-title: Error Handling
-description: Error Handling documentation
+title: "Error Handling — HttpExceptionFilter and Error Shapes"
+sidebarTitle: "Error Handling"
+description: "How the Milk Distribution ERP API catches and formats errors, the standard error envelope, and common business-rule error messages by module."
 ---
 
-# Error Handling
+The API uses a single global exception filter to produce a consistent error envelope regardless of which module threw the error. Clients can parse errors uniformly and surface actionable messages to users without inspecting per-endpoint shapes.
 
-> This page is under construction.
+## The error envelope
+
+Every error response — validation, auth, business-rule, or unexpected — is formatted as:
+
+```json
+{
+  "statusCode": 422,
+  "message": "Paper is FINALIZED — reopen to edit",
+  "error": "Unprocessable Entity",
+  "path": "/orders/sheet/42/morning",
+  "timestamp": "2026-07-28T05:30:00.000Z"
+}
+```
+
+- `statusCode` — HTTP status number.
+- `message` — human-readable single sentence.
+- `error` — HTTP status text.
+- `path` — the URL that failed.
+- `timestamp` — ISO8601 server time.
+
+For validation failures the `message` field can be an array of DTO validation strings.
+
+## HttpExceptionFilter
+
+Registered globally in `main.ts`. Every `HttpException` (and subclass) is caught, its status and payload extracted, and the envelope emitted. Non-HTTP exceptions become `500 Internal Server Error` with the same envelope and a redacted message.
+
+The filter is stateless and adds no side effects beyond formatting.
+
+## Custom error base classes
+
+Two thin subclasses live under `common/errors`:
+
+- **`NotFoundError`** → subclass of `NotFoundException`, HTTP 404. Thrown by services when a lookup by ID returns no row.
+- **`ValidationError`** → subclass of `UnprocessableEntityException`, HTTP 422. Thrown by `<module>-validation.service.ts` when a business rule fails.
+
+Both preserve the standard `HttpException` interface so `HttpExceptionFilter` handles them without special-casing.
+
+## Common error messages by module
+
+| Module | HTTP | Message | Cause |
+| --- | --- | --- | --- |
+| `paper` | 409 | `Paper already exists for date` | Duplicate `POST /papers` for the same date |
+| `paper` | 400 | `Invalid transition: <FROM> → <TO>` | Attempting a state change the machine forbids |
+| `paper` | 400 | `Reopen reason is required` | `POST /papers/:id/reopen` with empty body |
+| `orders` | 400 | `Paper is FINALIZED — reopen to edit` | Any write on a finalized paper |
+| `orders` | 422 | `Rate not configured for client × product` | Missing entry in `master_client_rate_product` and no fallback |
+| `collections` | 403 | `Admin collections require ADMIN role` | Employee token calling the admin save endpoint |
+| `purchase` | 422 | `Distributor cannot supply this product` | `distributor_procurement_rule` prevents purchase |
+| `trays` | 422 | `No product_tray_rule matches` | Delivered product has no configured tray rule |
+| `cash-settlement` | 422 | `Denomination totals do not match declared total` | Server-side sanity check on denomination counts |
+| `distributor-transfer` | 400 | `Regenerate only allowed in MORNING_SUBMITTED or REOPENED` | Attempt to regenerate transfers in wrong state |
+
+## Client handling guidance
+
+- Show `message` verbatim to the user for `4xx` errors — server messages are already user-facing.
+- Show a generic "Something went wrong" for `5xx` responses.
+- Log `path` and `timestamp` on every error to correlate with server logs.
+
+## Related topics
+
+- [Request Flow](/architecture/request-flow) — where the filter runs
+- [Authentication](/architecture/authentication) — `401` and `403` semantics
+
+All errors in the Milk Distribution ERP backend are ultimately caught and formatted by the global `HttpExceptionFilter`. There is no separate error hierarchy at the HTTP level — both validation errors and business-rule violations throw `BadRequestException` (HTTP 400). The distinction is captured only in the message string.
+
+## `HttpExceptionFilter` Behaviour
+
+The filter is registered globally (configured in the bootstrap function or a global module) and intercepts every unhandled `HttpException` thrown anywhere in the request lifecycle. It is implemented as a NestJS `ExceptionFilter` decorated with `@Catch(HttpException)`. It extracts three pieces of information from the incoming context and exception: the HTTP status code (`exception.getStatus()`), the request URL (`request.url`), and the exception message (`exception.message`). It then calls `response.status(status).json(...)` with a structured body.
+
+When an `HttpException` is caught, the filter extracts the status code, the request path, and the exception message, then writes a uniform JSON response:
+
+```json
+{
+  "statusCode": 400,
+  "timestamp": "2024-11-15T08:23:11.000Z",
+  "path": "/orders/sheet/7/night-save",
+  "message": "Cannot edit night entries when paper is NIGHT_SUBMITTED. Allowed statuses: DRAFT, REOPENED"
+}
+```
+
+Unhandled non-`HttpException` errors (e.g., database connection failures) are treated as 500 Internal Server Error; the message is not forwarded to the client in production to avoid leaking internals.
+
+## Error Type Taxonomy
+
+The codebase uses three categories of error:
+
+| Category | How it is thrown | HTTP status | Example |
+| --- | --- | --- | --- |
+| **DTO validation** | `ValidationPipe` automatically | 400 | `"orderedQty must be a number"` |
+| **Business-rule violation** | `throw new BadRequestException(...)` in service | 400 | `"Client 12 does not belong to group 3"` |
+| **Not-found** | `throw new BadRequestException(...)` in service | 400 | `"Order paper not found"` (note: 400, not 404) |
+| **Auth failure** | `JwtAuthGuard` / `RolesGuard` | 401 / 403 | `"Unauthorized"` / `"Forbidden resource"` |
+
+> **Why 400 for not-found?** The codebase intentionally throws `BadRequestException` (400) for missing records rather than `NotFoundException` (404). This is a deliberate convention — the frontend treats all non-success responses as "something went wrong" and reads the message string rather than branching on status code.
+
+## Error Messages by Module
+
+Each module defines its error messages as constants in a `<module>.constants.ts` file. This makes messages easy to locate and test.
+
+### Paper module (`paper.constants.ts`)
+
+```typescript
+INVALID_DATE_FORMAT: 'Invalid date format'
+PAST_DATE_NOT_ALLOWED: 'Cannot perform operations on past dates'
+FUTURE_DATE_TOO_FAR: (maxDays) => `Cannot generate paper more than ${maxDays} days ahead`
+PAPER_NOT_FOUND: 'Order paper not found'
+NO_ACTIVE_GROUPS: 'No active groups found to generate sheets'
+PAPER_NOT_IN_DRAFT_STATUS: 'Paper not in DRAFT status'
+MISSING_REQUIRED_FIELD: (field) => `Required field "${field}" is missing`
+```
+
+### Orders module (`orders.constants.ts`)
+
+```typescript
+SHEET_NOT_FOUND: 'Order sheet not found'
+CANNOT_EDIT_NIGHT: (status) =>
+  `Cannot edit night entries when paper is ${status}. Allowed statuses: DRAFT, REOPENED`
+CANNOT_EDIT_MORNING: (status) =>
+  `Cannot edit morning entries when paper is ${status}. Allowed statuses: NIGHT_SUBMITTED, REOPENED`
+NO_APPLICABLE_RATE: (productId, date) =>
+  `No active rate found for product ${productId} on date ${date}`
+DUPLICATE_ENTRIES: (keys) =>
+  `Duplicate entries found: ${keys.join(', ')}. Each client-product combination can only appear once per sheet.`
+NO_ORDERED_QUANTITY: (clientId, productId) =>
+  `No ordered quantity found for Client ${clientId}, Product ${productId}`
+CLIENT_NOT_IN_GROUP: (clientId, groupId) =>
+  `Client ${clientId} does not belong to group ${groupId}`
+QUANTITY_NEGATIVE: (field, value) => `${field} cannot be negative: ${value}`
+DELIVERED_EXCEEDS_ORDERED: (delivered, ordered) =>
+  `Delivered quantity (${delivered}) cannot exceed ordered quantity (${ordered})`
+```
+
+### Collections module (`collections.constants.ts`)
+
+```typescript
+SHEET_NOT_FOUND: 'Order sheet not found'
+NIGHT_EDIT_NOT_ALLOWED: 'Night collections cannot be edited in the current workflow state'
+MORNING_EDIT_NOT_ALLOWED: 'Morning collections can only be edited after night submission'
+ADMIN_EDIT_NOT_ALLOWED: 'Admin collections cannot be edited in current workflow state'
+CLIENT_NOT_IN_CATEGORY: (clientId, category) =>
+  `Client ${clientId} does not belong to ${category} category.`
+NEGATIVE_CASH_COLLECTION: 'Cash collection cannot be negative'
+NEGATIVE_CHEQUE_COLLECTION: 'Cheque collection cannot be negative'
+NEGATIVE_ONLINE_COLLECTION: 'Online collection cannot be negative'
+NEGATIVE_OFFICE_AMOUNT: 'Office amount given cannot be negative'
+```
+
+### Workflow violations
+
+Status transition errors come from `WorkflowStateService.validateTransition`:
+
+```typescript
+// Thrown when e.g. trying to finalize a DRAFT paper
+`Cannot transition from ${currentStatus} to ${targetStatus}`
+```
+
+## Common Error Scenarios
+
+| Scenario | Module | Typical message |
+| --- | --- | --- |
+| Token missing | Auth guard | `"Unauthorized"` (401) |
+| Insufficient role | Roles guard | `"Forbidden resource"` (403) |
+| Paper already exists for date | Paper | Returns existing paper (not an error) |
+| Paper date is in the past | Paper | `"Cannot perform operations on past dates"` |
+| Paper date \> 30 days ahead | Paper | `"Cannot generate paper more than 30 days ahead"` |
+| Paper not in expected status | Workflow | `"Cannot transition from DRAFT to FINALIZED"` |
+| Night entries when status ≠ DRAFT | Orders | `"Cannot edit night entries when paper is NIGHT_SUBMITTED..."` |
+| Duplicate client\+product in request | Orders | `"Duplicate entries found: 12_5, ..."` |
+| No rate configured for product/date | Orders | `"No active rate found for product 5 on date 2024-11-15T00:00:00.000Z"` |
+| Morning entry without prior night entry | Orders | `"No ordered quantity found for Client 12, Product 5"` |
+| Client not in sheet's group | Orders | `"Client 12 does not belong to group 3"` |
+| Admin collection outside allowed status | Collections | `"Admin collections cannot be edited in current workflow state"` |
+| Vehicle not assigned to a distributor | Vehicle allocation | _(from constants)_ |
+| No vehicle allocations for paper | Purchase | `"No vehicle allocations found for this paper"` |
+
+## Validation vs Business-Rule Errors
+
+**DTO validation** (via `class-validator` \+ `ValidationPipe`) fires before the controller method is called. The response shape differs slightly — NestJS produces an array of constraint messages:
+
+```json
+{
+  "statusCode": 400,
+  "message": [
+    "orderedQty must be a number conforming to the specified constraints",
+    "clientId must be a positive integer"
+  ],
+  "error": "Bad Request"
+}
+```
+
+**Business-rule errors** (thrown by services) produce the filter's envelope format with a single string message:
+
+```json
+{
+  "statusCode": 400,
+  "timestamp": "2024-11-15T08:23:11.000Z",
+  "path": "/orders/sheet/7/night-save",
+  "message": "Client 12 does not belong to group 3"
+}
+```
+
+The simplest way to distinguish them client-side is to check whether `message` is an array (DTO error) or a string (business-rule error).

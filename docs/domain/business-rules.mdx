@@ -1,8 +1,163 @@
 ---
-title: Business Rules
-description: Business Rules documentation
+title: "Business Rules and Constraints in the Milk Distribution ERP"
+sidebarTitle: "Business Rules"
+description: "All major business rules enforced by the milk distribution ERP, organized by area — paper creation, order entry, billing, trays, cash, and transfers."
 ---
 
-# Business Rules
+The ERP enforces a precise set of business rules to ensure that every day's operations are internally consistent and auditable. These rules are not guidelines — the system will return an error if any of them are violated. This page documents each rule, explains why it exists in the context of the milk distribution business, and tells you exactly when the rule is applied.
 
-> This page is under construction.
+## Paper Creation Rules
+
+<AccordionGroup>
+  <Accordion title="One paper per sale date">
+    The system enforces a uniqueness rule on the sale date. If you attempt to create a paper for a date that already has one, the system returns the existing paper rather than creating a duplicate. This prevents the chaos of having two sets of orders, collections, and purchases for the same business day.
+  </Accordion>
+
+  <Accordion title="No papers for past dates">
+    You cannot create a paper with a sale date earlier than today (UTC). Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead.
+  </Accordion>
+
+  <Accordion title="Maximum 30 days in the future">
+    Papers can be pre-created up to 30 days ahead of today. Beyond 30 days, the system rejects creation. This window provides planning flexibility while preventing accidental creation of papers for dates so far in the future that they are almost certainly mistakes.
+  </Accordion>
+
+  <Accordion title="At least one active delivery group must exist">
+    When generating a paper, the system looks up all active delivery groups and auto-creates one order sheet per group. If there are no active groups in the system, paper creation fails. An empty paper with no sheets would be meaningless in a route-based distribution operation.
+  </Accordion>
+</AccordionGroup>
+
+## Paper Lifecycle and Status Rules
+
+<AccordionGroup>
+  <Accordion title="Lifecycle transitions are strictly one-directional (with one exception)">
+    The valid transition map is:
+
+    - `DRAFT` → `NIGHT_SUBMITTED`
+    - `NIGHT_SUBMITTED` → `MORNING_SUBMITTED`
+    - `MORNING_SUBMITTED` → `FINALIZED`
+    - `FINALIZED` → `REOPENED`
+    - `REOPENED` → `FINALIZED`
+
+    No other transitions are permitted. You cannot skip a step (e.g., DRAFT → MORNING\_SUBMITTED), go backwards (e.g., NIGHT\_SUBMITTED → DRAFT), or repeat a step (e.g., MORNING\_SUBMITTED → NIGHT\_SUBMITTED). The only cycle in the workflow is the correction loop: FINALIZED → REOPENED → FINALIZED.
+  </Accordion>
+
+  <Accordion title="Only Admins can finalize a paper">
+    The transition to `FINALIZED` requires Admin role. This creates an accountability checkpoint where a manager reviews the day's data before it is locked. Employees can complete all data entry but cannot lock the paper themselves.
+  </Accordion>
+
+  <Accordion title="Only Admins can reopen a paper, and a reason is mandatory">
+    The transition to `REOPENED` also requires Admin role, and the request must include a non-empty reopen reason. The reason is recorded permanently on the paper. This creates an audit trail for every correction made after finalization.
+  </Accordion>
+
+  <Accordion title="A REOPENED paper can be re-finalized directly">
+    When a paper is in `REOPENED` status, the Admin can finalize it directly without going back through the NIGHT\_SUBMITTED → MORNING\_SUBMITTED cycle. This makes corrections efficient: fix the specific data, then lock the paper again.
+  </Accordion>
+</AccordionGroup>
+
+## Order Entry Rules
+
+<AccordionGroup>
+  <Accordion title="Night entries require DRAFT status">
+    Night order quantities can only be saved when the paper is in `DRAFT` status. Once the paper is night-submitted, those quantities are frozen. This mirrors the physical reality: once the loading plan is finalized and vehicles depart, you cannot retroactively change what was ordered.
+  </Accordion>
+
+  <Accordion title="Morning entries require NIGHT_SUBMITTED or REOPENED status">
+    Delivered quantities can only be saved when the paper is in `NIGHT_SUBMITTED` or `REOPENED` status. You cannot enter delivery data before night orders have been submitted, because a morning delivery entry requires an existing night order item to update.
+  </Accordion>
+
+  <Accordion title="A night order item must exist before a morning entry can be saved">
+    When saving a morning (delivered quantity) entry for a (client, product) pair, the system checks that an order sheet item already exists for that combination from the night entry phase. If no night item exists, the morning save is rejected. This enforces the ordering: night quantities are always entered first.
+  </Accordion>
+
+  <Accordion title="A selling rate must exist for every order line">
+    Before saving either a night or morning entry, the system looks up the client's selling rate for the specific product on the paper's sale date. If no active rate is found — meaning no rate whose effective date range covers the sale date — the entry fails. An order line without a price cannot be billed.
+  </Accordion>
+
+  <Accordion title="Duplicate entries within a single save operation are rejected">
+    If you submit a batch of order entries that contain the same (client, product) combination more than once, the system rejects the entire batch. This prevents accidental double-entry from client-side form submissions.
+  </Accordion>
+
+  <Accordion title="The client must belong to the sheet's delivery group">
+    Each order sheet belongs to one delivery group. You cannot enter an order for a client whose delivery group differs from the sheet's group. This prevents cross-contamination between route sheets.
+  </Accordion>
+</AccordionGroup>
+
+## Supply, Procurement, and Billing Rules
+
+<AccordionGroup>
+  <Accordion title="Each group has exactly one supply rule per category">
+    For each delivery group, the system allows at most one supply rule per supply category (MILK, NON\_MILK). This means every order line can be deterministically routed to exactly one distributor for billing purposes. There is no ambiguity about who supplies milk to Group 3.
+  </Accordion>
+
+  <Accordion title="A distributor must have a procurement rule to supply a product">
+    Even if a distributor has a product link for a product, they cannot supply it to a client unless they also have an active procurement rule for that product's brand \+ product group \+ category. The procurement rule models the real-world contract between the distributor and the dairy.
+  </Accordion>
+
+  <Accordion title="Billing uses the rate from the sale date window">
+    Selling rates have effective start and end dates. The system looks up the rate that was active on the paper's sale date. If the rate has expired or has not yet taken effect, the order is rejected. This allows the business to schedule rate changes in advance.
+  </Accordion>
+
+  <Accordion title="GST is handled at the product level (inclusive or exclusive)">
+    Each product has a GST percentage and a flag indicating whether the selling rate is GST-inclusive or GST-exclusive. When the rate is GST-inclusive, it already contains the tax and the system back-calculates the taxable base. When exclusive, GST is added on top of the selling rate. Both the GST amount and the taxable amount are always recorded separately for compliance reporting.
+  </Accordion>
+</AccordionGroup>
+
+## Tray Rules
+
+<AccordionGroup>
+  <Accordion title="Tray type is determined by product attributes, not by free choice">
+    You cannot arbitrarily assign a tray type to a product. The system determines the applicable tray type by matching the product's brand, product type, and packaging type against the configured tray rules. If no rule matches, the product does not require tray tracking.
+  </Accordion>
+
+  <Accordion title="Tray entries can only be saved when the paper is in NIGHT_SUBMITTED or REOPENED status">
+    Client tray movements and dairy tray movements both require the paper to be past night submission. This is because tray movements happen during the actual delivery (morning), not during order planning (night).
+  </Accordion>
+</AccordionGroup>
+
+## Cash Settlement Rules
+
+<AccordionGroup>
+  <Accordion title="Route denominations can only be saved when paper is NIGHT_SUBMITTED">
+    The cash denomination breakdown for a route (how many ₹500 notes, ₹200 notes, etc.) can only be entered when the paper is in exactly `NIGHT_SUBMITTED` status. This window corresponds to the period after the night delivery has returned and before morning operations are finalized. It is not editable in `REOPENED` status.
+  </Accordion>
+
+  <Accordion title="Direct employee collections are locked to NIGHT_SUBMITTED status">
+    Cash collected directly by named employees (rather than by a delivery vehicle route) follows the same status constraint — only writable at `NIGHT_SUBMITTED`.
+  </Accordion>
+
+  <Accordion title="Bank deposits are locked to NIGHT_SUBMITTED status">
+    Similarly, bank deposit records can only be entered when the paper is `NIGHT_SUBMITTED`. This reflects the operational reality that deposits are made during the daytime after the night route returns and before the day is fully closed.
+  </Accordion>
+
+  <Accordion title="Route expenses are editable in NIGHT_SUBMITTED and REOPENED">
+    Unlike denominations and deposits, route expenses (diesel, parking, loading charges, etc.) remain editable after reopening, because operational costs are sometimes invoiced after the delivery day.
+  </Accordion>
+</AccordionGroup>
+
+## Distributor Transfer Rules
+
+<AccordionGroup>
+  <Accordion title="Transfers are auto-generated at morning submission">
+    When a paper transitions to `MORNING_SUBMITTED`, the system automatically generates distributor transfer records for every delivered order line where the supplying distributor differs from the owning distributor. You do not manually create these records during normal operations.
+  </Accordion>
+
+  <Accordion title="Transfers can only be manually edited in REOPENED status">
+    If a transfer record needs to be corrected after finalization, you reopen the paper and edit the transfer directly. Transfer records are not editable at any other status.
+  </Accordion>
+
+  <Accordion title="Only configured transfer pairs can generate transfers">
+    A transfer record can only be generated if an active transfer rule exists between the supplier distributor and the owner distributor. If no rule is configured for a given pair, the system will not generate a transfer for that combination, even if the supply rules would logically require one.
+  </Accordion>
+</AccordionGroup>
+
+## Vehicle Allocation Rules
+
+<AccordionGroup>
+  <Accordion title="Night allocations are editable in DRAFT or REOPENED status">
+    Vehicle allocations for the NIGHT delivery session can be set up while the paper is in `DRAFT` status (pre-delivery planning) or `REOPENED` status (corrections).
+  </Accordion>
+
+  <Accordion title="Morning allocations are editable in NIGHT_SUBMITTED or REOPENED status">
+    Vehicle allocations for the MORNING session become editable once the night has been submitted — which is when the morning delivery plan is being finalized.
+  </Accordion>
+</AccordionGroup>

@@ -1,8 +1,135 @@
 ---
-title: Orders Page
-description: Orders Page documentation
+title: "Orders Page: Night/Morning Order Entry and Billing"
+sidebarTitle: "Orders Page"
+description: "Reference for the Orders Page in the Milk Distribution ERP desktop app: shift entry modes, billing grids, workflow actions, and status-gating rules."
 ---
 
-# Orders Page
+The Orders Page is the primary operational screen in the Milk Distribution ERP system. Every working day flows through this screen: operators begin by entering ordered quantities during the night shift, then return to record delivered quantities during the morning shift. The page drives the full paper lifecycle — from a blank `DRAFT` through to `MORNING_SUBMITTED` — and surfaces the calculations, collections, and tray movements that make up the day's complete record. Understanding this screen is essential for anyone operating the system day-to-day.
 
-> This page is under construction.
+---
+
+## Purpose
+
+The Orders Page displays the current paper's order sheets grouped by delivery group (route). Each group is presented as a selectable tab or route picker. Within a group the operator sees one AG Grid for MILK products and a second AG Grid for NON\_MILK products. Rows represent individual clients; columns represent products. The page adapts its editable columns and available action buttons depending on the paper's current status, so the same screen handles both the night entry flow and the morning delivery flow without any navigation.
+
+---
+
+## Information Displayed
+
+<CardGroup cols={2}>
+  <Card title="Paper Header" icon="file-lines">
+    The current paper's status badge (e.g., `DRAFT`, `NIGHT_SUBMITTED`) and sale date are pinned at the top of the page so the operator always knows which day and shift they are working on.
+  </Card>
+
+  <Card title="Route / Group Selector" icon="route">
+    A tab strip or dropdown lets the operator switch between delivery groups (routes). Each group corresponds to one order sheet.
+  </Card>
+
+  <Card title="MILK Orders Grid" icon="droplet">
+    AG Grid where rows are clients and columns are MILK products. Night columns show `ordered_qty`; morning columns show `delivered_qty` and calculated `night_bill_amount` / `final_bill_amount`.
+  </Card>
+
+  <Card title="NON-MILK Orders Grid" icon="box">
+    Identical in structure to the MILK grid but scoped to NON\_MILK products for the same route.
+  </Card>
+
+  <Card title="Sheet Summary" icon="chart-bar">
+    Totals by product and a billing summary row appear beneath the grids, giving operators a quick sanity check on route-level quantities.
+  </Card>
+
+  <Card title="Collections Section" icon="coins">
+    Embedded below the grids. Records cash, cheque, online, and bank deposit payments per client. See the Collections Screen reference for full detail.
+  </Card>
+
+  <Card title="Tray Tracking Section" icon="layer-group">
+    Also embedded on the same page. Records tray taken and returned counts per client and tray type. See the Tray Tracking Screen reference for full detail.
+  </Card>
+</CardGroup>
+
+---
+
+## Editable Fields
+
+The fields that can be edited depend entirely on the paper's current status:
+
+| Field | Editable Status(es) | Notes |
+| --- | --- | --- |
+| `ordered_qty` | `DRAFT` | Night shift quantity entry. |
+| `delivered_qty` | `NIGHT_SUBMITTED`, `REOPENED` | Morning shift delivery entry. |
+| Collection fields | Varies by field — see Collections Screen | Cash/cheque/online per client. |
+| Tray movements | `NIGHT_SUBMITTED`, `REOPENED` | Trays taken and returned. |
+
+<Note>
+  Calculated fields such as `night_bill_amount` and `final_bill_amount` are computed client-side from the entered quantity and the client's configured product rate. They are **never** sent to the server in a save request — the server recalculates them independently.
+</Note>
+
+---
+
+## Actions
+
+<Steps>
+  <Step title="Save Night Entries">
+    Persists `ordered_qty` for all rows in the currently visible route. Available when the paper is in `DRAFT` status. Does not change the paper status — you can save multiple times before submitting.
+  </Step>
+  <Step title="Submit Night">
+    Transitions the paper from `DRAFT` → `NIGHT_SUBMITTED`. All routes' night entries are locked after this point. Triggers the `POST /papers/:paperId/submit-night` API call.
+  </Step>
+  <Step title="Save Morning Entries">
+    Persists `delivered_qty` for all rows in the currently visible route. Available when the paper is `NIGHT_SUBMITTED` or `REOPENED`.
+  </Step>
+  <Step title="Submit Morning">
+    Transitions the paper from `NIGHT_SUBMITTED` → `MORNING_SUBMITTED`. Automatically triggers distributor transfer generation on the server. Triggers `POST /papers/:paperId/submit-morning`.
+  </Step>
+  <Step title="Finalize (Admin only)">
+    Locks the paper permanently. Available only to users with the `ADMIN` role when the paper is in `MORNING_SUBMITTED` or `REOPENED` status.
+  </Step>
+  <Step title="Reopen (Admin only)">
+    Returns the paper to `REOPENED` status so corrections can be made. Only available to `ADMIN` role users when the paper is in `FINALIZED` status.
+  </Step>
+</Steps>
+
+<Warning>
+  Save buttons are disabled whenever the paper is in a status that does not permit editing. Attempting to save outside of the allowed window will show a disabled button and no API call will be made.
+</Warning>
+
+---
+
+## Required APIs
+
+| Method | Endpoint | Used For |
+| --- | --- | --- |
+| `GET` | `/papers/today` | Load today's active paper on page open. |
+| `GET` | `/papers/:paperId` | Load a specific paper by ID. |
+| `GET` | `/orders/sheet/:sheetId` | Load the order sheet grid data for a route. |
+| `POST` | `/orders/sheet/:sheetId/night-save` | Save night (ordered) quantities. |
+| `POST` | `/orders/sheet/:sheetId/morning-save` | Save morning (delivered) quantities. |
+| `POST` | `/papers/:paperId/submit-night` | Submit night shift. |
+| `POST` | `/papers/:paperId/submit-morning` | Submit morning shift. |
+| `POST` | `/papers/:paperId/finalize` | Finalize paper (Admin). |
+| `POST` | `/papers/:paperId/reopen` | Reopen paper (Admin). |
+
+---
+
+## Business Rules
+
+<CardGroup cols={2}>
+  <Card title="Rate Required" icon="circle-exclamation">
+    A client must have a product rate configured before a save will succeed. If a rate is missing the server returns a validation error and the save is rejected.
+  </Card>
+
+  <Card title="Client-Side Calculations" icon="calculator">
+    Bill amounts (`night_bill_amount`, `final_bill_amount`) are computed locally from `qty × rate` and displayed in read-only grid cells. They are not part of the save payload.
+  </Card>
+
+  <Card title="Separate MILK / NON_MILK Grids" icon="grid">
+    Products are split into two grids to reduce visual clutter. Night and morning save operations act on both grids simultaneously when the Save button is clicked.
+  </Card>
+
+  <Card title="Paper Status Guard" icon="shield">
+    Every editable column checks the paper status before allowing cell edits. Cells are rendered read-only when the status does not permit changes, even if the column is visible.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Operators should complete all saves for every route before clicking Submit Night or Submit Morning. The submit action locks the entire paper, not just the currently visible route.
+</Tip>

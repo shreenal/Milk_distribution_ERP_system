@@ -1,8 +1,70 @@
 ---
-title: Vehicle Allocations
-description: Vehicle Allocations documentation
+title: "Vehicle Allocations API — Route and Session Planning"
+sidebarTitle: "Vehicle Allocations"
+description: "Assign vehicles to delivery routes and record product load quantities per vehicle for the NIGHT and MORNING distribution sessions each day."
 ---
 
-# Vehicle Allocations
+The Vehicle Allocations API plans the daily loading schedule. Before delivery starts, the night-shift operator decides which vehicle carries which products to which delivery groups, and which distributor is responsible for supplying each product category on that vehicle. The result is a `vehicle_allocation_paper` with one entry per (vehicle, product\_category, delivery\_session).
 
-> This page is under construction.
+The allocation drives the purchase workflow (drivers know where to load) and the distributor transfer logic (mismatches between the supplying distributor and the client's owner distributor trigger transfers).
+
+---
+
+## GET /vehicle-allocations/paper/:paperId
+
+### Purpose
+
+Returns the full allocation plan for a paper. Used by the Vehicle Allocation screen and by the Purchase and Distributor Transfer modules.
+
+### Response
+
+<ResponseField name="items" type="array">
+  Allocation rows with `vehicle_id`, `product_category_id`, `distributor_id`, `delivery_session`, and the child list of assigned delivery groups.
+</ResponseField>
+
+---
+
+## POST /vehicle-allocations/paper/:paperId
+
+### Purpose
+
+Upserts the allocation for the given paper. Replaces existing entries for the same (vehicle, product\_category, session) triple.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Allocation entries; each with `vehicle_id`, `product_category_id`, `distributor_id`, `delivery_session`, and `delivery_group_ids[]`.
+</ParamField>
+
+#### Example request
+
+```json
+POST /vehicle-allocations/paper/128
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "vehicle_id": 3,
+      "product_category_id": 1,
+      "distributor_id": 5,
+      "delivery_session": "MORNING",
+      "delivery_group_ids": [12, 13, 14]
+    }
+  ]
+}
+```
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper is `FINALIZED` | `400 Bad Request` | Locked |
+| Distributor cannot supply the product category | `422 Unprocessable Entity` | `distributor_procurement_rule` mismatch |
+| Delivery group not on this paper | `422 Unprocessable Entity` | Group is not participating on this date |
+
+### Related endpoints
+
+- [Purchases API](/api/purchases) — record what each allocated vehicle actually loaded
+- [Vehicle Allocation module](/modules/vehicle-allocation) — server-side rule enforcement

@@ -1,8 +1,105 @@
 ---
-title: Overview
-description: Overview documentation
+title: "Milk Distribution ERP — System Architecture Overview"
+sidebarTitle: "Overview"
+description: "High-level architecture of the Milk Distribution ERP system: NestJS API, Prisma ORM, PostgreSQL database, and Electron desktop client."
 ---
 
-# Overview
+The Milk Distribution ERP backend is a NestJS application written in TypeScript. It exposes a REST API consumed by an Electron desktop client (React \+ Vite) running on distributor workstations. Data is persisted in PostgreSQL through the Prisma ORM. Every HTTP route is protected by JWT authentication and a role-based access control layer.
 
-> This page is under construction.
+## Technology Stack
+
+| Layer | Technology | Rationale |
+| --- | --- | --- |
+| API framework | NestJS (TypeScript) | Opinionated module structure; built-in DI, guards, pipes |
+| ORM | Prisma | Type-safe query builder; schema-first migrations |
+| Database | PostgreSQL | ACID transactions; well-suited for financial record-keeping |
+| Authentication | JWT (Bearer) \+ Passport.js | Stateless; straightforward to validate at the edge |
+| Desktop client | Electron \+ React \+ Vite | Native OS integration for offline-capable distribution operations |
+| Validation | NestJS `ValidationPipe` (class-validator) | DTO-level input sanitisation before business logic runs |
+
+## Project Structure
+
+```text
+server/
+├── src/
+│   ├── app.module.ts           # Root module — registers all feature modules
+│   ├── main.ts                 # Bootstrap: ValidationPipe, PORT binding
+│   ├── common/
+│   │   ├── builders/           # Shared response builders
+│   │   │   ├── allocation-summary.builder.ts
+│   │   │   └── product-columns.builder.ts
+│   │   ├── errors/             # Custom error base classes
+│   │   │   ├── base.errors.ts
+│   │   │   ├── not-found.error.ts
+│   │   │   └── validation.error.ts
+│   │   ├── filters/            # Global HTTP exception filter
+│   │   │   └── http-exception.filter.ts
+│   │   └── repositories/       # Shared repositories (order-items)
+│   ├── lib/
+│   │   └── prisma.ts           # Prisma client singleton
+│   ├── modules/
+│   │   ├── auth/               # JWT login, guards, roles decorator
+│   │   ├── paper/              # Daily order paper lifecycle
+│   │   ├── orders/             # Night/morning order entry
+│   │   ├── collections/        # Client payment collections
+│   │   ├── purchase/           # Dairy purchase recording
+│   │   ├── vehicle-allocation/ # Vehicle loading plans
+│   │   ├── trays/              # Client-side tray tracking
+│   │   ├── dairy-tray-tracking/# Dairy-level tray reconciliation
+│   │   ├── cash-settlement/    # End-of-day cash reconciliation
+│   │   ├── distributor-transfer/ # Inter-distributor transfers
+│   │   ├── delivery-summary/   # Read-only billing summary
+│   │   ├── workflow/           # Shared workflow state machine
+│   │   ├── clients/            # Client management
+│   │   └── products/           # Product catalog
+│   ├── prisma/                 # PrismaModule / PrismaService
+│   └── types/                  # Shared TypeScript types
+└── prisma/
+    └── schema.prisma           # Database schema and migrations
+```
+
+## Internal Module Layout
+
+Every feature module follows the same internal layer pattern:
+
+```text
+<module>/
+├── <module>.controller.ts      # HTTP routes, guards, param parsing
+├── <module>.service.ts         # Business logic, orchestration
+├── <module>.repository.ts      # Prisma queries
+├── <module>-validation.service.ts  # Business-rule validation
+├── <module>.builder.ts         # Response/grid construction
+├── <module>.constants.ts       # Error messages, config values
+├── <module>.module.ts          # NestJS module definition
+└── dto/                        # Request body shapes (class-validator)
+```
+
+This separation ensures that HTTP concerns stay in the controller, database concerns stay in the repository, and all domain rules live exclusively in the service and validation service.
+
+## Shared Cross-Cutting Services
+
+Two services are injected into almost every feature module:
+
+- **`WorkflowStateService`** — provides `canEdit*` boolean methods and `validateTransition` for the paper status machine. No module enforces workflow rules independently.
+- **`PrismaService`** — the singleton Prisma client; used directly in services for `$transaction` calls and indirectly via repositories for single queries.
+
+## Application Bootstrap
+
+`main.ts` creates the NestJS application with a global `ValidationPipe` configured for `whitelist: true` (strips unknown properties) and `transform: true` (auto-converts route params to their declared types):
+
+```typescript
+const app = await NestFactory.create(AppModule);
+app.useGlobalPipes(
+  new ValidationPipe({ whitelist: true, transform: true }),
+);
+await app.listen(process.env.PORT ?? 3000);
+```
+
+The `HttpExceptionFilter` is registered separately and catches all thrown `HttpException` subclasses, reformatting them into a consistent error envelope before the response is sent.
+
+## Related Topics
+
+- [Module Responsibilities](/architecture/module-responsibilities) — per-module responsibility table with key service methods
+- [Request Flow](/architecture/request-flow) — how an HTTP request travels from guard to database and back
+- [Authentication](/architecture/authentication) — JWT login flow and role system
+- [Error Handling](/architecture/error-handling) — `HttpExceptionFilter` behaviour and error shapes
