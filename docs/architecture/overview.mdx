@@ -22,7 +22,9 @@ The Milk Distribution ERP backend is a NestJS application written in TypeScript.
 ```text
 server/
 ├── src/
+│   ├── app.controller.ts       # Root controller
 │   ├── app.module.ts           # Root module — registers all feature modules
+│   ├── app.service.ts          # Root service
 │   ├── main.ts                 # Bootstrap: ValidationPipe, PORT binding
 │   ├── common/
 │   │   ├── builders/           # Shared response builders
@@ -32,11 +34,12 @@ server/
 │   │   │   ├── base.errors.ts
 │   │   │   ├── not-found.error.ts
 │   │   │   └── validation.error.ts
-│   │   ├── filters/            # Global HTTP exception filter
+│   │   ├── filters/            # Contains http-exception.filter.ts (empty, not registered)
 │   │   │   └── http-exception.filter.ts
-│   │   └── repositories/       # Shared repositories (order-items)
+│   │   └── repositories/       # Shared repositories
+│   │       └── order-items.repository.ts
 │   ├── lib/
-│   │   └── prisma.ts           # Prisma client singleton
+│   │   └── prisma.ts           # Standalone Prisma client (adapter-pg)
 │   ├── modules/
 │   │   ├── auth/               # JWT login, guards, roles decorator
 │   │   ├── paper/              # Daily order paper lifecycle
@@ -60,7 +63,7 @@ server/
 
 ## Internal Module Layout
 
-Every feature module follows the same internal layer pattern:
+Most feature modules follow the same internal layer pattern:
 
 ```text
 <module>/
@@ -74,14 +77,25 @@ Every feature module follows the same internal layer pattern:
 └── dto/                        # Request body shapes (class-validator)
 ```
 
+Not every module has every file. Concrete exceptions in the current codebase:
+
+- `auth/` has no builder, validation service, or constants. It ships `auth.controller.ts`, `auth.service.ts`, `auth.repository.ts`, `auth.module.ts`, `auth.guard.ts`, `jwt.strategy.ts`, `roles.guard.ts`, `roles.decorator.ts`, and `dto/`.
+- `paper/` has no builder. It also ships `paper.repository.spec.ts` and `paper.service.spec.ts` test files.
+- `products/` and `clients/` have no builder and no validation service. `clients/` additionally ships `clients.collections.ts`.
+- `delivery-summary/` has no validation service and no `dto/` folder (read-only module).
+- `distributor-transfer/` has no `dto/` folder.
+- `orders/` uses `order.billing-builder.ts` (not `orders.builder.ts`).
+- `trays/` uses `tray.billing-builder.ts` (not `trays.builder.ts`).
+- `workflow/` has `workflow-state.service.ts`, `workflow.builder.ts`, `workflow.module.ts`, and `constants/`, `guards/`, `types/` subfolders — no controller or repository.
+
 This separation ensures that HTTP concerns stay in the controller, database concerns stay in the repository, and all domain rules live exclusively in the service and validation service.
 
 ## Shared Cross-Cutting Services
 
 Two services are injected into almost every feature module:
 
-- **`WorkflowStateService`** — provides `canEdit*` boolean methods and `validateTransition` for the paper status machine. No module enforces workflow rules independently.
-- **`PrismaService`** — the singleton Prisma client; used directly in services for `$transaction` calls and indirectly via repositories for single queries.
+- **`WorkflowStateService`** — provides a full set of `canEdit*` boolean methods (`canEditNightEntries`, `canEditMorningEntries`, `canEditNightCollections`, `canEditMorningCollections`, `canEditTrays`, `canEditEmployeeCollections`, `canAdminEditCollections`, `canEditVehicleAllocations`, `canEditPurchases`, `canEditRouteExpenses`, `canEditRouteDenominations`, `canEditDirectCollections`, `canEditBankDeposits`, `canEditDairyTrayTracking`, `canEditDistributorTransfers`, `canFinalize`) plus `validateTransition` for the paper status machine. No module enforces workflow rules independently.
+- **`PrismaService`** — the singleton Prisma client (from `src/prisma/prisma.service.ts`); used directly in services for `$transaction` calls and indirectly via repositories for single queries. A separate standalone client in `src/lib/prisma.ts` is used by scripts that need a Prisma instance outside the Nest container.
 
 ## Application Bootstrap
 
