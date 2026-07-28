@@ -11,11 +11,11 @@ An `order_sheet` is one delivery route's worth of data on a given paper. Each sh
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | int, PK |  |
-| `paper_id` | int, FK → `order_paper` | Cascade delete |
-| `delivery_group_id` | int, FK → `master_group` | The route this sheet serves |
+| `order_paper_id` | int, FK → `order_paper` | Cascade delete |
+| `group_id` | int, FK → `master_group` | The delivery group this sheet serves |
 | `created_at`, `updated_at` | datetime |  |
 
-Uniqueness: `@@unique([paper_id, delivery_group_id])` — one sheet per (paper, delivery group).
+Uniqueness: `@@unique([order_paper_id, group_id])` — one sheet per (paper, group).
 
 ## order\_sheet\_items schema
 
@@ -24,49 +24,53 @@ Uniqueness: `@@unique([paper_id, delivery_group_id])` — one sheet per (paper, 
 | `id` | int, PK |  |
 | `order_sheet_id` | int, FK → `order_sheet` | Cascade delete |
 | `client_id` | int, FK → `master_client` |  |
-| `product_id` | int, FK → `master_product` |  |
-| `ordered_qty` | decimal(12,3) | Set by night entry |
-| `delivered_qty` | decimal(12,3) | Set by morning entry |
-| `rate` | decimal(12,4) | Resolved at save time (see below) |
-| `gst_inclusive` | boolean | Snapshot from product config |
-| `gst_rate` | decimal(5,2) | GST percentage |
-| `taxable_amount` | decimal(12,2) | Computed |
-| `gst_amount` | decimal(12,2) | Computed |
-| `final_amount` | decimal(12,2) | Computed |
-| `supplying_distributor_id` | int, FK → `master_distributor` | Distributor that actually supplied; may differ from client's owner distributor |
+| `product_id` | int, FK → `master_product` | Denormalized parent product |
+| `product_link_id` | int, FK → `master_product_link` | The `(distributor, product)` pair that owns the rate |
+| `ordered_qty` | decimal(10,2), nullable | Set on night save |
+| `delivered_qty` | decimal(10,2), nullable | Set on morning save |
+| `night_selling_rate` | decimal(10,2), nullable | Rate captured on night save |
+| `night_bill_amount` | decimal(12,2), nullable | Bill amount computed from `ordered_qty × night_selling_rate` |
+| `final_selling_rate` | decimal(10,2), nullable | Rate captured on morning save |
+| `final_taxable_amount` | decimal(12,2), nullable | Computed on morning save |
+| `final_gst_percentage` | decimal(5,2), nullable | Snapshot of the product's GST percentage at morning save |
+| `final_gst_amount` | decimal(12,2), nullable | Computed on morning save |
+| `final_bill_amount` | decimal(12,2), nullable | Final billed amount, used by Delivery Summary |
 | `created_at`, `updated_at` | datetime |  |
 
-Uniqueness: `@@unique([order_sheet_id, client_id, product_id])`.
+Uniqueness: `@@unique([order_sheet_id, client_id, product_link_id])`. Indexes on `product_link_id`, `client_id`, `order_sheet_id`, and `product_id`.
+
+There is no `supplying_distributor_id` on this table — the supplying distributor is derived from `product_link.distributor_id`.
 
 ## Rate resolution order
 
-When a save comes in, the service resolves `rate` in this order and stops at the first match:
+The Orders module (`order.billing-builder.ts`) resolves the selling rate for each item in this order:
 
-1. `master_client_rate_product` for `(client_id, product_id)` — client-specific override.
-2. `distributor_product_rate` for `(supplying_distributor_id, product_id)` — distributor default.
-3. `master_product.default_rate` — global fallback.
+1. `master_client_rate_product` matched on `(client_id, product_link_id)` and active (`effective_from` ≤ paper date, `effective_to` null or ≥ paper date, `is_active = true`) — client-specific override.
+2. `distributor_product_rate` matched on `product_link_id` and active — distributor's default selling rate.
 
-If none match, save fails with `422 Unprocessable Entity: Rate not configured`.
+If neither match, save fails with a business-rule error naming the client and product. There is no global `master_product.default_rate` column; the resolution stops at the two rate tables above.
 
 ## GST calculation
 
-Two modes based on `master_product.gst_inclusive`:
+GST behavior is driven by two fields on `master_product`: `is_gst_inclusive` (boolean) and `gst_percentage` (decimal, snapshot value). On morning save, the billing builder writes `final_gst_percentage` and computes:
 
-**Inclusive** (`gst_inclusive = true`):
-
-```text
-final_amount   = delivered_qty × rate
-taxable_amount = final_amount / (1 + gst_rate/100)
-gst_amount     = final_amount − taxable_amount
-```
-
-**Exclusive** (`gst_inclusive = false`):
+**Inclusive** (`is_gst_inclusive = true`):
 
 ```text
-taxable_amount = delivered_qty × rate
-gst_amount     = taxable_amount × gst_rate / 100
-final_amount   = taxable_amount + gst_amount
+final_bill_amount    = delivered_qty × final_selling_rate
+final_taxable_amount = final_bill_amount / (1 + final_gst_percentage/100)
+final_gst_amount     = final_bill_amount − final_taxable_amount
 ```
+
+**Exclusive** (`is_gst_inclusive = false`):
+
+```text
+final_taxable_amount = delivered_qty × final_selling_rate
+final_gst_amount     = final_taxable_amount × final_gst_percentage / 100
+final_bill_amount    = final_taxable_amount + final_gst_amount
+```
+
+Night save writes only `night_selling_rate` and `night_bill_amount = ordered_qty × night_selling_rate`; GST fields remain null until morning save.
 
 All computed fields are recalculated server-side on every save; the client cannot override them.
 

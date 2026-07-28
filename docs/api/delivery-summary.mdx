@@ -4,55 +4,40 @@ sidebarTitle: "Delivery Summary"
 description: "Retrieve aggregated final billing amounts grouped by billing group for a day's paper, used by admins to verify route totals before finalization."
 ---
 
-The Delivery Summary API is a read-only rollup that admins consult before finalizing a paper. It aggregates every `order_sheet_items.final_amount` by billing group so the admin can compare the day's billed totals against expected route revenue and collected payments.
+The Delivery Summary API is a read-only rollup used by admins before finalizing a paper. It aggregates delivered quantities from `order_sheet_items` by `(distributor, category, brand, product_group)` and builds a grid keyed by billing group.
 
-There are no write endpoints — the summary is derived from live data on every call.
+There are no write endpoints; the summary is derived from live data on every call.
 
 ---
 
-## GET /delivery-summary/paper/:paperId
+## GET /delivery-summary/:paperId
 
 ### Purpose
 
-Returns billing totals for a paper, grouped by billing group.
+Returns the billing group summary for the paper.
+
+### Access control
+
+`EMPLOYEE` (and above).
 
 ### Response
 
-<ResponseField name="items" type="array">
-  One entry per billing group with `billing_group_id`, `billing_group_name`, `total_billed`, `total_collected`, `outstanding`, and `client_count`.
+Returns HTTP **200** with:
+
+<ResponseField name="summaries" type="array">
+  One entry per `(distributor, category, brand, product_group)` slice, each containing:
+
+  - `summaryKey` — the composite key
+  - `distributorId`, `category` (`MILK`/`NON_MILK`), `brandId`, `brandName`, `productGroupId`, `productGroupName`
+  - `columns` — the product columns for this slice
+  - `rows` — one row per billing group with `groupId`, `groupName`, and one `product_<productId>` field per column holding the total delivered quantity for that billing group in that slice
 </ResponseField>
-
-<ResponseField name="grand_total" type="object">
-  Sum across all billing groups.
-</ResponseField>
-
-#### Example response
-
-```json
-{
-  "items": [
-    {
-      "billing_group_id": 1,
-      "billing_group_name": "Route A",
-      "total_billed": 45320.50,
-      "total_collected": 42100.00,
-      "outstanding": 3220.50,
-      "client_count": 38
-    }
-  ],
-  "grand_total": {
-    "billed": 45320.50,
-    "collected": 42100.00,
-    "outstanding": 3220.50
-  }
-}
-```
 
 ### Behavior
 
-- `total_billed` includes GST per each product's inclusive/exclusive config.
-- `total_collected` sums all four channels (cash, cheque, online, bank deposit, office amount given).
-- Available in every paper state; used by admins to gate the `finalize` transition.
+- Reads all `order_sheet_items` with `delivered_qty > 0` on the paper.
+- Groups by `(distributor, category, brand, product_group)` at the outer level and by billing group at the row level.
+- Available in every paper state; used by admins as one input to the `finalize` decision.
 
 ### Related endpoints
 

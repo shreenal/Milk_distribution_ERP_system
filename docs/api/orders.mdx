@@ -4,9 +4,9 @@ sidebarTitle: "Orders"
 description: "Read order sheets and save night ordered quantities and morning delivered quantities for every client on a delivery route in the ERP."
 ---
 
-The Orders API is how the client app reads and writes the per-client line items on each order sheet. Every paper has one `order_sheet` per delivery group; each sheet holds one `order_sheet_items` row per (client, product) combination. Night-shift operators enter `ordered_qty` at the start of the cycle; morning-shift operators enter `delivered_qty` after the route completes. All billing amounts (GST inclusive/exclusive, final bill) are recomputed server-side on every save.
+The Orders API is how the client app reads and writes the per-client line items on each order sheet. Every paper has one `order_sheet` per active delivery group; each sheet holds one `order_sheet_items` row per (client, product\_link) combination. Night-shift operators enter `orderedQty` at the start of the cycle; morning-shift operators enter `deliveredQty` after the route completes. All billing amounts (GST inclusive/exclusive, final bill) are recomputed server-side on every save.
 
-All endpoints require a bearer token. Both `EMPLOYEE` and `ADMIN` may read; write access is gated by the paper's current workflow state, not by role.
+All endpoints require a bearer token. `EMPLOYEE` role is enforced by the controller; `ADMIN` inherits `EMPLOYEE` access via the role hierarchy.
 
 ---
 
@@ -14,7 +14,7 @@ All endpoints require a bearer token. Both `EMPLOYEE` and `ADMIN` may read; writ
 
 ### Purpose
 
-Returns a single order sheet with all its line items, resolved product rates, and billing calculations. This is the read used by the Orders Page to populate the night and morning grids.
+Returns the full sheet payload used by the Orders Page: the sheet record, workflow flags for the current paper state, and the two billing grids (`milkGrid` and `nonMilkGrid`) built from active clients, active products, and the current `order_sheet_items` rows.
 
 ### Path parameters
 
@@ -24,97 +24,130 @@ Returns a single order sheet with all its line items, resolved product rates, an
 
 ### Response
 
-Returns HTTP **200** with the sheet aggregate:
+Returns HTTP **200** with:
 
-<ResponseField name="id" type="number">
-  Sheet primary key.
+<ResponseField name="sheet" type="object">
+  The `order_sheet` row plus its `order_paper` relation (id, status, `order_date`, `sale_date`, submission timestamps).
 </ResponseField>
 
-<ResponseField name="paper_id" type="number">
-  Parent `order_paper.id`.
+<ResponseField name="workflow" type="object">
+  Feature flags derived from `WorkflowStateService`, used by the client to enable or disable actions on the current paper state.
 </ResponseField>
 
-<ResponseField name="delivery_group_id" type="number">
-  Which delivery group this sheet serves.
+<ResponseField name="milkGrid" type="object">
+  Product columns, one row per active MILK client on the sheet's delivery group, and totals. The quantity cells reflect `ordered_qty` when the paper is in `DRAFT` or `REOPENED`, and `delivered_qty` otherwise. `billAmount` mirrors `night_bill_amount` in the ordered case and `final_bill_amount` in the delivered case.
 </ResponseField>
 
-<ResponseField name="items" type="array">
-  One entry per (client, product) row on the sheet, with `client_id`, `product_id`, `ordered_qty`, `delivered_qty`, `rate`, `gst_amount`, and `final_amount` fields.
+<ResponseField name="nonMilkGrid" type="object">
+  Same shape as `milkGrid`, for NON\_MILK products.
 </ResponseField>
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| `sheetId` not integer | `400 Bad Request` | ParseIntPipe rejection |
-| Sheet does not exist | `404 Not Found` | No such sheet |
+| `sheetId` not a positive integer | `400 Bad Request` | ParseIntPipe rejection |
+| Sheet does not exist | `400 Bad Request` | Sheet not found |
 
 ---
 
-## POST /orders/sheet/:sheetId/night
+## GET /orders/sheet/:sheetId/items
 
 ### Purpose
 
-Saves the ordered quantities entered during the night shift. Accepts an array of `(client_id, product_id, ordered_qty)` triples and upserts each row.
+Returns the raw `order_sheet_items` array for a sheet, without grid construction. Used by clients that need the underlying rows (rates, GST fields, both night and final amounts) rather than the presentation grids.
+
+### Response
+
+Returns HTTP **200** with an array of `order_sheet_items` rows including `product_id`, `product_link_id`, `ordered_qty`, `delivered_qty`, `night_selling_rate`, `night_bill_amount`, `final_selling_rate`, `final_taxable_amount`, `final_gst_percentage`, `final_gst_amount`, and `final_bill_amount`.
+
+---
+
+## POST /orders/sheet/:sheetId/night-save
+
+### Purpose
+
+Saves the ordered quantities entered during the night shift. The request body is an array of `SaveNightEntriesDto` items — no wrapping object.
 
 ### Behavior
 
-- Only editable when the parent paper is in `DRAFT`. Any other state returns `400`.
-- Rates are looked up from `master_client_rate_product` (client-specific override) or the distributor's product rate table.
-- GST is applied per product config (inclusive or exclusive) and the `final_amount` field is recomputed.
+- Editable only when the parent paper's status passes `WorkflowStateService.canEditNightEntries`, which is `DRAFT` only.
+- The service validates each client (exists and active), validates each client belongs to the sheet's delivery group, resolves the `product_link_id` from the group's supply rules, and looks up the selling rate from `master_client_rate_product` (fallback: `distributor_product_rate`).
+- On save, `ordered_qty`, `night_selling_rate`, and `night_bill_amount = ordered_qty × night_selling_rate` are upserted.
+- GST fields remain null until morning save.
+
+### Access control
+
+`EMPLOYEE` (and above, via hierarchy).
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Array of order items. Each entry needs `client_id`, `product_id`, and `ordered_qty`.
+Direct array of items — the endpoint expects `SaveNightEntriesDto[]` in the body root, not an `items` wrapper.
+
+<ParamField body="clientId" type="number" required>
+  Client on the sheet.
+</ParamField>
+
+<ParamField body="productId" type="number" required>
+  Product being ordered.
+</ParamField>
+
+<ParamField body="orderedQty" type="number" required>
+  Non-negative decimal quantity, maximum `10000`.
 </ParamField>
 
 #### Example request
 
 ```json
-POST /orders/sheet/42/night
+POST /orders/sheet/42/night-save
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{
-  "items": [
-    { "client_id": 101, "product_id": 7, "ordered_qty": 20 },
-    { "client_id": 101, "product_id": 12, "ordered_qty": 5 },
-    { "client_id": 102, "product_id": 7, "ordered_qty": 15 }
-  ]
-}
+[
+  { "clientId": 101, "productId": 7,  "orderedQty": 20 },
+  { "clientId": 101, "productId": 12, "orderedQty": 5 },
+  { "clientId": 102, "productId": 7,  "orderedQty": 15 }
+]
 ```
 
 ### Response
 
-Returns HTTP **200** with the updated sheet (same shape as `GET /orders/sheet/:sheetId`).
+Returns HTTP **201** with a success payload from the service (updated items and totals).
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper not in `DRAFT` | `400 Bad Request` | Night entry is locked once the paper advances |
-| Unknown client or product | `422 Unprocessable Entity` | ID not present on this sheet |
-| `ordered_qty` negative | `400 Bad Request` | Must be `>= 0` |
+| Paper status not editable for night entry | `400 Bad Request` | Only `DRAFT` allows night save |
+| Duplicate `(clientId, productId)` in payload | `400 Bad Request` | Deduplicated at DTO validation |
+| Client inactive, unknown, or not in the delivery group | `400 Bad Request` | Validation service rejects |
+| Rate not configured for the resolved `product_link` | `400 Bad Request` | No active client rate or distributor rate |
+| `orderedQty` negative or `> 10000` | `400 Bad Request` | DTO `class-validator` rules |
 
 ---
 
-## POST /orders/sheet/:sheetId/morning
+## POST /orders/sheet/:sheetId/morning-save
 
 ### Purpose
 
-Saves the delivered quantities recorded during the morning shift. Same shape as the night endpoint but writes to the `delivered_qty` column and recomputes billing based on what was actually delivered.
+Saves the delivered quantities recorded during the morning shift. Writes `delivered_qty`, `final_selling_rate`, `final_taxable_amount`, `final_gst_percentage`, `final_gst_amount`, and `final_bill_amount` on each `order_sheet_items` row.
 
 ### Behavior
 
-- Only editable when the paper is in `NIGHT_SUBMITTED` (or `REOPENED`).
-- Delivered quantity may differ from ordered quantity — the difference feeds the delivery-summary variance report.
-- Final billing is based on `delivered_qty`, not `ordered_qty`.
+- Editable when `WorkflowStateService.canEditMorningEntries(status)` returns true — that is, when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
+- Rate resolution runs again at morning save so any rate change between night and morning is captured on the final fields.
+- Final GST calculation follows the product's `is_gst_inclusive`/`gst_percentage` at morning save time (see [Order Sheet](/data-model/order-sheet)).
+
+### Access control
+
+`EMPLOYEE` (and above).
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Array of items, each with `client_id`, `product_id`, and `delivered_qty`.
+Direct array of `SaveMorningEntriesDto`:
+
+<ParamField body="deliveredQty" type="number" required>
+  Non-negative decimal, maximum `10000`.
 </ParamField>
 
 ### Validation and errors
@@ -122,7 +155,8 @@ Saves the delivered quantities recorded during the morning shift. Same shape as 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
 | Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Morning entry is locked in other states |
-| `delivered_qty` negative | `400 Bad Request` | Must be `>= 0` |
+| `deliveredQty` negative or `> 10000` | `400 Bad Request` | DTO validation |
+| Rate not configured | `400 Bad Request` | Missing client or distributor rate |
 
 ### Related endpoints
 

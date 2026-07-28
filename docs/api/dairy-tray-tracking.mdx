@@ -4,51 +4,68 @@ sidebarTitle: "Dairy Trays"
 description: "Track crate and tray movement at the depot level, recording how many trays each vehicle carries out on a run and returns to the dairy per tray type."
 ---
 
-The Dairy Tray Tracking API is the depot-side counterpart to the client-side [Trays API](/api/trays). Where Trays tracks the (client × tray\_type) balance, Dairy Tray Tracking records how many trays each vehicle takes out to the field and how many it brings back to the dairy at the end of the session. Discrepancies point to trays still in the field or lost stock.
+The Dairy Tray Tracking API is the depot-side counterpart to the client-side [Trays API](/api/trays). Rows are stored in `dairy_tray_transaction` under a single `dairy_tray_paper` per `order_paper` (uniqueness on `order_paper_id`). One row exists per `(dairy_tray_paper_id, vehicle_id, tray_type_id)`.
 
-Records are stored in `dairy_tray_paper`, one row per (paper, vehicle, tray\_type, delivery\_session).
+The controller is mounted at `@Controller('dairy-tray-tracking')` with `:paperId` as the leading path segment.
 
 ---
 
-## GET /dairy-tray-tracking/paper/:paperId
+## GET /dairy-tray-tracking/:paperId
 
 ### Purpose
 
-Returns the depot-level tray record for the paper, grouped by vehicle and delivery session.
+Returns the depot-level tray view for the paper: the `dairy_tray_paper` (if any) plus all `dairy_tray_transaction` rows, grouped for grid presentation.
+
+### Access control
+
+`EMPLOYEE` (and above).
 
 ### Response
 
-<ResponseField name="items" type="array">
-  Entries with `vehicle_id`, `tray_type_id`, `delivery_session`, `trays_out`, `trays_in`, and `variance` (`trays_out - trays_in - trays_still_with_clients`).
-</ResponseField>
+Each transaction row includes `vehicle_id`, `tray_type_id`, `opening_balance`, `trays_taken`, `trays_returned`, and `closing_balance` (`opening_balance + trays_taken − trays_returned`).
 
 ---
 
-## POST /dairy-tray-tracking/paper/:paperId
+## POST /dairy-tray-tracking/:paperId/save
 
 ### Purpose
 
-Upserts depot tray movement rows for the paper.
+Upserts depot tray rows for the paper. Operators enter only `returned` per `(vehicleId, trayTypeId)`. `opening_balance` (from the previous paper's closing balance) and `trays_taken` (from vehicle allocation for the paper's active session) are computed server-side.
+
+### Access control
+
+`EMPLOYEE`. Editable when `WorkflowStateService.canEditDairyTrayTracking(status)` returns true — that is, when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Entries with `vehicle_id`, `tray_type_id`, `delivery_session` (`NIGHT` or `MORNING`), `trays_out`, `trays_in`.
+`SaveDairyTrayEntriesDto`:
+
+<ParamField body="entries" type="array" required>
+  Array of `{ vehicleId: number, trayTypeId: number, returned: number (>= 0) }`.
 </ParamField>
 
-### Behavior
+#### Example request
 
-- `trays_out` and `trays_in` are captured directly from the depot operator.
-- `variance` is computed from client-side transactions on the same paper.
-- Writes blocked in `FINALIZED` state.
+```json
+POST /dairy-tray-tracking/128/save
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "entries": [
+    { "vehicleId": 3, "trayTypeId": 2, "returned": 40 },
+    { "vehicleId": 4, "trayTypeId": 2, "returned": 20 }
+  ]
+}
+```
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper is `FINALIZED` | `400 Bad Request` | Locked |
-| Invalid `delivery_session` | `400 Bad Request` | Must be `NIGHT` or `MORNING` |
-| Negative counts | `400 Bad Request` | Must be `>= 0` |
+| Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Locked in other states |
+| `returned` negative | `400 Bad Request` | DTO validation |
+| Unknown `vehicleId` or `trayTypeId` | `400 Bad Request` | Validation service rejects |
 
 ### Related endpoints
 

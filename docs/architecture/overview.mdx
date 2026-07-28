@@ -95,7 +95,7 @@ app.useGlobalPipes(
 await app.listen(process.env.PORT ?? 3000);
 ```
 
-The `HttpExceptionFilter` is registered separately and catches all thrown `HttpException` subclasses, reformatting them into a consistent error envelope before the response is sent.
+There is no custom global `ExceptionFilter` wired up. Errors thrown by services (`BadRequestException`, `NotFoundException`, `UnauthorizedException`, `ForbiddenException`) travel through Nest's default exception handling and return the standard `{ statusCode, message, error }` envelope. A `src/common/filters/http-exception.filter.ts` file exists in the tree but is not registered in `main.ts` or through `APP_FILTER`.
 
 ## Related Topics
 

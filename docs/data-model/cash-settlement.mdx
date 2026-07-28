@@ -155,9 +155,9 @@ The bank lookup table. Stores each bank's unique name and an `is_active` flag. B
 
 ## Lifecycle Notes
 
-All cash settlement records are children of `order_paper` and are created during the end-of-day settlement phase, after morning delivery entries are complete.
+Cash settlement records are keyed to `order_paper` or (in the route-settlement case) to `order_sheet`. They are created during the end-of-day settlement phase, after morning delivery entries are complete.
 
-- **`cash_route_settlement` creation** — one record is created per `order_sheet` (1:1, enforced via `@unique` on `order_sheet_id`). It is typically written when the delivery person returns from the route and hands over cash. The denomination breakdown is entered manually by office staff. Deleting an `order_sheet` cascades to its `cash_route_settlement` and all attached `cash_route_expense` rows.
+- **`cash_route_settlement` creation** — one record per `order_sheet` (1:1, enforced via `@unique` on `order_sheet_id`). It cascades from `order_sheet` (not directly from `order_paper`). The denomination breakdown is entered manually by office staff. Deleting an `order_sheet` cascades to its `cash_route_settlement` and all attached `cash_route_expense` rows.
 - **`cash_route_expense` entries** — multiple expense rows can be attached to a single route settlement. There is no uniqueness constraint on expense type within a settlement, so the same expense category (e.g., Diesel) may appear more than once if charges were incurred in separate transactions during the route.
 - **`cash_direct_collection` creation** — one record per employee per day, enforced by the `(order_paper_id, employee_id)` unique constraint. Created when office staff record cash that was handed in directly by an employee outside the standard route settlement flow.
 - **`cash_bank_deposit` creation** — multiple deposits can be recorded per day, to one or more banks. There is no uniqueness constraint on `(order_paper_id, bank_id)`, so partial deposits to the same bank on the same day are permitted.
@@ -175,4 +175,4 @@ The three settlement tables cover distinct paths by which cash enters the accoun
 | Cash handed in by employees directly | `cash_direct_collection` | Per employee per day |
 | Cash deposited at a bank | `cash_bank_deposit` | Per bank account per day |
 
-All three are children of `order_paper` and cascade-delete when the order paper is deleted.
+`cash_direct_collection` and `cash_bank_deposit` are direct children of `order_paper` and cascade-delete with it. `cash_route_settlement` is a child of `order_sheet` (which itself cascades from `order_paper`), so it is transitively removed when the paper is deleted.

@@ -4,47 +4,48 @@ sidebarTitle: "Distributor Transfers"
 description: "Retrieve and regenerate inter-distributor stock transfer records created when one distributor supplies stock billed under another distributor's group."
 ---
 
-The Distributor Transfer API surfaces the auto-generated inter-distributor transfer records that reconcile stock ownership when Distributor A supplies product delivered to a client belonging to Distributor B. These records are generated on `submit-morning` and must be regenerated after a paper is reopened and morning data is edited.
+The Distributor Transfer API surfaces the inter-distributor transfer records generated when a supplier distributor differs from a client's owner distributor. These records are auto-created inside `PaperService.submitMorningEntryService` (which calls `DistributorTransferService.generateTransfer`). The API also exposes a manual `generate` endpoint used after `REOPENED` edits.
 
-The endpoints below are read-mostly: transfers are created by the paper workflow, not by direct client calls. The exception is `regenerate`, which recomputes the entire day's transfers in place.
-
----
-
-## GET /distributor-transfer/paper/:paperId
-
-### Purpose
-
-Returns every `distributor_transfer` row generated for the paper.
-
-### Response
-
-<ResponseField name="items" type="array">
-  Transfer rows with `from_distributor_id`, `to_distributor_id`, `product_id`, `quantity`, `rate`, `amount`, and `source_sheet_item_id[]` (audit trail linking each transfer back to the sheet items that caused it).
-</ResponseField>
+The controller is mounted at `@Controller('distributor-transfer')` with `:paperId` as the leading path segment.
 
 ---
 
-## POST /distributor-transfer/paper/:paperId/regenerate
+## GET /distributor-transfer/:paperId
 
 ### Purpose
 
-Deletes existing transfer rows for the paper and rebuilds them from the current sheet items. Intended for use after `REOPENED` state edits have changed which distributor supplied which product for which client.
+Returns the transfer summary and grid for the paper: the `order_paper` header, and the per-`(supplier_distributor, owner_distributor)` grid built from source `order_sheet_items`.
 
 ### Access control
 
-`ADMIN` role required.
+`EMPLOYEE` (and above).
 
-### Behavior
+### Response
 
-- Only allowed while the paper is in `MORNING_SUBMITTED` or `REOPENED`. Returns `400` in `DRAFT`, `NIGHT_SUBMITTED`, or `FINALIZED`.
-- Rebuild is transactional; either all rows regenerate or none change.
+Returns HTTP **200** with `{ paper, ...transferGrids }` where each grid entry represents a `(supplier_distributor, owner_distributor)` pair and its rows keyed by `billingGroup` with product-quantity columns.
+
+---
+
+## POST /distributor-transfer/:paperId/generate
+
+### Purpose
+
+Rebuilds `distributor_transfer` rows for the paper. The service reads source items, computes per-`(supplier, owner, billing_group, product)` totals, validates that each `(supplier, owner)` pair is whitelisted in `distributor_transfer_rule`, then replaces the paper's transfers in a single transaction.
+
+Row shape written: `{ order_paper_id, supplier_distributor_id, owner_distributor_id, billing_group_id, product_id, transfer_qty }`. Uniqueness on `(order_paper_id, supplier_distributor_id, owner_distributor_id, billing_group_id, product_id)`.
+
+### Access control
+
+`EMPLOYEE` (and above). This endpoint is intended for use after a paper is reopened and morning data has been edited; the initial generation happens automatically inside `submit-morning`.
+
+`WorkflowStateService.canEditDistributorTransfers(status)` allows edits only in `REOPENED`; the endpoint itself accepts calls regardless of state, but a corresponding paper transition (submit-morning) is the normal path in `NIGHT_SUBMITTED` → `MORNING_SUBMITTED`.
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Caller not `ADMIN` | `403 Forbidden` | Role check |
-| Paper not in eligible state | `400 Bad Request` | Regenerate only allowed in `MORNING_SUBMITTED` or `REOPENED` |
+| Paper not found | `404 Not Found` | Unknown `paperId` |
+| A required `(supplier, owner)` pair has no active `distributor_transfer_rule` | `400 Bad Request` | Validation service rejects |
 
 ### Related workflow
 

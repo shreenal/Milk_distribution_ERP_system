@@ -4,30 +4,30 @@ sidebarTitle: "Paper States"
 description: "All five paper states, every allowed transition, who triggers each, what validations run, what side effects fire, and what data is editable in each state."
 ---
 
-The `order_paper.status` field is a `PaperStatus` enum with exactly five values: `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED`. Every write in the system consults it. This page is the definitive reference for what each state means, what transitions are legal, and what side effects each transition triggers.
+The `order_paper.status` field is an `OrderPaperStatus` enum with exactly five values: `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED`. Every write in the system consults it. This page is the definitive reference for what each state means, what transitions are legal, and what side effects each transition triggers.
 
 ## States
 
 | State | Meaning | Reached by |
 | --- | --- | --- |
-| `DRAFT` | Paper created; night entry in progress | Paper creation by Admin |
-| `NIGHT_SUBMITTED` | Night phase closed; morning phase in progress | `POST /papers/:id/submit-night` by Employee |
-| `MORNING_SUBMITTED` | Delivery done; awaiting cash settlement \+ admin review | `POST /papers/:id/submit-morning` by Employee |
-| `FINALIZED` | Locked; day is closed | `POST /papers/:id/finalize` by Admin |
-| `REOPENED` | Correction mode after finalize | `POST /papers/:id/reopen` by Admin with a reason |
+| `DRAFT` | Paper created; night entry in progress | Paper creation by `EMPLOYEE` (or `ADMIN` via role hierarchy) |
+| `NIGHT_SUBMITTED` | Night phase closed; morning phase in progress | `POST /papers/:id/submit-night` by `EMPLOYEE` |
+| `MORNING_SUBMITTED` | Delivery done; awaiting cash settlement \+ admin review | `POST /papers/:id/submit-morning` by `EMPLOYEE` |
+| `FINALIZED` | Locked; day is closed | `POST /papers/:id/finalize` by `ADMIN` |
+| `REOPENED` | Correction mode after finalize | `POST /papers/:id/reopen` by `ADMIN` with a reason |
 
 ## Transitions
 
-Only these five transitions are legal. Any other attempted move is rejected by `WorkflowStateService.validateTransition()` with a business-rule error.
+Only these five transitions are legal. Any other attempted move is rejected by `WorkflowStateService.validateTransition()` with a `BadRequestException`.
 
 | From | To | Role | Endpoint | Side effects |
 | --- | --- | --- | --- | --- |
-| `-` | `DRAFT` | Admin | `POST /papers` | Auto-creates one `order_sheet` per active delivery group |
-| `DRAFT` | `NIGHT_SUBMITTED` | Employee | `POST /papers/:id/submit-night` | Stamps `night_entry_submitted_at` |
-| `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | Employee | `POST /papers/:id/submit-morning` | Stamps `morning_entry_submitted_at`; auto-generates `distributor_transfer` rows |
-| `MORNING_SUBMITTED` | `FINALIZED` | Admin | `POST /papers/:id/finalize` | Stamps `finalized_at` |
-| `FINALIZED` | `REOPENED` | Admin | `POST /papers/:id/reopen` | Stamps `reopened_at`, sets `reopen_reason` |
-| `REOPENED` | `FINALIZED` | Admin | `POST /papers/:id/finalize` | Stamps `finalized_at` (does not clear `reopened_at` or `reopen_reason`) |
+| `-` | `DRAFT` | `EMPLOYEE` | `POST /papers` | Auto-creates one `order_sheet` per active delivery group |
+| `DRAFT` | `NIGHT_SUBMITTED` | `EMPLOYEE` | `POST /papers/:id/submit-night` | Stamps `night_entry_submitted_at` |
+| `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | `EMPLOYEE` | `POST /papers/:id/submit-morning` | Stamps `morning_entry_submitted_at`; auto-generates `distributor_transfer` rows via `DistributorTransferService.generateTransfer` |
+| `MORNING_SUBMITTED` | `FINALIZED` | `ADMIN` | `POST /papers/:id/finalize` | Stamps `finalized_at` |
+| `FINALIZED` | `REOPENED` | `ADMIN` | `POST /papers/:id/reopen` | Stamps `reopened_at`, sets `reopen_reason` |
+| `REOPENED` | `FINALIZED` | `ADMIN` | `POST /papers/:id/finalize` | Stamps `finalized_at` (does not clear `reopened_at` or `reopen_reason`) |
 
 ## State diagram
 
@@ -57,62 +57,67 @@ Only these five transitions are legal. Any other attempted move is rejected by `
 
 ## Editability per state
 
+The exact per-module rules live in `WorkflowStateService`. This summary lists what each `canEdit…` helper returns true for in the current implementation.
+
 <AccordionGroup>
   <Accordion title="DRAFT — editable modules">
-    - Orders (night save)
-    - Collections (night save)
-    - Vehicle Allocation (night session)
+    - Orders: night save (`canEditNightEntries` → true only in `DRAFT`)
+    - Collections: night save (`canEditNightCollections` → `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED`)
+    - Vehicle Allocation: NIGHT session (`canEditVehicleAllocations` matches the active execution session)
 
     Everything else is read-only or not yet meaningful.
   </Accordion>
 
   <Accordion title="NIGHT_SUBMITTED — editable modules">
-    - Orders (morning save)
-    - Collections (morning save)
-    - Purchase
-    - Vehicle Allocation (morning session)
-    - Trays
-    - Dairy Tray Tracking
+    - Orders: morning save (`canEditMorningEntries` → `NIGHT_SUBMITTED`, `REOPENED`)
+    - Collections: morning save (`canEditMorningCollections`)
+    - Collections: continued night save (`canEditNightCollections` remains true here)
+    - Purchase (`canEditPurchases` → `NIGHT_SUBMITTED`, `REOPENED`)
+    - Vehicle Allocation: MORNING session (active execution session for this state)
+    - Trays (`canEditTrays` → `NIGHT_SUBMITTED`, `REOPENED`)
+    - Dairy Tray Tracking (`canEditDairyTrayTracking` → `NIGHT_SUBMITTED`, `REOPENED`)
+    - Cash Settlement: route expenses (`canEditRouteExpenses` → `NIGHT_SUBMITTED`, `REOPENED`), route denominations, direct collections, bank deposits (each → `NIGHT_SUBMITTED` only)
 
-    Night saves are blocked.
+    Night order entry (`canEditNightEntries`) is blocked here.
   </Accordion>
 
   <Accordion title="MORNING_SUBMITTED — editable modules">
-    - Cash Settlement (route denominations, route expenses, direct collections, bank deposits)
-    - Collections admin fields (`admin_remarks`) via Admin Save
-    - Distributor Transfer regeneration
-    - Everything else: read-only
+    - Collections: admin save (`canAdminEditCollections` → `MORNING_SUBMITTED`, `REOPENED`) writes `online_collection`, `bank_deposit`, `admin_remarks`.
+    - Everything else: read-only. Route denominations, direct collections, and bank deposits are frozen (they only allow edits in `NIGHT_SUBMITTED`).
   </Accordion>
 
   <Accordion title="FINALIZED — editable modules">
-    None. The only allowed write is `reopen`, which requires Admin and a non-empty reason.
+    None. The only allowed write is `reopen`, which requires `ADMIN` and a non-empty reason.
   </Accordion>
 
   <Accordion title="REOPENED — editable modules">
-    Same set as `MORNING_SUBMITTED`, plus the modules writable in `NIGHT_SUBMITTED`:
+    Almost every `canEdit…` helper is true in `REOPENED`:
 
-    - Orders (morning save)
-    - Collections (morning save \+ admin save)
+    - Orders: morning save
+    - Collections: night, morning, and admin saves
     - Purchase
+    - Vehicle Allocation: both NIGHT and MORNING sessions (execution module bypass in `REOPENED`)
     - Trays and Dairy Tray Tracking
-    - Cash Settlement
-    - Distributor Transfer regeneration
+    - Cash Settlement: route expenses only. Route denominations, direct collections, and bank deposits are still restricted to `NIGHT_SUBMITTED`, so they cannot be re-entered from `REOPENED`.
+    - Distributor Transfer regeneration (`canEditDistributorTransfers` → `REOPENED` only)
 
-    Note: night saves are not re-enabled by reopen. If a night quantity is wrong, the correct action is to reopen, then correct the delivered/morning quantity to reflect what actually happened.
+    Night order entry (`canEditNightEntries`) is not re-enabled by reopen. Corrections happen through morning/delivered quantities instead.
   </Accordion>
 </AccordionGroup>
 
 ## Who triggers what
 
-| Endpoint | Role |
-| --- | --- |
-| `POST /papers` | ADMIN (in the controller the route currently allows EMPLOYEE for generation; business rule and DTO expectation is ADMIN. See [Business Rules](/domain/business-rules).) |
-| `POST /papers/:id/submit-night` | EMPLOYEE |
-| `POST /papers/:id/submit-morning` | EMPLOYEE |
-| `POST /papers/:id/finalize` | ADMIN |
-| `POST /papers/:id/reopen` | ADMIN |
+The `@Roles` decorator declares the minimum role required. The `RolesGuard` uses a hierarchy where `ADMIN` (2) satisfies any `EMPLOYEE` (1) requirement, so admins can also call employee-tagged endpoints.
 
-The `Roles` decorator on the controller enforces the role check at request time; the state machine enforces the transition legality.
+| Endpoint | Minimum role |
+| --- | --- |
+| `POST /papers` | `EMPLOYEE` |
+| `POST /papers/:id/submit-night` | `EMPLOYEE` |
+| `POST /papers/:id/submit-morning` | `EMPLOYEE` |
+| `POST /papers/:id/finalize` | `ADMIN` |
+| `POST /papers/:id/reopen` | `ADMIN` |
+
+The `RolesGuard` enforces the role check at request time; `WorkflowStateService.validateTransition` enforces transition legality.
 
 ## Timestamp fields
 

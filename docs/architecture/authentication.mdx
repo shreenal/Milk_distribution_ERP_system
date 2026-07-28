@@ -10,19 +10,19 @@ Every route in the Milk Distribution ERP API is protected. There are no public e
 
 `POST /auth/login` is the only route that runs without a token. It:
 
-1. Looks up the `user` row by `username`.
-2. Compares the supplied password against the stored bcrypt hash.
-3. On match, signs a JWT with the payload `{ sub: user.id, username, role, iat, exp }`.
-4. Returns the token plus a small user summary.
+1. Looks up the `users` row by `username` (via `AuthRepository.findUserByUsername`).
+2. Compares the supplied password against the stored bcrypt hash with `bcrypt.compare`.
+3. On match, signs a JWT with the payload `{ sub: user.id, username, role: user.role.name }`.
+4. Returns `{ accessToken, user: { id, username, role } }`.
 
-The signing key is loaded from the `JWT_SECRET` environment variable. Tokens are HS256-signed with a configurable expiry (default 24 hours).
+The signing key is currently hardcoded as `'milk-distribution-secret'` in both `AuthModule` (`JwtModule.register`) and `JwtStrategy`. Tokens expire in `1d` (`signOptions.expiresIn: '1d'`). Moving the secret to `JWT_SECRET` in the environment is a known follow-up.
 
 ## Token validation
 
 Every other controller declares `@UseGuards(JwtAuthGuard, RolesGuard)`. The two guards run in order:
 
-1. **`JwtAuthGuard`** — reads the `Authorization: Bearer <token>` header, verifies the signature and expiry using Passport's JWT strategy, and attaches the decoded payload to `request.user`. On failure, throws `UnauthorizedException` (`401`).
-2. **`RolesGuard`** — reads the `@Roles(...)` decorator on the handler and checks that `request.user.role` matches. On failure, throws `ForbiddenException` (`403`).
+1. **`JwtAuthGuard`** — extends `AuthGuard('jwt')` from `@nestjs/passport`. Reads the `Authorization: Bearer <token>` header, verifies the signature and expiry, and attaches `{ id, username, role }` (from `JwtStrategy.validate`) to `request.user`. On failure, throws `UnauthorizedException` (`401`).
+2. **`RolesGuard`** — reads the `@Roles(...)` metadata on the handler or class and checks `request.user.role` against a numeric hierarchy: `ADMIN` = 2, `EMPLOYEE` = 1. The check passes when the caller's rank is at least the maximum required. On failure, `canActivate` returns false and Nest emits `403 Forbidden`.
 
 ## Roles
 
@@ -33,7 +33,7 @@ Only two roles exist:
 | `EMPLOYEE` | Delivery drivers, route staff, night/morning ops | Read all data, write orders/collections/purchases/trays during the working states |
 | `ADMIN` | Supervisors, office managers | Everything an `EMPLOYEE` can do plus finalize, reopen, admin collections, cash settlement |
 
-Role assignments are stored on the `user` row and never change through the API — provisioning happens directly at the database level.
+Roles live in a separate `roles` table (`id`, `name`) referenced from `users.role_id`. The JWT stores the role name string, so `request.user.role` is `'ADMIN'` or `'EMPLOYEE'`. Provisioning happens directly at the database level; there is no user-management endpoint.
 
 ## Handler-level enforcement
 
@@ -53,7 +53,7 @@ async getPapers(@Query('date') date?: string) {
 }
 ```
 
-`@Roles('EMPLOYEE')` implicitly includes `ADMIN` — admins can execute every employee route. The reverse is not true.
+`@Roles('EMPLOYEE')` implicitly includes `ADMIN` via the `RolesGuard` hierarchy — admins can execute every employee route. The reverse is not true.
 
 ## What the token does not do
 

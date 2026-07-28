@@ -4,103 +4,131 @@ sidebarTitle: "Cash Settlement"
 description: "Record and retrieve end-of-day cash reconciliation data including route denominations, route expenses, direct collections, and bank deposits."
 ---
 
-The Cash Settlement API captures every rupee accounted for at the end of the day. Cash arrives from four distinct channels: route-side denominations counted per vehicle, route expenses paid out of that same cash, direct office collections (walk-in payments), and bank deposits. Each channel has its own table but they all share a single `order_paper` foreign key so the ledger balances on a per-day basis.
+The Cash Settlement API captures every rupee accounted for at the end of the day. Cash arrives from four sources: route-side denominations counted per delivery route (order sheet), route expenses paid out of that same cash, direct office collections handed in by employees, and bank deposits. Each channel has its own table and all share the same `order_paper` day.
 
-`ADMIN` role is required for every save endpoint. Read is available to both roles.
+Every endpoint requires `EMPLOYEE` (or higher via role hierarchy). The controller uses `@Controller('cash-settlement')` with `:paperId` as the leading path segment on every route.
 
 ---
 
-## GET /cash-settlement/paper/:paperId
+## GET /cash-settlement/:paperId
 
 ### Purpose
 
-Returns the complete cash reconciliation for a paper, spanning all four channels.
+Returns the complete cash reconciliation for a paper as `CashSettlementResponseDto` — route settlements, route expenses, per-route denomination rows, direct collections, bank deposits, and a summary block. The summary shape varies between the initial (`MORNING_SUBMITTED`) view and the reopened view.
 
 ### Response
 
-<ResponseField name="route_settlements" type="array">
-  One `cash_route_settlement` per (vehicle, session) with denomination breakdown.
+<ResponseField name="routeSettlements" type="array">
+  One row per `order_sheet` (route) with `routeCash`, `expenseTotal`, `routeNetCash`, `denominationTotal`, and `difference`.
 </ResponseField>
 
-<ResponseField name="route_expenses" type="array">
-  Cash paid out on-route (fuel, tolls, adjustments).
+<ResponseField name="routeExpenses" type="array">
+  Individual `cash_route_expense` rows with `sheetId`, `routeName`, `expenseTypeId`, `expenseTypeName`, and `amount`.
 </ResponseField>
 
-<ResponseField name="direct_collections" type="array">
-  Walk-in payments taken at the office.
+<ResponseField name="routeDenominations" type="array">
+  Per-route denomination breakdown mirroring `cash_route_settlement`.
 </ResponseField>
 
-<ResponseField name="bank_deposits" type="array">
-  Amounts deposited to bank accounts on behalf of the day.
+<ResponseField name="directCollections" type="array">
+  One row per `cash_direct_collection`, keyed by employee with denomination fields and computed `collectionAmount`.
+</ResponseField>
+
+<ResponseField name="bankDeposits" type="array">
+  One row per `cash_bank_deposit`, keyed by bank with denomination fields and computed `depositAmount`.
+</ResponseField>
+
+<ResponseField name="summary" type="object">
+  Either `CashSummaryInitialDto` (in `MORNING_SUBMITTED`) with `directCollectionCash`, `officeCash`, `cashInHandAfterDeposits`, or `CashSummaryReopenedDto` (in `REOPENED`) with `historicalRouteDenominationCash`, `historicalDirectCollectionCash`, `revisedOfficeCash`, `historicalCashOnHand`, `reconciliationDifference`.
 </ResponseField>
 
 ---
 
-## POST /cash-settlement/paper/:paperId/route-settlement
+## POST /cash-settlement/:paperId/route-expenses
 
 ### Purpose
 
-Records the denomination-level cash count from each vehicle at end of shift. Denominations are stored as counts (`d_2000`, `d_500`, `d_200`, `d_100`, `d_50`, `d_20`, `d_10`, `d_coins_amount`) rather than a single total, so the physical count is auditable.
+Upserts `cash_route_expense` rows for one or more routes on the paper.
 
 ### Access control
 
-`ADMIN` role.
+`EMPLOYEE` (and above). Editable when `WorkflowStateService.canEditRouteExpenses(status)` returns true — that is, when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Entries with `vehicle_id`, `delivery_session`, denomination fields.
+`SaveRouteExpensesDto`:
+
+<ParamField body="expenses" type="array" required>
+  Array of `{ sheetId: number, expenseTypeId: number, amount: number (>= 0) }`.
 </ParamField>
 
 ---
 
-## POST /cash-settlement/paper/:paperId/route-expense
+## POST /cash-settlement/:paperId/route-denominations
 
 ### Purpose
 
-Records cash paid out from the route bag before it was returned. Common categories: fuel, tolls, driver advances.
+Upserts `cash_route_settlement` denomination counts (one per `order_sheet`).
+
+### Access control
+
+`EMPLOYEE`. Editable when `WorkflowStateService.canEditRouteDenominations(status)` returns true — that is, when the paper is in `NIGHT_SUBMITTED` only. Denominations are frozen once the paper advances to `MORNING_SUBMITTED`.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Entries with `vehicle_id`, `delivery_session`, `category`, `amount`, and optional `remarks`.
+`SaveRouteDenominationsDto`:
+
+<ParamField body="denominations" type="array" required>
+  Array of `{ sheetId, note2000, note500, note200, note100, note50, note20, note10, coins }`. All `noteN` fields are integer counts (not rupee amounts); `coins` is a decimal rupee value.
 </ParamField>
 
 ---
 
-## POST /cash-settlement/paper/:paperId/direct-collection
+## POST /cash-settlement/:paperId/direct-collections
 
 ### Purpose
 
-Records office-side cash receipts not attached to a specific route. Typically walk-in payments from clients settling account balances.
+Upserts `cash_direct_collection` rows keyed by `(order_paper_id, employee_id)`.
+
+### Access control
+
+`EMPLOYEE`. Editable when `WorkflowStateService.canEditDirectCollections(status)` returns true — `NIGHT_SUBMITTED` only.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Entries with `client_id`, `amount`, and optional `remarks`.
+`SaveDirectCollectionsDto`:
+
+<ParamField body="directCollections" type="array" required>
+  Array of `{ employeeId, note2000, note500, note200, note100, note50, note20, note10, coins }`.
 </ParamField>
 
 ---
 
-## POST /cash-settlement/paper/:paperId/bank-deposit
+## POST /cash-settlement/:paperId/bank-deposits
 
 ### Purpose
 
-Records amounts deposited to a bank account for the day.
+Inserts `cash_bank_deposit` rows for the paper. Multiple deposits to the same bank on the same day are permitted (no uniqueness constraint on `(order_paper_id, bank_id)`).
+
+### Access control
+
+`EMPLOYEE`. Editable when `WorkflowStateService.canEditBankDeposits(status)` returns true — `NIGHT_SUBMITTED` only.
 
 ### Request body
 
-<ParamField body="items" type="array" required>
-  Entries with `bank_id`, `amount`, and optional `reference` (deposit slip number).
+`SaveBankDepositsDto`:
+
+<ParamField body="bankDeposits" type="array" required>
+  Array of `{ bankId, note2000, note500, note200, note100, note50, note20, note10, coins }`.
 </ParamField>
 
 ### Validation and errors (all save endpoints)
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Caller not `ADMIN` | `403 Forbidden` | Role check |
-| Paper is `FINALIZED` | `400 Bad Request` | Reopen the paper first |
-| Negative amount | `400 Bad Request` | Must be `>= 0` |
+| Paper not in an editable state for this channel | `400 Bad Request` | Per-channel workflow check |
+| Denomination count negative or non-integer | `400 Bad Request` | DTO validation |
+| Unknown `sheetId`, `employeeId`, `bankId`, or `expenseTypeId` | `400 Bad Request` | Foreign-key or validation-service rejection |
 
 ### Related endpoints
 
