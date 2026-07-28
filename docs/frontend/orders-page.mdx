@@ -4,7 +4,31 @@ sidebarTitle: "Orders Page"
 description: "Reference for the Orders Page in the Milk Distribution ERP desktop app: shift entry modes, billing grids, workflow actions, and status-gating rules."
 ---
 
+<Warning>
+  **Implementation status:** the client (Electron/React) project in `client/` currently ships only file-tree scaffolding. `client/src/App.tsx` renders an empty `<div />`, and every file under `client/src/features/orders/{pages,sections,components,hooks,services,store,types,utils,constants}/*` is a zero-byte placeholder. There is no working UI in the repository at this time.
+
+  This page therefore documents the **design intent** for the Orders Page — the screen that the frontend scaffolding is preparing for. It is not a description of code that exists today. When the scaffolding is filled in, the file layout below and the API bindings should match what is delivered; validate this document against the shipped code at that point.
+</Warning>
+
 The Orders Page is the primary operational screen in the Milk Distribution ERP system. Every working day flows through this screen: operators begin by entering ordered quantities during the night shift, then return to record delivered quantities during the morning shift. The page drives the full paper lifecycle — from a blank `DRAFT` through to `MORNING_SUBMITTED` — and surfaces the calculations, collections, and tray movements that make up the day's complete record. Understanding this screen is essential for anyone operating the system day-to-day.
+
+The scaffolded file layout under `client/src/features/orders/` shows the intended shape:
+
+```text
+client/src/features/orders/
+├── pages/OrdersPage.tsx
+├── sections/{OrderBillingSection,CollectionSection,TrayTrackingSection,SheetSummarySection}.tsx
+├── components/grids/{OrdersMilkGrid,OrdersNonMilkGrid}.tsx
+├── components/shared/BaseGrid.tsx
+├── hooks/{useOrdersPage,useOrderBilling,useCollections,useTrayTracking}.ts
+├── services/orders.api.ts
+├── store/orders.store.ts
+├── constants/{milk-products,nonmilk-products}.constants.ts
+├── types/{milk-order,nonmilk-order,collection,tray}.types.ts
+└── utils/{milk,nonmilk,collections,trays}.{columns,calculations,mock}.ts + transformers.ts
+```
+
+Only `orders` exists under `client/src/features/`; the collections, trays, cash-settlement, and delivery-summary screens described in the other frontend pages have no scaffolding yet.
 
 ---
 

@@ -4,6 +4,10 @@ sidebarTitle: "Cash Settlement"
 description: "Reference for the Cash Settlement screen: route denomination counts, route expenses, direct collections, and bank deposits for daily cash reconciliation."
 ---
 
+<Warning>
+  **Implementation status:** the client scaffolding under `client/src/features/` only contains an `orders` feature folder, and every file inside it (including `pages/OrdersPage.tsx`, `sections/*.tsx`, `services/orders.api.ts`, and `store/orders.store.ts`) is empty. There is no `cash-settlement` feature folder scaffolded and no working UI in the repository. This page documents the **design intent** for the screen the backend `cash-settlement` API is expected to feed.
+</Warning>
+
 The Cash Settlement screen is where the business reconciles all physical cash movement at the end of each working day. After drivers return from their routes and the morning submission is complete, the admin or designated cashier opens this screen to record exactly how much cash arrived, in what denominations, through which channels, and how it was ultimately banked or retained. The screen is divided into four dedicated sub-sections — Route Denominations, Route Expenses, Direct Collections, and Bank Deposits — each with its own save action and status window.
 
 Getting cash settlement right every day is critical: it provides the ground truth against which digital collection records are verified and is the primary input for the daily cash-in-hand and bank balance reports.

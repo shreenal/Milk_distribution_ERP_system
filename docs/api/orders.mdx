@@ -112,17 +112,19 @@ Content-Type: application/json
 
 ### Response
 
-Returns HTTP **201** with a success payload from the service (updated items and totals).
+Returns HTTP **201** with `{ success: true, message: "Night entries saved successfully", ... }`.
 
 ### Validation and errors
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper status not editable for night entry | `400 Bad Request` | Only `DRAFT` allows night save |
-| Duplicate `(clientId, productId)` in payload | `400 Bad Request` | Deduplicated at DTO validation |
-| Client inactive, unknown, or not in the delivery group | `400 Bad Request` | Validation service rejects |
-| Rate not configured for the resolved `product_link` | `400 Bad Request` | No active client rate or distributor rate |
-| `orderedQty` negative or `> 10000` | `400 Bad Request` | DTO `class-validator` rules |
+| Paper status not editable for night entry | `400 Bad Request` | `Cannot edit night entries when paper is <status>. Allowed statuses: DRAFT, REOPENED` |
+| Duplicate `(clientId, productId)` in payload | `400 Bad Request` | `Duplicate entries found: ...` (validated by `OrdersValidationService.validateNoDuplicates`) |
+| Client inactive or unknown | `400 Bad Request` | `Client with ID <id> not found` / `Client "<name>" is inactive and cannot be ordered` |
+| Client not in delivery group | `400 Bad Request` | `Client <id> does not belong to group <groupId>` |
+| Rate not configured for the resolved `product_link` | `400 Bad Request` | `No active rate found for product <id> on date <date>` |
+| `orderedQty` negative | `400 Bad Request` | DTO `@Min(0)` rule |
+| `orderedQty` greater than `10000` | `400 Bad Request` | DTO `@Max(10000)` rule |
 
 ---
 
@@ -154,9 +156,12 @@ Direct array of `SaveMorningEntriesDto`:
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Morning entry is locked in other states |
-| `deliveredQty` negative or `> 10000` | `400 Bad Request` | DTO validation |
-| Rate not configured | `400 Bad Request` | Missing client or distributor rate |
+| Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | `Cannot edit morning entries when paper is <status>. Allowed statuses: NIGHT_SUBMITTED, REOPENED` |
+| Duplicate `(clientId, productId)` in payload | `400 Bad Request` | `Duplicate entries found: ...` |
+| Morning entry references a client/product with no prior night entry | `400 Bad Request` | `No ordered quantity found for Client <id>, Product <id>` |
+| `deliveredQty` negative | `400 Bad Request` | DTO `@Min(0)` rule |
+| `deliveredQty` greater than `10000` | `400 Bad Request` | DTO `@Max(10000)` rule |
+| Rate not configured | `400 Bad Request` | `No active rate found for product <id> on date <date>` |
 
 ### Related endpoints
 

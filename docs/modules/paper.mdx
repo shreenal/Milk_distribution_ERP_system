@@ -37,7 +37,7 @@ See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) fo
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `POST` | `/papers` | EMPLOYEE\* | Create paper for the given `date`; auto-creates sheets |
-| `GET` | `/papers/today` | EMPLOYEE | Return today's paper (or 404 if none) |
+| `GET` | `/papers/today` | EMPLOYEE | Return `{type: "TODAY", paper}` if today's paper exists, otherwise `{type: "LATEST", paper}` for the most recent paper. Throws `400 Bad Request` (`NO_PAPERS_FOUND`) only when the database has no papers at all. |
 | `GET` | `/papers` | EMPLOYEE | List papers, optionally filtered by `date` |
 | `GET` | `/papers/:paperId` | EMPLOYEE | Read one paper with sheets |
 | `POST` | `/papers/:paperId/submit-night` | EMPLOYEE | Transition `DRAFT → NIGHT_SUBMITTED` |

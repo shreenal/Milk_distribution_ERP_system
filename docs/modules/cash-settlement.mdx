@@ -17,8 +17,12 @@ The Cash Settlement module records the physical accounting of money at the end o
 
 ## Business rules
 
-- Writes require `MORNING_SUBMITTED` or `REOPENED`.
-- Uniqueness: one `cash_route_settlement` per `order_sheet_id`, one `cash_direct_collection` per `(paper, employee)`.
+- Write windows differ per channel (from `WorkflowStateService`):
+  - `route-expenses`: `NIGHT_SUBMITTED` or `REOPENED` (`canEditRouteExpenses`).
+  - `route-denominations`: `NIGHT_SUBMITTED` only (`canEditRouteDenominations`).
+  - `direct-collections`: `NIGHT_SUBMITTED` only (`canEditDirectCollections`).
+  - `bank-deposits`: `NIGHT_SUBMITTED` only (`canEditBankDeposits`).
+- Uniqueness: one `cash_route_settlement` per `order_sheet_id`, one `cash_direct_collection` per `(paper, employee)`. `cash_bank_deposit` has no `(paper, bank)` uniqueness — multiple deposits to the same bank on the same day are permitted.
 - The system does not enforce reconciliation. It stores the pieces and expects an Admin to verify before finalizing.
 
 ## Dependencies
@@ -56,9 +60,10 @@ POST /cash-settlement/:paperId/*
 ## Lifecycle
 
 ```text
-MORNING_SUBMITTED → POST /cash-settlement/:id/*
+NIGHT_SUBMITTED   → POST /cash-settlement/:id/{route-expenses, route-denominations, direct-collections, bank-deposits}
+MORNING_SUBMITTED → read-only for cash-settlement (route-expenses too)
 FINALIZED         → read-only via GET
-REOPENED          → writable again
+REOPENED          → POST /cash-settlement/:id/route-expenses (only channel unlocked again)
 ```
 
 ## Future improvements

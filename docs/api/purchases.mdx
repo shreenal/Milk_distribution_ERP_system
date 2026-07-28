@@ -24,7 +24,7 @@ Returns the purchase page payload for the paper: the `purchase_paper` (if any), 
 
 ### Response
 
-Returns HTTP **200** with the shape returned by `PurchaseService.getPurchasePage`, including entries with `id`, `vehicle_id`, `product_id`, `product_link_id`, `distributor_id`, `delivery_session`, `category`, `purchased_qty`, `purchase_rate`, `purchase_amount`, and `gatepass_date`.
+Returns HTTP **200** with the shape returned by `PurchaseService.getPurchases`, including entries with `id`, `vehicle_id`, `product_id`, `product_link_id`, `distributor_id`, `delivery_session`, `category`, `purchased_qty`, `purchase_rate`, `purchase_amount`, and `gatepass_date`.
 
 ---
 
@@ -46,24 +46,12 @@ Upserts purchase entries for the paper. Each entry is scoped by `(vehicleId, del
   Array of entries. Each entry:
 </ParamField>
 
-<ParamField body="entries[].vehicleId" type="number" required>
-</ParamField>
-
 <ParamField body="entries[].deliverySession" type="string" required>
   `NIGHT` or `MORNING`.
 </ParamField>
 
-<ParamField body="entries[].distributorId" type="number" required>
-</ParamField>
-
 <ParamField body="entries[].category" type="string" required>
   `MILK` or `NON_MILK`.
-</ParamField>
-
-<ParamField body="entries[].productId" type="number" required>
-</ParamField>
-
-<ParamField body="entries[].purchasedQty" type="number" required>
 </ParamField>
 
 #### Example request
