@@ -1,0 +1,163 @@
+{
+  "theme": "maple",
+  "name": "Milk Distribution ERP",
+  "colors": {
+    "primary": "#2563EB",
+    "light": "#DBEAFE",
+    "dark": "#1E3A5F"
+  },
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "favicon": "/favicon.svg",
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/shreenal/Milk_distribution_ERP_system"
+    }
+  },
+  "$schema": "https://mintlify.com/docs.json",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Domain Guide",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "domain/business-overview",
+              "domain/actors",
+              "domain/modules"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "domain/paper",
+              "domain/relationships",
+              "domain/business-rules",
+              "domain/glossary"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Workflows",
+        "groups": [
+          {
+            "group": "Daily Operations",
+            "pages": [
+              "workflows/night-shift",
+              "workflows/morning-shift",
+              "workflows/paper-finalization",
+              "workflows/cash-settlement",
+              "workflows/distributor-transfer"
+            ]
+          },
+          {
+            "group": "State Machine",
+            "pages": [
+              "workflows/paper-states",
+              "workflows/reopen-workflow"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Data Model",
+        "groups": [
+          {
+            "group": "Entities",
+            "pages": [
+              "data-model/overview",
+              "data-model/order-paper",
+              "data-model/order-sheet",
+              "data-model/products",
+              "data-model/clients-groups",
+              "data-model/distributors",
+              "data-model/vehicles",
+              "data-model/cash-settlement",
+              "data-model/trays"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "Backend",
+            "pages": [
+              "architecture/overview",
+              "architecture/module-responsibilities",
+              "architecture/request-flow",
+              "architecture/authentication",
+              "architecture/error-handling"
+            ]
+          },
+          {
+            "group": "Modules",
+            "pages": [
+              "modules/paper",
+              "modules/orders",
+              "modules/collections",
+              "modules/purchase",
+              "modules/vehicle-allocation",
+              "modules/trays",
+              "modules/cash-settlement",
+              "modules/distributor-transfer",
+              "modules/delivery-summary"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Auth",
+            "pages": [
+              "api/auth"
+            ]
+          },
+          {
+            "group": "Paper & Orders",
+            "pages": [
+              "api/papers",
+              "api/orders"
+            ]
+          },
+          {
+            "group": "Operations",
+            "pages": [
+              "api/collections",
+              "api/purchases",
+              "api/vehicle-allocations",
+              "api/trays",
+              "api/dairy-tray-tracking",
+              "api/cash-settlement",
+              "api/distributor-transfer",
+              "api/delivery-summary"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Frontend",
+        "groups": [
+          {
+            "group": "Screens",
+            "pages": [
+              "frontend/orders-page",
+              "frontend/collections-screen",
+              "frontend/tray-tracking-screen",
+              "frontend/cash-settlement-screen",
+              "frontend/delivery-summary-screen"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
