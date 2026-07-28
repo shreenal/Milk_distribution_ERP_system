@@ -1,8 +1,136 @@
 ---
-title: Delivery Summary Screen
-description: Delivery Summary Screen documentation
+title: "Delivery Summary Screen: Admin Billing Verification"
+sidebarTitle: "Delivery Summary"
+description: "Reference for the Delivery Summary screen: billing totals by group, finalize and reopen actions, and admin verification workflow before paper finalization."
 ---
 
-# Delivery Summary Screen
+The Delivery Summary screen is a read-only admin view that presents the final billing amounts for a paper aggregated by billing group. It sits at the last checkpoint before an admin clicks **Finalize** — once finalization happens, the paper is permanently locked and no further corrections can be made. This screen is therefore one of the most consequential views in the system: it condenses an entire day's worth of order sheets, delivery entries, and billing calculations into a single table that answers the question "does today's billing look right?"
 
-> This page is under construction.
+Only users with the **ADMIN** role typically access this screen, though it is technically accessible to EMPLOYEE role users as well through the delivery summary API.
+
+---
+
+## Purpose
+
+The Delivery Summary screen aggregates `final_bill_amount` values from every `order_sheet_item` that belongs to the paper and groups them by billing group. Each billing group typically corresponds to a group of related delivery routes or a contractual billing category. The admin reviews these group-level totals, compares them against expected values or prior-day benchmarks, and proceeds to finalize the paper once satisfied. If the totals look wrong, the admin uses the **Reopen** action to unlock the paper, correct the underlying data on the Orders Page, and then returns to this screen for a second review.
+
+---
+
+## Information Displayed
+
+<CardGroup cols={2}>
+  <Card title="Billing Group Table" icon="table">
+    The primary table lists every billing group that has at least one associated order sheet item for the paper. Each row shows the group name, total final bill amount, and item count.
+  </Card>
+
+  <Card title="Paper Status Indicator" icon="tag">
+    A status badge at the top of the screen shows the current paper status (e.g., `MORNING_SUBMITTED`, `FINALIZED`). This gives the admin an at-a-glance confirmation of whether finalization is available.
+  </Card>
+
+  <Card title="Total Row" icon="sigma">
+    A summary row at the bottom of the table shows the grand total across all billing groups, providing a single figure to compare against the expected day's revenue.
+  </Card>
+
+  <Card title="Item Count Column" icon="list-ol">
+    Each billing group row shows the number of order-sheet-item rows that contributed to the total. A lower-than-expected count may indicate that some clients' morning entries were not saved.
+  </Card>
+</CardGroup>
+
+The full column set in the billing group table is:
+
+| Column | Description |
+| --- | --- |
+| Billing Group | Human-readable name of the billing group. |
+| Total Bill Amount | Sum of all `final_bill_amount` values for this group across the paper. |
+| Item Count | Number of `order_sheet_items` rows included in the total. |
+
+<Note>
+  This screen shows **morning billing only** — it displays `final_bill_amount`, which is based on `delivered_qty`. Night billing (`night_bill_amount` from `ordered_qty`) is not shown here. If you need a comparison of ordered vs delivered, use the Orders Page grid view.
+</Note>
+
+---
+
+## Editable Fields
+
+This screen is entirely **read-only**. There are no editable cells, input fields, or inline edit actions. If you need to correct the underlying data, use the **Reopen** action (described below) and navigate to the Orders Page.
+
+---
+
+## Actions
+
+<Steps>
+  <Step title="Refresh Data">
+    Reloads the billing summary from the server. Useful after an admin has saved corrections on the Orders Page and wants to see the updated totals without restarting the application. Calls `GET /delivery-summary/:paperId`.
+  </Step>
+  <Step title="Finalize Paper (Admin only)">
+    Permanently locks the paper. This action is available when the paper is in `MORNING_SUBMITTED` or `REOPENED` status and the logged-in user is an ADMIN. Calls `POST /papers/:paperId/finalize`. Once finalized, the paper moves to `FINALIZED` status. The Finalize button is hidden or disabled for any other status or role.
+  </Step>
+  <Step title="Reopen Paper (Admin only)">
+    Returns the paper to `REOPENED` status so underlying data can be corrected. The Reopen button is only available when the paper is in `FINALIZED` status and the user is ADMIN. After correcting data on the Orders Page, the admin returns here to verify totals and finalize again. Calls `POST /papers/:paperId/reopen`.
+  </Step>
+</Steps>
+
+<Warning>
+  Finalization is **irreversible**. There is no undo. Ensure all billing group totals are correct, all collections are recorded, and all tray movements are saved before clicking Finalize. Once finalized, downstream processes such as client invoicing and distributor transfer reporting treat the paper as immutable.
+</Warning>
+
+---
+
+## Required APIs
+
+| Method | Endpoint | Used For |
+| --- | --- | --- |
+| `GET` | `/delivery-summary/:paperId` | Fetch aggregated billing totals by billing group. |
+| `GET` | `/papers/:paperId` | Fetch the current paper status and metadata for the header. |
+| `POST` | `/papers/:paperId/finalize` | Finalize the paper (ADMIN only). |
+| `POST` | `/papers/:paperId/reopen` | Reopen the paper for correction (ADMIN only). |
+
+---
+
+## Navigation
+
+The Delivery Summary screen is accessible from the main navigation menu under **Admin → Delivery Summary** or from a quick-link on the Papers list when a paper is in `MORNING_SUBMITTED` status. The screen always loads the most recently submitted paper by default but accepts a `paperId` query parameter to load historical papers.
+
+---
+
+## Business Rules
+
+<CardGroup cols={2}>
+  <Card title="Accessible at Any Status" icon="lock-open">
+    The delivery summary endpoint works at every paper status. You can view partial totals even while the paper is still `DRAFT` or `NIGHT_SUBMITTED`, though the numbers will be incomplete until morning entries are saved.
+  </Card>
+
+  <Card title="Morning Billing Only" icon="sun">
+    Only `final_bill_amount` — derived from `delivered_qty` × rate — is aggregated here. Night billing figures (`night_bill_amount`) do not appear. This is by design: the delivery summary is a post-delivery verification tool.
+  </Card>
+
+  <Card title="Finalize Gate" icon="gate">
+    The **Finalize** button only appears when `paper.status` is `MORNING_SUBMITTED` or `REOPENED` and the user role is `ADMIN`. At all other statuses or roles the button is hidden, not merely disabled.
+  </Card>
+
+  <Card title="Zero-Amount Groups" icon="circle-exclamation">
+    Billing groups with a `totalBillAmount` of zero may appear if their clients had `delivered_qty` of zero for all products. Review these groups to confirm the zero delivery was intentional.
+  </Card>
+</CardGroup>
+
+<Steps>
+  <Step title="Morning submission complete">
+    All routes have been saved and the paper has been submitted for morning. The paper is now in `MORNING_SUBMITTED` status.
+  </Step>
+  <Step title="Open Delivery Summary">
+    Navigate to Admin → Delivery Summary. The billing group table loads automatically for the current paper.
+  </Step>
+  <Step title="Verify totals">
+    Review each billing group's total bill amount and item count. Compare against expected values or yesterday's paper for sanity checking.
+  </Step>
+  <Step title="Finalize">
+    Once all totals are confirmed correct, click Finalize. The paper moves to `FINALIZED` status and downstream reporting becomes available.
+  </Step>
+  <Step title="Investigate anomalies (if needed)">
+    If a group's total looks wrong after finalization, click Reopen (only available from `FINALIZED` status), navigate to the relevant route on the Orders Page to correct the data, then return here and finalize again.
+  </Step>
+</Steps>
+
+<Tip>
+  Build a habit of checking the **Item Count** column on this screen before finalizing. If a billing group has fewer items than the number of active clients on its routes, it is a strong signal that some morning entries were not saved.
+</Tip>

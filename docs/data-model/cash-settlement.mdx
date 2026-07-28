@@ -1,8 +1,178 @@
 ---
-title: Cash Settlement
-description: Cash Settlement documentation
+title: "Cash Settlement: Route, Direct, and Bank Deposit Records"
+sidebarTitle: "Cash Settlement"
+description: "Reference for cash_route_settlement, cash_route_expense, cash_direct_collection, and cash_bank_deposit, including denomination field conventions."
 ---
 
-# Cash Settlement
+Cash settlement in the ERP is recorded at three levels: the delivery route (per order sheet), the employee (cash collected directly and handed to the office), and the bank (deposits made to formal accounts). All three settlement types are tied to the same order paper, providing a complete picture of cash movement for a given operational day.
 
-> This page is under construction.
+---
+
+## Denomination Field Convention
+
+All three settlement models use the same set of denomination columns to represent physical currency. Denomination fields store the **count of notes or coins** of that value, not the total rupee amount.
+
+| Field | Denomination |
+| --- | --- |
+| `note_2000` | ₹2,000 notes |
+| `note_500` | ₹500 notes |
+| `note_200` | ₹200 notes |
+| `note_100` | ₹100 notes |
+| `note_50` | ₹50 notes |
+| `note_20` | ₹20 notes |
+| `note_10` | ₹10 notes |
+| `coins` | Total coin value as a decimal (₹0.01 precision) |
+
+To compute the total cash from denominations:
+
+```text
+total = (note_2000 × 2000) + (note_500 × 500) + (note_200 × 200)
+      + (note_100 × 100)  + (note_50 × 50)   + (note_20 × 20)
+      + (note_10 × 10)    + coins
+```
+
+All denomination count fields default to `0`. The `coins` field is `Decimal(12,2)` to support fractional rupee values.
+
+---
+
+## `cash_route_settlement`
+
+A `cash_route_settlement` is the cash reconciliation for one delivery route (one order sheet). It records the physical notes and coins that the delivery person brings back to the office after completing their route.
+
+There is exactly one settlement per order sheet (1:1 relationship enforced via `@unique` on `order_sheet_id`).
+
+### Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `Int` | Primary key |
+| `order_sheet_id` | `Int` | Parent order sheet (unique) |
+| `note_2000` | `Int` | Count of ₹2,000 notes |
+| `note_500` | `Int` | Count of ₹500 notes |
+| `note_200` | `Int` | Count of ₹200 notes |
+| `note_100` | `Int` | Count of ₹100 notes |
+| `note_50` | `Int` | Count of ₹50 notes |
+| `note_20` | `Int` | Count of ₹20 notes |
+| `note_10` | `Int` | Count of ₹10 notes |
+| `coins` | `Decimal(12,2)` | Total value of coins |
+| `created_at` | `DateTime` | Creation timestamp |
+| `updated_at` | `DateTime` | Last update timestamp |
+
+<Note>
+  The denomination breakdown in `cash_route_settlement` represents the cash physically returned by the delivery employee. The individual client-level cash amounts collected are recorded separately in `client_collection.cash_collection`. The two should reconcile — the sum of `cash_collection` across all clients on a sheet should equal the total computed from this settlement's denominations, minus any route expenses.
+</Note>
+
+---
+
+## `cash_route_expense`
+
+Route expenses are deductions from the cash collected on a delivery run. Common expense types include fuel, parking fees, and loading charges. Each expense is categorised using `master_expense_type`.
+
+### Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `Int` | Primary key |
+| `cash_route_settlement_id` | `Int` | Parent route settlement |
+| `expense_type_id` | `Int` | FK to `master_expense_type` (e.g. Diesel, Parking) |
+| `amount` | `Decimal(12,2)` | Expense amount in rupees |
+| `remarks` | `String?` | Free-text description |
+| `created_at` | `DateTime` | Creation timestamp |
+| `updated_at` | `DateTime` | Last update timestamp |
+
+Multiple expense rows can be attached to a single route settlement. There is no uniqueness constraint on `(cash_route_settlement_id, expense_type_id)` — the same expense type can appear multiple times if needed.
+
+### `master_expense_type`
+
+The expense type lookup table. Seeded with values such as Diesel, Parking, Driver Expense, Loading, and Miscellaneous. Each type has a unique `name` and an `is_active` flag.
+
+---
+
+## `cash_direct_collection`
+
+A `cash_direct_collection` records cash handed directly to an employee (rather than coming in through a delivery route). Each record is scoped to one order paper and one employee — an employee can only have one direct collection record per day.
+
+### Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `Int` | Primary key |
+| `order_paper_id` | `Int` | The day this collection belongs to |
+| `employee_id` | `Int` | The employee who collected the cash |
+| `note_2000` | `Int` | Count of ₹2,000 notes |
+| `note_500` | `Int` | Count of ₹500 notes |
+| `note_200` | `Int` | Count of ₹200 notes |
+| `note_100` | `Int` | Count of ₹100 notes |
+| `note_50` | `Int` | Count of ₹50 notes |
+| `note_20` | `Int` | Count of ₹20 notes |
+| `note_10` | `Int` | Count of ₹10 notes |
+| `coins` | `Decimal(12,2)` | Total value of coins |
+| `remarks` | `String?` | Free-text notes |
+| `created_at` | `DateTime` | Creation timestamp |
+| `updated_at` | `DateTime` | Last update timestamp |
+
+### Uniqueness Constraint
+
+```text
+@@unique([order_paper_id, employee_id])
+```
+
+One direct collection record per employee per day. `master_employee` is a separate table from `users` — employees here are typically delivery and office staff who handle physical cash.
+
+---
+
+## `cash_bank_deposit`
+
+Bank deposits record cash or cheques that are deposited into a formal bank account. Multiple deposits can be made on the same day, potentially to different banks.
+
+### Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `Int` | Primary key |
+| `order_paper_id` | `Int` | The day this deposit belongs to |
+| `bank_id` | `Int` | FK to `master_bank` |
+| `note_2000` | `Int` | Count of ₹2,000 notes deposited |
+| `note_500` | `Int` | Count of ₹500 notes deposited |
+| `note_200` | `Int` | Count of ₹200 notes deposited |
+| `note_100` | `Int` | Count of ₹100 notes deposited |
+| `note_50` | `Int` | Count of ₹50 notes deposited |
+| `note_20` | `Int` | Count of ₹20 notes deposited |
+| `note_10` | `Int` | Count of ₹10 notes deposited |
+| `coins` | `Decimal(12,2)` | Total coin value deposited |
+| `deposit_reference` | `String?` | Bank slip or transaction reference number |
+| `remarks` | `String?` | Free-text notes |
+| `created_at` | `DateTime` | Creation timestamp |
+| `updated_at` | `DateTime` | Last update timestamp |
+
+There is no uniqueness constraint across `(order_paper_id, bank_id)` — multiple deposits to the same bank on the same day are permitted.
+
+### `master_bank`
+
+The bank lookup table. Stores each bank's unique name and an `is_active` flag. Banks are pre-configured by administrators and referenced by `cash_bank_deposit`.
+
+---
+
+## Lifecycle Notes
+
+All cash settlement records are children of `order_paper` and are created during the end-of-day settlement phase, after morning delivery entries are complete.
+
+- **`cash_route_settlement` creation** — one record is created per `order_sheet` (1:1, enforced via `@unique` on `order_sheet_id`). It is typically written when the delivery person returns from the route and hands over cash. The denomination breakdown is entered manually by office staff. Deleting an `order_sheet` cascades to its `cash_route_settlement` and all attached `cash_route_expense` rows.
+- **`cash_route_expense` entries** — multiple expense rows can be attached to a single route settlement. There is no uniqueness constraint on expense type within a settlement, so the same expense category (e.g., Diesel) may appear more than once if charges were incurred in separate transactions during the route.
+- **`cash_direct_collection` creation** — one record per employee per day, enforced by the `(order_paper_id, employee_id)` unique constraint. Created when office staff record cash that was handed in directly by an employee outside the standard route settlement flow.
+- **`cash_bank_deposit` creation** — multiple deposits can be recorded per day, to one or more banks. There is no uniqueness constraint on `(order_paper_id, bank_id)`, so partial deposits to the same bank on the same day are permitted.
+- **Cascade behaviour** — all three settlement tables cascade-delete from `order_paper`. During an `REOPENED` paper correction, existing settlement records should be updated in-place rather than deleted and reinserted, to preserve the original timestamps on `created_at`.
+
+---
+
+## Cash Flow Summary
+
+The three settlement tables cover distinct paths by which cash enters the accounting system each day:
+
+| Source | Table | Scope |
+| --- | --- | --- |
+| Cash collected on delivery routes | `cash_route_settlement` | Per order sheet (route) |
+| Cash handed in by employees directly | `cash_direct_collection` | Per employee per day |
+| Cash deposited at a bank | `cash_bank_deposit` | Per bank account per day |
+
+All three are children of `order_paper` and cascade-delete when the order paper is deleted.

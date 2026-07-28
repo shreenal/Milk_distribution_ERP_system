@@ -1,8 +1,131 @@
 ---
-title: Orders
-description: Orders documentation
+title: "Orders API — Night and Morning Sheet Entry Endpoints"
+sidebarTitle: "Orders"
+description: "Read order sheets and save night ordered quantities and morning delivered quantities for every client on a delivery route in the ERP."
 ---
 
-# Orders
+The Orders API is how the client app reads and writes the per-client line items on each order sheet. Every paper has one `order_sheet` per delivery group; each sheet holds one `order_sheet_items` row per (client, product) combination. Night-shift operators enter `ordered_qty` at the start of the cycle; morning-shift operators enter `delivered_qty` after the route completes. All billing amounts (GST inclusive/exclusive, final bill) are recomputed server-side on every save.
 
-> This page is under construction.
+All endpoints require a bearer token. Both `EMPLOYEE` and `ADMIN` may read; write access is gated by the paper's current workflow state, not by role.
+
+---
+
+## GET /orders/sheet/:sheetId
+
+### Purpose
+
+Returns a single order sheet with all its line items, resolved product rates, and billing calculations. This is the read used by the Orders Page to populate the night and morning grids.
+
+### Path parameters
+
+<ParamField path="sheetId" type="number" required>
+  Numeric primary key of the `order_sheet`.
+</ParamField>
+
+### Response
+
+Returns HTTP **200** with the sheet aggregate:
+
+<ResponseField name="id" type="number">
+  Sheet primary key.
+</ResponseField>
+
+<ResponseField name="paper_id" type="number">
+  Parent `order_paper.id`.
+</ResponseField>
+
+<ResponseField name="delivery_group_id" type="number">
+  Which delivery group this sheet serves.
+</ResponseField>
+
+<ResponseField name="items" type="array">
+  One entry per (client, product) row on the sheet, with `client_id`, `product_id`, `ordered_qty`, `delivered_qty`, `rate`, `gst_amount`, and `final_amount` fields.
+</ResponseField>
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| `sheetId` not integer | `400 Bad Request` | ParseIntPipe rejection |
+| Sheet does not exist | `404 Not Found` | No such sheet |
+
+---
+
+## POST /orders/sheet/:sheetId/night
+
+### Purpose
+
+Saves the ordered quantities entered during the night shift. Accepts an array of `(client_id, product_id, ordered_qty)` triples and upserts each row.
+
+### Behavior
+
+- Only editable when the parent paper is in `DRAFT`. Any other state returns `400`.
+- Rates are looked up from `master_client_rate_product` (client-specific override) or the distributor's product rate table.
+- GST is applied per product config (inclusive or exclusive) and the `final_amount` field is recomputed.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Array of order items. Each entry needs `client_id`, `product_id`, and `ordered_qty`.
+</ParamField>
+
+#### Example request
+
+```json
+POST /orders/sheet/42/night
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "items": [
+    { "client_id": 101, "product_id": 7, "ordered_qty": 20 },
+    { "client_id": 101, "product_id": 12, "ordered_qty": 5 },
+    { "client_id": 102, "product_id": 7, "ordered_qty": 15 }
+  ]
+}
+```
+
+### Response
+
+Returns HTTP **200** with the updated sheet (same shape as `GET /orders/sheet/:sheetId`).
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper not in `DRAFT` | `400 Bad Request` | Night entry is locked once the paper advances |
+| Unknown client or product | `422 Unprocessable Entity` | ID not present on this sheet |
+| `ordered_qty` negative | `400 Bad Request` | Must be `>= 0` |
+
+---
+
+## POST /orders/sheet/:sheetId/morning
+
+### Purpose
+
+Saves the delivered quantities recorded during the morning shift. Same shape as the night endpoint but writes to the `delivered_qty` column and recomputes billing based on what was actually delivered.
+
+### Behavior
+
+- Only editable when the paper is in `NIGHT_SUBMITTED` (or `REOPENED`).
+- Delivered quantity may differ from ordered quantity — the difference feeds the delivery-summary variance report.
+- Final billing is based on `delivered_qty`, not `ordered_qty`.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Array of items, each with `client_id`, `product_id`, and `delivered_qty`.
+</ParamField>
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Morning entry is locked in other states |
+| `delivered_qty` negative | `400 Bad Request` | Must be `>= 0` |
+
+### Related endpoints
+
+- [Papers API](/api/papers) — advance the paper state to lock/unlock these endpoints
+- [Collections API](/api/collections) — record client payments against the delivered amounts
+- [Orders Module](/modules/orders) — server-side billing rules and rate resolution

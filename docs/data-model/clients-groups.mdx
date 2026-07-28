@@ -1,8 +1,72 @@
 ---
-title: Clients Groups
-description: Clients Groups documentation
+title: "Clients and Groups: Routing, Billing, and Collections"
+sidebarTitle: "Clients & Groups"
+description: "Reference for master_client, master_group, supply rules, client categories, and the client_collection payment records used in daily reconciliation."
 ---
 
-# Clients Groups
+Clients are the end customers. Each client belongs to two groups — a **billing group** (how invoices are aggregated) and a **delivery group** (which route serves them). The two are separate because a client can be billed centrally while receiving deliveries on a specific route.
 
-> This page is under construction.
+## master\_client
+
+| Column | Notes |
+| --- | --- |
+| `id` | PK |
+| `code` | Unique short code used in printed papers |
+| `name` | Full client name |
+| `shop_name` | Optional trading name |
+| `contact` | Phone number |
+| `billing_group_id` | FK → `master_group` (relation `BillingGroup`) |
+| `delivery_group_id` | FK → `master_group` (relation `DeliveryGroup`) |
+| `owner_distributor_id` | The distributor that "owns" this client for accounting |
+| `is_active` | Soft delete |
+| `created_at`, `updated_at` |  |
+
+Uniqueness: `code` is unique across all clients.
+
+## master\_group
+
+Groups serve dual purposes distinguished only by which foreign key points to them:
+
+- When referenced as `billing_group_id` — an invoicing bucket. The delivery summary rolls up by billing group.
+- When referenced as `delivery_group_id` — a route. The `order_sheet` for a paper is created per delivery group.
+
+| Column | Notes |
+| --- | --- |
+| `id` | PK |
+| `name` | Group name |
+| `is_active` | Soft delete |
+
+## master\_client\_category
+
+Many-to-many join between clients and category labels (e.g. "Retailer", "Hotel", "Wholesale"). Multiple categories per client are allowed. Categories drive reporting and, in some cases, procurement rules.
+
+## client\_collection
+
+Payment records, one row per (order sheet, client, category).
+
+| Column | Notes |
+| --- | --- |
+| `id` | PK |
+| `order_sheet_id` | FK; cascade delete |
+| `client_id` | FK → `master_client` |
+| `category` | `MILK` or `NON_MILK` — separate rows per category per client |
+| `cash_collection` | Cash received on route |
+| `cheque_collection` | Cheque received on route |
+| `online_collection` | Online transfer received on route |
+| `office_amount_given` | Cash paid at office |
+| `bank_deposit` | Deposited on client's behalf |
+| `employee_remarks` | Free text captured by driver |
+| `admin_remarks` | Free text captured by admin |
+| `created_at`, `updated_at` |  |
+
+Uniqueness: `@@unique([order_sheet_id, client_id, category])`.
+
+## Why billing group and delivery group are separate
+
+A common configuration: one large client (a hotel chain) is billed as a single account (one `billing_group`) but has ten physical outlets each on a different route (ten `delivery_group_id`s across ten `master_client` rows). Billing group totals aggregate all outlets while each outlet keeps its own delivery paper.
+
+## Related topics
+
+- [Distributors](/data-model/distributors) — owner\_distributor and supply rules
+- [Delivery Summary](/api/delivery-summary) — how billing groups roll up
+- [Collections Module](/modules/collections) — write rules on client\_collection

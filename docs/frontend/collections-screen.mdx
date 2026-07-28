@@ -1,8 +1,140 @@
 ---
-title: Collections Screen
-description: Collections Screen documentation
+title: "Collections Screen: Client Payment Entry per Route"
+sidebarTitle: "Collections"
+description: "Reference for the Collections section of the Orders Page: payment entry by method, role-based column visibility, status-gating rules, and save actions."
 ---
 
-# Collections Screen
+The Collections section is embedded directly within the Orders Page and is where operators record payments collected from each client during delivery. Every morning when drivers return from their routes, the operator opens the Collections section for each route and enters the amounts received by payment method. The system supports four payment types — cash, cheque, online transfer, and bank deposit — and provides a separate remarks field for employees and admins. Because payment data is often updated in stages (employee records during the shift, admin reconciles afterward), the Collections section has one of the most nuanced permission and status-gating models in the application.
 
-> This page is under construction.
+---
+
+## Purpose
+
+The Collections section gives the business a full audit trail of client payments against each delivery day. By capturing payment data at the route level and breaking it out by payment method, the system enables the finance team to reconcile cash received, identify outstanding cheques, and confirm online transfers — all without leaving the ERP. The section is split into MILK and NON\_MILK grids, mirroring the structure of the order grids above it.
+
+---
+
+## Information Displayed
+
+<CardGroup cols={2}>
+  <Card title="MILK Collections Grid" icon="droplet">
+    One row per client per supply category for MILK products. Displays all payment fields side by side for easy data entry.
+  </Card>
+
+  <Card title="NON-MILK Collections Grid" icon="box">
+    Identical layout to the MILK grid but scoped to NON\_MILK product collections for the same route.
+  </Card>
+
+  <Card title="Employee Columns" icon="user">
+    Cash Collection, Cheque Collection, Online Collection, Bank Deposit, and Employee Remarks. Visible to all roles.
+  </Card>
+
+  <Card title="Admin Columns" icon="user-shield">
+    Office Amount Given and Admin Remarks. Only visible and editable by users with the ADMIN role.
+  </Card>
+</CardGroup>
+
+The full column set for each grid is:
+
+| Column | Type | Role | Description |
+| --- | --- | --- | --- |
+| Client Name | Text (read-only) | All | Identifies the client row. |
+| Cash Collection | Number | EMPLOYEE\+ | Amount received in cash. |
+| Cheque Collection | Number | EMPLOYEE\+ | Amount received by cheque. |
+| Online Collection | Number | EMPLOYEE\+ | Amount received via online transfer. |
+| Bank Deposit | Number | EMPLOYEE\+ | Amount deposited directly to the bank. |
+| Employee Remarks | Text | EMPLOYEE\+ | Free-text notes from the delivery employee. |
+| Office Amount Given | Number | ADMIN | Amount of cash given from the office to cover a shortfall. |
+| Admin Remarks | Text | ADMIN | Free-text notes added during admin reconciliation. |
+
+---
+
+## Editable Fields
+
+The editable state of every field is governed by a combination of the user's role and the paper's current status:
+
+| Field | Editable By | Allowed Status(es) |
+| --- | --- | --- |
+| `cash_collection` | EMPLOYEE, ADMIN | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `cheque_collection` | EMPLOYEE, ADMIN | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `online_collection` | EMPLOYEE, ADMIN | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `bank_deposit` | EMPLOYEE, ADMIN | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `employee_remarks` | EMPLOYEE, ADMIN | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `office_amount_given` | ADMIN only | `MORNING_SUBMITTED`, `REOPENED` |
+| `admin_remarks` | ADMIN only | `MORNING_SUBMITTED`, `REOPENED` |
+
+<Note>
+  Night collections (employee fields) become available from `DRAFT` because operators may begin collecting payments as early as the night shift. Morning collections extend through `NIGHT_SUBMITTED` and `REOPENED` to capture later updates.
+</Note>
+
+---
+
+## Actions
+
+<Steps>
+  <Step title="Save Night Collections (MILK)">
+    Saves all employee collection fields for the MILK grid for the current route's night collections. Calls `POST /collections/sheet/:sheetId/milk/night-save`. Button is disabled outside of allowed statuses.
+  </Step>
+  <Step title="Save Night Collections (NON-MILK)">
+    Same as above but for the NON\_MILK grid. Calls `POST /collections/sheet/:sheetId/non-milk/night-save`.
+  </Step>
+  <Step title="Save Morning Collections (MILK)">
+    Saves updated employee collection fields after the morning delivery. Calls `POST /collections/sheet/:sheetId/milk/morning-save`. Only enabled in `NIGHT_SUBMITTED` or `REOPENED`.
+  </Step>
+  <Step title="Save Morning Collections (NON-MILK)">
+    Same as above for the NON\_MILK grid. Calls `POST /collections/sheet/:sheetId/non-milk/morning-save`.
+  </Step>
+  <Step title="Save Admin Collections (ADMIN only)">
+    Saves the `office_amount_given` and `admin_remarks` fields for both MILK and NON\_MILK grids. Calls `POST /collections/sheet/:sheetId/milk/admin-save` and the corresponding non-milk endpoint. Only available to ADMIN role users in `MORNING_SUBMITTED` or `REOPENED` status.
+  </Step>
+</Steps>
+
+<Warning>
+  All Save buttons are automatically disabled when the paper is not in a permitted status. Cells are also rendered read-only to prevent accidental edits. Do not attempt to bypass status checks by calling APIs directly — the server enforces the same rules independently.
+</Warning>
+
+---
+
+## Required APIs
+
+| Method | Endpoint | Used For |
+| --- | --- | --- |
+| `GET` | `/collections/sheet/:sheetId` | Load existing collection data for the sheet. |
+| `POST` | `/collections/sheet/:sheetId/milk/night-save` | Save MILK night collections. |
+| `POST` | `/collections/sheet/:sheetId/non-milk/night-save` | Save NON\_MILK night collections. |
+| `POST` | `/collections/sheet/:sheetId/milk/morning-save` | Save MILK morning collections. |
+| `POST` | `/collections/sheet/:sheetId/non-milk/morning-save` | Save NON\_MILK morning collections. |
+| `POST` | `/collections/sheet/:sheetId/milk/admin-save` | Admin MILK reconciliation save. |
+| `POST` | `/collections/sheet/:sheetId/non-milk/admin-save` | Admin NON\_MILK reconciliation save. |
+
+---
+
+## Navigation
+
+The Collections section is always located below the order entry grids on the Orders Page. You do not navigate to a separate screen — scrolling down on any route tab reveals the Collections grids. Switch between routes using the route selector at the top of the Orders Page to view and edit collections for a different route.
+
+---
+
+## Business Rules
+
+<CardGroup cols={2}>
+  <Card title="Status Gating" icon="shield-halved">
+    Night collections are locked after `MORNING_SUBMITTED` to prevent retroactive changes. Admin collections only open up once morning submission is complete.
+  </Card>
+
+  <Card title="Separate MILK / NON_MILK" icon="grid">
+    Because billing is tracked separately for MILK and NON\_MILK supply categories, collections are saved independently for each grid. Saving MILK does not automatically save NON\_MILK.
+  </Card>
+
+  <Card title="Admin Column Visibility" icon="eye">
+    The `office_amount_given` and `admin_remarks` columns are hidden from EMPLOYEE role users entirely. They only appear in the grid when the logged-in user is ADMIN.
+  </Card>
+
+  <Card title="Partial Saves Allowed" icon="floppy-disk">
+    You do not need to fill in every payment field before saving. Columns can be left as zero or blank and filled in later as long as the paper status still allows editing.
+  </Card>
+</CardGroup>
+
+<Tip>
+  Encourage employees to add a note in the `employee_remarks` field whenever a client pays with a cheque. This makes the admin's reconciliation step faster because the cheque details are already on record.
+</Tip>

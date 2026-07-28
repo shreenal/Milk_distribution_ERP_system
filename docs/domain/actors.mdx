@@ -1,8 +1,96 @@
 ---
-title: Actors
-description: Actors documentation
+title: "Actors and Roles in the Milk Distribution ERP System"
+sidebarTitle: "Actors"
+description: "A guide to the two system user roles and all physical entities in the milk distribution ERP — what each can do and why those boundaries exist."
 ---
 
-# Actors
+Understanding who does what in this system is essential before you work with any module. The ERP draws a clear line between the two **system user roles** — Admin and Employee — and a set of **physical entities** that are tracked in the system but do not log in themselves: drivers, vehicles, clients, and distributors.
 
-> This page is under construction.
+## System User Roles
+
+There are exactly two roles in the system: `ADMIN` and `EMPLOYEE`. Every person who logs in holds one of these roles. The role determines which paper lifecycle actions a user can trigger and which data fields they can edit.
+
+### Admin
+
+The Admin is the operations manager or business owner. Admins have authority over the paper lifecycle at the points that require review or accountability. Specifically:
+
+- **Create** an Order Paper for a given sale date.
+- **Finalize** a paper once all data entry is complete — locking the day's records.
+- **Reopen** a finalized paper when a correction is needed, providing a documented reason for the reopening.
+- **Edit admin-only collection fields** on a client's collection record (for example, adjusting an amount that was entered incorrectly after finalization, when the paper is in `REOPENED` status).
+
+An Admin cannot skip lifecycle steps. Even with elevated privileges, the paper must pass through `NIGHT_SUBMITTED` → `MORNING_SUBMITTED` before it can be finalized. The Admin also cannot finalize a paper that is still in `DRAFT` or `NIGHT_SUBMITTED` status.
+
+### Employee
+
+Employees are the operations staff who carry out day-to-day data entry. They interact with the system throughout the day and evening on both sides of the delivery cycle:
+
+- **Enter night orders** — how many units each client ordered — for each client on each sheet, while the paper is in `DRAFT` status.
+- **Enter morning deliveries** — how many units were actually delivered — after the night delivery is complete, while the paper is in `NIGHT_SUBMITTED` or `REOPENED` status.
+- **Record client collections** — cash, cheque, or online payments received from clients during night or morning rounds.
+- **Enter purchase data** — recording what was actually collected from each dairy for each vehicle.
+- **Plan vehicle allocations** — specifying which vehicle carries which products for which distributor and delivery session.
+- **Record tray movements** — tracking tray balances at the client level and at the dairy/vehicle level.
+- **Submit cash settlements** — entering route denominations (physical currency breakdown), direct collections by employee, and bank deposits.
+
+<Note>
+  Employees can save night orders only while the paper is in `DRAFT` status, and morning deliveries only while the paper is in `NIGHT_SUBMITTED` or `REOPENED` status. The system enforces these windows automatically and will reject entries outside them.
+</Note>
+
+### Role Permissions Summary
+
+<AccordionGroup>
+  <Accordion title="Paper Lifecycle Actions">
+    | Action | Admin | Employee |
+    | --- | --- | --- |
+    | Create paper | ✅ | ❌ |
+    | Submit night entries | ❌ | ✅ |
+    | Submit morning entries | ❌ | ✅ |
+    | Finalize paper | ✅ | ❌ |
+    | Reopen paper | ✅ | ❌ |
+  </Accordion>
+
+  <Accordion title="Data Entry Actions">
+    | Action | Admin | Employee |
+    | --- | --- | --- |
+    | Save night order quantities | ❌ | ✅ |
+    | Save morning delivered quantities | ❌ | ✅ |
+    | Enter client collections (night/morning) | ❌ | ✅ |
+    | Edit admin collection fields | ✅ | ❌ |
+    | Record purchases from dairy | ❌ | ✅ |
+    | Manage vehicle allocations | ❌ | ✅ |
+    | Record tray movements (client level) | ❌ | ✅ |
+    | Record tray movements (dairy/vehicle level) | ❌ | ✅ |
+    | Enter route cash denominations | ❌ | ✅ |
+    | Enter direct collections by employee | ❌ | ✅ |
+    | Enter bank deposits | ❌ | ✅ |
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  The system does not currently support granular per-user permissions within a role. All Admins share the same elevated access, and all Employees share the same data-entry access. There is no way to restrict a specific Admin or Employee to a subset of modules.
+</Warning>
+
+## Physical Entities (Non-Login)
+
+These entities are tracked and referenced throughout the system but do not have user accounts. You configure them in the master data setup.
+
+### Driver
+
+A driver is a person who physically operates a delivery vehicle on a route. Drivers are tracked in the system primarily for accountability and reporting purposes. Each driver can be assigned to a specific vehicle. However, drivers are not system users — they do not log in, and no business rule in the order or billing flow depends on which specific driver is assigned. The driver record exists so that management can trace which person operated a given vehicle on a given day.
+
+### Vehicle
+
+A vehicle is the physical transport unit used to carry products from the dairy to clients. Vehicles are central to two modules: **Vehicle Allocation** (planning which products each vehicle carries) and **Purchase** (recording what each vehicle actually collected from the dairy). Vehicles are also associated with delivery groups — a group's default vehicle is the one normally used to serve that route. A single paper can have multiple vehicles operating across different groups and delivery sessions.
+
+### Client
+
+A client is a retail business — a shop, hotel, canteen, or similar outlet — that receives daily deliveries and is billed for them. Clients do not log into the system; instead, employees enter data on their behalf. Each client has a unique code, belongs to a delivery group, a billing group, and is owned by a specific distributor. The client record also tracks which supply categories (MILK, NON\_MILK, or both) that client participates in, and holds a history of selling rates per product link.
+
+### Distributor
+
+A distributor is a business entity that procures products from dairies and supplies them to clients. The system supports multiple active distributors simultaneously. Each distributor has a defined set of procurement rules (which brands and product groups they are authorized to handle) and a set of supply rules per delivery group (which category they supply to each group). Distributors do not log into the system but appear throughout order sheets, billing records, purchase entries, and inter-distributor transfer documents.
+
+<Tip>
+  When you are setting up a new distributor in the master data, you need to create three things before orders can flow: a **product link** for each product they supply, a **procurement rule** for each brand\+group\+category combination they handle, and a **group supply rule** for each delivery group and category they serve.
+</Tip>

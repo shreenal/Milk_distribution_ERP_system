@@ -1,8 +1,68 @@
 ---
-title: Authentication
-description: Authentication documentation
+title: "Authentication — JWT and Role-Based Access Control"
+sidebarTitle: "Authentication"
+description: "How the Milk Distribution ERP API issues JWT tokens, validates them on every request, and enforces ADMIN vs EMPLOYEE role separation."
 ---
 
-# Authentication
+Every route in the Milk Distribution ERP API is protected. There are no public endpoints except the login endpoint itself. Authentication is stateless — the server issues a signed JWT on login and validates it on every subsequent request without hitting the database.
 
-> This page is under construction.
+## Token issuance
+
+`POST /auth/login` is the only route that runs without a token. It:
+
+1. Looks up the `user` row by `username`.
+2. Compares the supplied password against the stored bcrypt hash.
+3. On match, signs a JWT with the payload `{ sub: user.id, username, role, iat, exp }`.
+4. Returns the token plus a small user summary.
+
+The signing key is loaded from the `JWT_SECRET` environment variable. Tokens are HS256-signed with a configurable expiry (default 24 hours).
+
+## Token validation
+
+Every other controller declares `@UseGuards(JwtAuthGuard, RolesGuard)`. The two guards run in order:
+
+1. **`JwtAuthGuard`** — reads the `Authorization: Bearer <token>` header, verifies the signature and expiry using Passport's JWT strategy, and attaches the decoded payload to `request.user`. On failure, throws `UnauthorizedException` (`401`).
+2. **`RolesGuard`** — reads the `@Roles(...)` decorator on the handler and checks that `request.user.role` matches. On failure, throws `ForbiddenException` (`403`).
+
+## Roles
+
+Only two roles exist:
+
+| Role | Who | Capabilities |
+| --- | --- | --- |
+| `EMPLOYEE` | Delivery drivers, route staff, night/morning ops | Read all data, write orders/collections/purchases/trays during the working states |
+| `ADMIN` | Supervisors, office managers | Everything an `EMPLOYEE` can do plus finalize, reopen, admin collections, cash settlement |
+
+Role assignments are stored on the `user` row and never change through the API — provisioning happens directly at the database level.
+
+## Handler-level enforcement
+
+The `@Roles(...)` decorator narrows access for a specific route. Examples from the codebase:
+
+```typescript
+@Post(':paperId/finalize')
+@Roles('ADMIN')
+async finalizePaper(@Param('paperId', ParseIntPipe) paperId: number) {
+  return this.paperService.finalizePaperService(paperId);
+}
+
+@Get()
+@Roles('EMPLOYEE')
+async getPapers(@Query('date') date?: string) {
+  return this.paperService.getPapersService(date);
+}
+```
+
+`@Roles('EMPLOYEE')` implicitly includes `ADMIN` — admins can execute every employee route. The reverse is not true.
+
+## What the token does not do
+
+- **It does not authorize per-record access.** A driver assigned to Route A can read Route B data if they know the sheet ID. Boundary checks like this are not implemented.
+- **It does not carry per-page permissions.** All page-level UI gating happens in the client based on `role`.
+- **It does not rotate.** There is no refresh endpoint; when the token expires, the client re-authenticates from scratch.
+
+## Related topics
+
+- [Authentication API](/api/auth) — request/response shapes for `login` and `me`
+- [Request Flow](/architecture/request-flow) — where the guards fit in the overall request lifecycle
+- [Error Handling](/architecture/error-handling) — how `401` and `403` errors are shaped

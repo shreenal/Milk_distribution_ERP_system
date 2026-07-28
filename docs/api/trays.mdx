@@ -1,8 +1,71 @@
 ---
-title: Trays
-description: Trays documentation
+title: "Trays API — Client Tray Return Tracking Endpoints"
+sidebarTitle: "Trays"
+description: "Track plastic crate and tray returns from delivery route clients, recording actual quantities returned per tray type per client each day."
 ---
 
-# Trays
+The Trays API records the physical crate and tray movement between the distributor and each client. Every delivery leaves trays with the client, and every subsequent visit collects some back. The API tracks opening balance, expected trays taken (derived from delivered quantity via `product_tray_rule`), actual trays taken, and trays returned. Closing balance is computed server-side and carried forward as the next day's opening balance.
 
-> This page is under construction.
+Both `EMPLOYEE` and `ADMIN` may read and write, subject to the paper's workflow state.
+
+---
+
+## GET /trays/sheet/:sheetId
+
+### Purpose
+
+Returns the `client_tray_transaction` rows for a sheet, one per (client, tray\_type). Each row carries opening balance, expected trays taken, actual trays taken, trays returned, and closing balance.
+
+### Response
+
+<ResponseField name="items" type="array">
+  Tray transactions with `client_id`, `tray_type_id`, `opening_balance`, `expected_trays_taken`, `trays_taken`, `trays_returned`, `closing_balance`, `remarks`.
+</ResponseField>
+
+---
+
+## POST /trays/sheet/:sheetId
+
+### Purpose
+
+Upserts tray transactions for the sheet. Only `trays_taken`, `trays_returned`, and `remarks` are writable — `opening_balance` and `expected_trays_taken` are computed server-side.
+
+### Behavior
+
+- `opening_balance` = previous day's `closing_balance` for the same (client, tray\_type), fetched at sheet creation time.
+- `expected_trays_taken` = sum over delivered products of `product_tray_rule.trays_per_unit * delivered_qty`.
+- `closing_balance` = `opening_balance + trays_taken - trays_returned`.
+- Writes are blocked in `FINALIZED` state.
+
+### Request body
+
+<ParamField body="items" type="array" required>
+  Array of tray transaction entries with `client_id`, `tray_type_id`, `trays_taken`, `trays_returned`, and optional `remarks`.
+</ParamField>
+
+#### Example request
+
+```json
+POST /trays/sheet/42
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "items": [
+    { "client_id": 101, "tray_type_id": 2, "trays_taken": 5, "trays_returned": 3 }
+  ]
+}
+```
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Paper is `FINALIZED` | `400 Bad Request` | Locked |
+| Negative `trays_taken` or `trays_returned` | `400 Bad Request` | Must be `>= 0` |
+| Tray type not applicable to any delivered product | `422 Unprocessable Entity` | No `product_tray_rule` match |
+
+### Related endpoints
+
+- [Trays Module](/modules/trays) — closing-balance formula and rule matching
+- [Dairy Tray Tracking API](/api/dairy-tray-tracking) — depot-level crate tracking

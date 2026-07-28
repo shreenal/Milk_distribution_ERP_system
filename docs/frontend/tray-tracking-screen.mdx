@@ -1,8 +1,113 @@
 ---
-title: Tray Tracking Screen
-description: Tray Tracking Screen documentation
+title: "Tray Tracking Screen: Client Crate Return and Balance"
+sidebarTitle: "Tray Tracking"
+description: "Reference for the Tray Tracking section of the Orders Page: tray movement columns, balance formula, save actions, and crate inventory rules."
 ---
 
-# Tray Tracking Screen
+The Tray Tracking section records the movement of physical milk crates (trays) for every client on a route. Milk is delivered in stackable trays, and keeping an accurate count of how many trays are at each client's premises is critical to avoiding losses. When a delivery is made, empty trays from the previous delivery are collected back. The Tray Tracking section records both directions of that movement — trays sent out and trays returned — so the business always knows the running balance at each client. This section is embedded within the Orders Page, directly below the Collections section.
 
-> This page is under construction.
+---
+
+## Purpose
+
+The core function of the Tray Tracking section is to maintain a per-client, per-tray-type running inventory of milk crates. Each day's closing balance automatically becomes the next day's opening balance, creating a continuous chain. When discrepancies arise — a client returning fewer trays than expected, or a driver losing a crate — the system provides a clear audit trail dating back to any previous paper.
+
+---
+
+## Information Displayed
+
+The section renders a single grid for the current route. Each row represents a unique client–tray-type combination:
+
+| Column | Type | Description |
+| --- | --- | --- |
+| Client Name | Text (read-only) | Name of the client for this row. |
+| Tray Type | Text (read-only) | Color or brand identifier of the crate type (e.g., "Blue 20L", "Red 10L"). |
+| Opening Balance | Number (read-only) | Number of trays at the client's location at the start of this paper's day, carried forward from the previous paper's closing balance. |
+| Expected Taken | Number (read-only) | Auto-calculated estimate of how many trays should be taken, derived from `ordered_qty` and the configured `product_tray_rules`. |
+| Actual Taken | Number (editable) | The actual number of trays that were taken to this client during today's delivery. |
+| Returned | Number (editable) | The number of trays collected back from this client during today's delivery. |
+| Closing Balance | Number (read-only) | Calculated as `Opening Balance + Actual Taken − Returned`. Updated in real time as the operator edits Actual Taken and Returned. |
+
+<Note>
+  The **Expected Taken** column is a guide only. Drivers may take a different number of trays than expected if a client ordered a different quantity than usual or if trays were shared between stops. Always use **Actual Taken** as the authoritative figure.
+</Note>
+
+---
+
+## Editable Fields
+
+| Field | Editable By | Allowed Status(es) |
+| --- | --- | --- |
+| `trays_taken` (Actual Taken) | EMPLOYEE, ADMIN | `NIGHT_SUBMITTED`, `REOPENED` |
+| `trays_returned` | EMPLOYEE, ADMIN | `NIGHT_SUBMITTED`, `REOPENED` |
+| `opening_balance` | Not editable | Pre-populated from the previous paper; cannot be changed manually. |
+
+<Warning>
+  The Tray Tracking section is only editable when the paper is in **NIGHT\_SUBMITTED** or **REOPENED** status. If the paper is still `DRAFT`, the section is visible but all cells are read-only. Cells are also locked after `MORNING_SUBMITTED` to preserve the historical record.
+</Warning>
+
+---
+
+## Actions
+
+<Steps>
+  <Step title="Save Tray Entries">
+    Saves the `trays_taken` and `trays_returned` values for every row in the current route's grid. Calls `POST /trays/sheet/:sheetId/save`. A single save button covers all tray types and all clients on the route simultaneously. The button is disabled when the paper is not in a permitted status.
+  </Step>
+</Steps>
+
+---
+
+## Required APIs
+
+| Method | Endpoint | Used For |
+| --- | --- | --- |
+| `GET` | `/trays/sheet/:sheetId` | Load tray data (balances, expected, actual, returned) for the sheet. |
+| `POST` | `/trays/sheet/:sheetId/save` | Persist `trays_taken` and `trays_returned` for all rows on the sheet. |
+
+---
+
+## Navigation
+
+The Tray Tracking section is located at the bottom of the Orders Page, below the Collections section. It is not a standalone screen — use the route selector at the top of the Orders Page to switch between routes. Each route has its own independent set of tray tracking rows.
+
+---
+
+## Business Rules
+
+<CardGroup cols={2}>
+  <Card title="Closing Balance Formula" icon="calculator">
+    `closing_balance = opening_balance + trays_taken − trays_returned`. This is calculated client-side in real time and persisted when you save. The server also recalculates it independently to guard against frontend errors.
+  </Card>
+
+  <Card title="Opening Balance Carry-Forward" icon="arrow-right">
+    The `opening_balance` for a new paper is automatically populated from the `closing_balance` of the most recent finalized paper for the same client–tray-type combination. No manual carry-forward step is required.
+  </Card>
+
+  <Card title="Expected Trays from Product Rules" icon="gear">
+    `expected_trays_taken` is derived from `ordered_qty` multiplied by a `product_tray_rule` factor configured per product. For example, if a 500ml product fits 20 units per tray, an order of 40 units generates an expectation of 2 trays.
+  </Card>
+
+  <Card title="Actual vs Expected" icon="not-equal">
+    Actual Taken can differ from Expected Taken without triggering an error. The system records the discrepancy but does not block the save. Supervisors can review unexplained discrepancies at any time using the tray history reports.
+  </Card>
+</CardGroup>
+
+<Steps>
+  <Step title="Morning arrival">
+    The paper transitions to `NIGHT_SUBMITTED` and tray fields unlock. The operator can now enter tray movements.
+  </Step>
+  <Step title="Enter actual and returned">
+    For each client, enter the actual number of trays taken out and the number of trays collected back. The Closing Balance column updates in real time.
+  </Step>
+  <Step title="Save">
+    Click **Save Tray Entries**. The server persists the data and recalculates closing balances. The API returns the updated rows.
+  </Step>
+  <Step title="Review discrepancies">
+    Compare **Expected Taken** against **Actual Taken** for any rows that look unusual. Investigate before the paper is submitted for morning.
+  </Step>
+</Steps>
+
+<Tip>
+  If a paper is reopened to fix a delivery error, you can also update tray entries at that point. After saving corrections, the closing balances are recalculated and will carry forward correctly to the next paper.
+</Tip>

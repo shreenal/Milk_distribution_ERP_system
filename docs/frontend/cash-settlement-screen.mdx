@@ -1,8 +1,189 @@
 ---
-title: Cash Settlement Screen
-description: Cash Settlement Screen documentation
+title: "Cash Settlement Screen: End-of-Day Cash Reconciliation"
+sidebarTitle: "Cash Settlement"
+description: "Reference for the Cash Settlement screen: route denomination counts, route expenses, direct collections, and bank deposits for daily cash reconciliation."
 ---
 
-# Cash Settlement Screen
+The Cash Settlement screen is where the business reconciles all physical cash movement at the end of each working day. After drivers return from their routes and the morning submission is complete, the admin or designated cashier opens this screen to record exactly how much cash arrived, in what denominations, through which channels, and how it was ultimately banked or retained. The screen is divided into four dedicated sub-sections — Route Denominations, Route Expenses, Direct Collections, and Bank Deposits — each with its own save action and status window.
 
-> This page is under construction.
+Getting cash settlement right every day is critical: it provides the ground truth against which digital collection records are verified and is the primary input for the daily cash-in-hand and bank balance reports.
+
+---
+
+## Purpose
+
+The Cash Settlement screen centralises all end-of-day financial reconciliation into a single view. Rather than maintaining separate spreadsheets or paper logs, operators enter denomination counts directly into the ERP, where they are stored against the paper ID and become permanently auditable. Each sub-section maps to a distinct cash flow: money collected per route, expenses paid out per route, cash received directly by office employees, and amounts deposited to the bank.
+
+---
+
+## Information Displayed
+
+### Route Denominations Tab
+
+A grid with one row per route and one column per denomination type. The denomination types tracked are:
+
+| Denomination | Field Name |
+| --- | --- |
+| ₹2000 notes | `note_2000` |
+| ₹500 notes | `note_500` |
+| ₹200 notes | `note_200` |
+| ₹100 notes | `note_100` |
+| ₹50 notes | `note_50` |
+| ₹20 notes | `note_20` |
+| ₹10 notes | `note_10` |
+| Coins | `coins` |
+
+<Note>
+  Denomination fields store the **count** of notes, not the monetary value. A `note_500` value of `10` means ten ₹500 notes (₹5,000 total), not ₹10. The screen can display a calculated total column for reference.
+</Note>
+
+### Route Expenses Tab
+
+A grid with one row per route and one column per expense category. Common categories include Diesel, Parking, Driver Expense, and Miscellaneous. An optional remarks field is available per row.
+
+### Direct Collections Tab
+
+Records cash received directly by office employees (bypassing the route collection flow). Each employee has a row with a denomination breakdown identical to the Route Denominations grid, plus an optional remarks field.
+
+### Bank Deposits Tab
+
+Records amounts deposited to each bank account. Each bank has a row with a denomination breakdown and two extra fields: a deposit reference number and optional remarks.
+
+---
+
+## Editable Fields
+
+### Route Denominations
+
+<ParamField body="note_2000" type="integer">
+  Count of ₹2000 notes collected on this route. Stored as note count, not rupee value.
+</ParamField>
+
+<ParamField body="note_500" type="integer">
+  Count of ₹500 notes collected on this route.
+</ParamField>
+
+<ParamField body="note_200" type="integer">
+  Count of ₹200 notes collected on this route.
+</ParamField>
+
+<ParamField body="note_100" type="integer">
+  Count of ₹100 notes collected on this route.
+</ParamField>
+
+<ParamField body="note_50" type="integer">
+  Count of ₹50 notes collected on this route.
+</ParamField>
+
+<ParamField body="note_20" type="integer">
+  Count of ₹20 notes collected on this route.
+</ParamField>
+
+<ParamField body="note_10" type="integer">
+  Count of ₹10 notes collected on this route.
+</ParamField>
+
+<ParamField body="coins" type="number">
+  Total coin value collected on this route (stored as rupee value since individual coin denominations are not tracked separately).
+</ParamField>
+
+### Route Expenses
+
+<ParamField body="expense_amount" type="number">
+  Rupee amount paid for each expense category per route.
+</ParamField>
+
+<ParamField body="expense_remarks" type="string">
+  Optional free-text note explaining the expense.
+</ParamField>
+
+### Direct Collections
+
+<ParamField body="denomination fields" type="integer">
+  Same denomination breakdown as Route Denominations, per employee row.
+</ParamField>
+
+<ParamField body="remarks" type="string">
+  Optional remarks per employee entry.
+</ParamField>
+
+### Bank Deposits
+
+<ParamField body="denomination fields" type="integer">
+  Denomination breakdown of notes deposited to the bank.
+</ParamField>
+
+<ParamField body="deposit_reference" type="string">
+  Bank deposit slip reference number or UTR. Required for audit purposes.
+</ParamField>
+
+<ParamField body="remarks" type="string">
+  Optional notes about the deposit.
+</ParamField>
+
+---
+
+## Actions
+
+<Steps>
+  <Step title="Save Route Denominations">
+    Persists denomination counts for all routes. Calls `POST /cash-settlement/:paperId/route-denominations`. Only enabled when paper is `NIGHT_SUBMITTED`.
+  </Step>
+  <Step title="Save Route Expenses">
+    Persists expense amounts and remarks for all routes. Calls `POST /cash-settlement/:paperId/route-expenses`. Enabled in `NIGHT_SUBMITTED` or `REOPENED`.
+  </Step>
+  <Step title="Save Direct Collections">
+    Persists direct-collection denomination data per employee. Calls `POST /cash-settlement/:paperId/direct-collections`. Only enabled when paper is `NIGHT_SUBMITTED`.
+  </Step>
+  <Step title="Save Bank Deposits">
+    Persists bank deposit denomination data, references, and remarks. Calls `POST /cash-settlement/:paperId/bank-deposits`. Only enabled when paper is `NIGHT_SUBMITTED`.
+  </Step>
+</Steps>
+
+---
+
+## Required APIs
+
+| Method | Endpoint | Used For |
+| --- | --- | --- |
+| `GET` | `/cash-settlement/:paperId` | Load all existing cash settlement data for the paper. |
+| `POST` | `/cash-settlement/:paperId/route-denominations` | Save route denomination counts. |
+| `POST` | `/cash-settlement/:paperId/route-expenses` | Save route expense records. |
+| `POST` | `/cash-settlement/:paperId/direct-collections` | Save direct collection denomination data. |
+| `POST` | `/cash-settlement/:paperId/bank-deposits` | Save bank deposit records. |
+
+---
+
+## Navigation
+
+The Cash Settlement screen is accessible from the main navigation menu under **Finance → Cash Settlement**. It is separate from the Orders Page. You select the paper you want to reconcile (defaulting to today's paper) and then work through the four tabs in order.
+
+---
+
+## Business Rules
+
+<CardGroup cols={2}>
+  <Card title="Route Denominations Window" icon="calendar-check">
+    Can only be entered during `NIGHT_SUBMITTED`. Once the paper moves to `MORNING_SUBMITTED` the route denomination grid is locked. Enter these while the morning shift is still open.
+  </Card>
+
+  <Card title="Route Expenses Window" icon="receipt">
+    Editable in `NIGHT_SUBMITTED` and `REOPENED`. This wider window exists because expense receipts sometimes arrive after morning submission; the reopen mechanism allows late entry.
+  </Card>
+
+  <Card title="Direct Collections Window" icon="hand-holding-dollar">
+    Like denominations, direct collections can only be entered during `NIGHT_SUBMITTED`. They represent cash collected before the route collections are tallied.
+  </Card>
+
+  <Card title="Bank Deposits Window" icon="building-columns">
+    Only editable in `NIGHT_SUBMITTED`. Bank deposits are expected to be logged on the same day as the paper to maintain accurate daily bank balance records.
+  </Card>
+</CardGroup>
+
+<Warning>
+  All four sub-sections have different status windows. Do not assume that because Route Expenses can be entered on a reopened paper, the other three sections can as well. Always check the paper status before attempting to save any section.
+</Warning>
+
+<Tip>
+  Use the `deposit_reference` field in the Bank Deposits tab to record the bank slip number or NEFT/RTGS UTR. This single field dramatically reduces the time spent cross-referencing physical bank slips during monthly audits.
+</Tip>

@@ -1,8 +1,82 @@
 ---
-title: Order Sheet
-description: Order Sheet documentation
+title: "Order Sheet Items: Line Items, Billing, and Collections"
+sidebarTitle: "Order Sheet"
+description: "Detailed reference for order_sheet_items billing fields, GST calculation logic, and the client collection and tray transaction child records."
 ---
 
-# Order Sheet
+An `order_sheet` is one delivery route's worth of data on a given paper. Each sheet holds many `order_sheet_items` — one row per (client, product) combination. This is where quantity, rate, and GST-adjusted billing all live.
 
-> This page is under construction.
+## order\_sheet schema
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `paper_id` | int, FK → `order_paper` | Cascade delete |
+| `delivery_group_id` | int, FK → `master_group` | The route this sheet serves |
+| `created_at`, `updated_at` | datetime |  |
+
+Uniqueness: `@@unique([paper_id, delivery_group_id])` — one sheet per (paper, delivery group).
+
+## order\_sheet\_items schema
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | int, PK |  |
+| `order_sheet_id` | int, FK → `order_sheet` | Cascade delete |
+| `client_id` | int, FK → `master_client` |  |
+| `product_id` | int, FK → `master_product` |  |
+| `ordered_qty` | decimal(12,3) | Set by night entry |
+| `delivered_qty` | decimal(12,3) | Set by morning entry |
+| `rate` | decimal(12,4) | Resolved at save time (see below) |
+| `gst_inclusive` | boolean | Snapshot from product config |
+| `gst_rate` | decimal(5,2) | GST percentage |
+| `taxable_amount` | decimal(12,2) | Computed |
+| `gst_amount` | decimal(12,2) | Computed |
+| `final_amount` | decimal(12,2) | Computed |
+| `supplying_distributor_id` | int, FK → `master_distributor` | Distributor that actually supplied; may differ from client's owner distributor |
+| `created_at`, `updated_at` | datetime |  |
+
+Uniqueness: `@@unique([order_sheet_id, client_id, product_id])`.
+
+## Rate resolution order
+
+When a save comes in, the service resolves `rate` in this order and stops at the first match:
+
+1. `master_client_rate_product` for `(client_id, product_id)` — client-specific override.
+2. `distributor_product_rate` for `(supplying_distributor_id, product_id)` — distributor default.
+3. `master_product.default_rate` — global fallback.
+
+If none match, save fails with `422 Unprocessable Entity: Rate not configured`.
+
+## GST calculation
+
+Two modes based on `master_product.gst_inclusive`:
+
+**Inclusive** (`gst_inclusive = true`):
+
+```text
+final_amount   = delivered_qty × rate
+taxable_amount = final_amount / (1 + gst_rate/100)
+gst_amount     = final_amount − taxable_amount
+```
+
+**Exclusive** (`gst_inclusive = false`):
+
+```text
+taxable_amount = delivered_qty × rate
+gst_amount     = taxable_amount × gst_rate / 100
+final_amount   = taxable_amount + gst_amount
+```
+
+All computed fields are recalculated server-side on every save; the client cannot override them.
+
+## Child records tied to the sheet
+
+- **`client_collection`** — payments received per (sheet, client, category). See [Cash Settlement data](/data-model/cash-settlement).
+- **`client_tray_transaction`** — crate movement per (sheet, client, tray\_type). See [Trays](/data-model/trays).
+
+## Related topics
+
+- [Order Paper](/data-model/order-paper) — parent container
+- [Products](/data-model/products) — rate tables and GST config
+- [Orders Module](/modules/orders) — billing pipeline

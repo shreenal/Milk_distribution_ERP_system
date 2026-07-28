@@ -1,8 +1,90 @@
 ---
-title: Overview
-description: Overview documentation
+title: "Data Model Overview: Milk Distribution ERP Database"
+sidebarTitle: "Overview"
+description: "A developer-oriented map of every domain entity in the Milk Distribution ERP, grouped by functional area with links to detailed pages."
 ---
 
-# Overview
+The Milk Distribution ERP database is built around a single central document — the **Order Paper** — with every operational entity linked back to it either directly or through an order sheet. This overview groups the entities by functional area and links to the detailed model pages.
 
-> This page is under construction.
+## Functional groups
+
+<CardGroup cols={2}>
+  <Card title="Order Paper & Sheets" icon="file-lines" href="/data-model/order-paper">
+    The daily container that anchors everything. `order_paper` to `order_sheet` to `order_sheet_items`.
+  </Card>
+
+  <Card title="Products" icon="boxes-stacked" href="/data-model/products">
+    Five-level product hierarchy: dairy, brand, product type, product, variant, plus rates and GST config.
+  </Card>
+
+  <Card title="Clients & Groups" icon="users" href="/data-model/clients-groups">
+    `master_client`, `master_group` (billing vs. delivery), client categories, and payment records.
+  </Card>
+
+  <Card title="Distributors" icon="handshake" href="/data-model/distributors">
+    `master_distributor`, procurement rules, transfer rules, and product ownership.
+  </Card>
+
+  <Card title="Vehicles" icon="truck" href="/data-model/vehicles">
+    `master_vehicle`, `master_driver`, allocation and purchase entries, gate pass policies.
+  </Card>
+
+  <Card title="Trays" icon="cubes-stacked" href="/data-model/trays">
+    `master_tray_type`, hierarchical `product_tray_rule`, per-client and per-dairy tracking.
+  </Card>
+
+  <Card title="Cash Settlement" icon="wallet" href="/data-model/cash-settlement">
+    Route settlement, expenses, direct collections, bank deposits: four channels, one paper.
+  </Card>
+
+  <Card title="Order Sheet Items" icon="table-list" href="/data-model/order-sheet">
+    Billing fields, GST calculation, and child payment/tray records.
+  </Card>
+</CardGroup>
+
+## Entity map (top-down)
+
+```text
+order_paper (1 per day)
+├── order_sheet (1 per delivery group)
+│   ├── order_sheet_items (1 per client × product)
+│   │   ├── client_collection (payment channels)
+│   │   └── client_tray_transaction (crate accounting)
+│   └── (linked to master_group → master_client)
+├── purchase_paper (1 per vehicle × session)
+│   └── purchase_entry (1 per product loaded)
+├── vehicle_allocation_paper
+│   └── vehicle_allocation_entry
+├── dairy_tray_paper (depot-level trays)
+├── distributor_transfer (auto-generated, audit trail)
+├── cash_route_settlement (per vehicle, per session)
+├── cash_route_expense
+├── cash_direct_collection
+└── cash_bank_deposit
+```
+
+## Master data (independent of paper)
+
+- `master_dairy`, `master_brand`, `master_product_type`, `master_product`, `master_product_variant`
+- `master_distributor`, `distributor_procurement_rule`, `distributor_product_rate`, `distributor_transfer_rule`
+- `master_client`, `master_group`, `master_client_category`
+- `master_vehicle`, `master_driver`
+- `master_tray_type`, `product_tray_rule`
+- `master_bank`
+- `user` (auth)
+
+## Enums used across tables
+
+| Enum | Values |
+| --- | --- |
+| `PaperStatus` | `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `FINALIZED`, `REOPENED` |
+| `DeliverySession` | `NIGHT`, `MORNING` |
+| `SupplyCategory` | `MILK`, `NON_MILK` |
+| `GatepassDatePolicy` | `SAME_DAY`, `NEXT_DAY` |
+| `Role` | `EMPLOYEE`, `ADMIN` |
+
+## Related topics
+
+- [Domain Overview](/domain/business-overview) — business context for these entities
+- [Order Paper](/data-model/order-paper) — the entity that anchors everything
+- [Products](/data-model/products) — the product hierarchy
