@@ -34,7 +34,8 @@ The codebase uses three categories of error:
 | --- | --- | --- | --- |
 | **DTO validation** | `ValidationPipe` automatically | 400 | `"orderedQty must be a number"` |
 | **Business-rule violation** | `throw new BadRequestException(...)` in service | 400 | `"Client 12 does not belong to group 3"` |
-| **Not-found** | `throw new BadRequestException(...)` in service | 400 | `"Order paper not found"` (note: 400, not 404) |
+| **Not-found** | Throw `BadRequestException(...)` in service (site-wide convention) | 400 | `"Order paper not found"` (note: 400, not 404) |
+| **Not-found (exception)** | `DistributorTransferService.generateTransfer` throws `NotFoundException` | 404 | `"Order paper not found"` — this module is the only one that uses `NotFoundException`; the rest of the codebase throws `BadRequestException` for missing records |
 | **Auth failure** | `JwtAuthGuard` / `RolesGuard` | 401 / 403 | `"Unauthorized"` / `"Forbidden resource"` |
 
 > **Why 400 for not-found?** The codebase intentionally throws `BadRequestException` (400) for missing records rather than `NotFoundException` (404). This is a deliberate convention — the frontend treats all non-success responses as "something went wrong" and reads the message string rather than branching on status code.
