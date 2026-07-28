@@ -70,21 +70,22 @@ Any other transition (skipping steps, going backward, repeating a step) is rejec
 <AccordionGroup>
   <Accordion title="DRAFT">
     - **Orders**: night save (ordered quantities) allowed.
-    - **Collections**: night save allowed.
+    - **Collections**: night save (`office_amount_given` for MILK/NON\_MILK) allowed.
     - **Vehicle Allocation**: night-session save allowed.
     - Everything else: read-only or not yet meaningful.
   </Accordion>
 
   <Accordion title="NIGHT_SUBMITTED">
     - **Orders**: morning save (delivered quantities) allowed.
-    - **Collections**: morning save allowed.
+    - **Collections**: night save still allowed (`office_amount_given`), morning save allowed (cash/cheque/employee\_remarks).
     - **Purchase**, **Vehicle Allocation** (morning session), **Trays**, **Dairy Tray Tracking**: writes allowed.
-    - **Night saves**: blocked.
+    - **Cash Settlement**: route-expenses, route-denominations, direct-collections, and bank-deposits writable at this state (denominations/direct/bank locked once the paper leaves `NIGHT_SUBMITTED`).
+    - **Orders (night save)**: blocked.
   </Accordion>
 
   <Accordion title="MORNING_SUBMITTED">
-    - **Cash Settlement**: writes allowed (route denominations, expenses, direct collections, bank deposits).
-    - **Collections**: admin-only fields editable by Admin.
+    - **Collections**: admin-only fields (`online_collection`, `bank_deposit`, `admin_remarks`) editable by Admin.
+    - **Cash Settlement**: everything except `route-expenses` is now locked (denominations, direct collections, and bank deposits are frozen once the paper leaves `NIGHT_SUBMITTED`). `route-expenses` cannot be edited here either — they require `NIGHT_SUBMITTED` or `REOPENED`.
     - **Order/purchase/tray/allocation**: read-only.
     - **Delivery Summary**: read-only view is meaningful now.
   </Accordion>
@@ -94,7 +95,7 @@ Any other transition (skipping steps, going backward, repeating a step) is rejec
   </Accordion>
 
   <Accordion title="REOPENED">
-    Behaves like `MORNING_SUBMITTED` for the purpose of accepting writes: morning saves, collections (both employee and admin fields), purchase, trays, dairy trays, cash settlement, and distributor transfer regeneration are all available again. The Admin re-finalizes when done. `reopened_at` and `reopen_reason` are preserved on the record permanently.
+    Unlocks the completion modules again: morning orders, morning/night collections, admin collection fields, purchase, trays, dairy trays, `route-expenses`, and `POST /distributor-transfer/:paperId/generate` are all writable. Both vehicle-allocation sessions (`NIGHT` and `MORNING`) are also editable in `REOPENED`. `cash-settlement` route-denominations, direct-collections, and bank-deposits stay locked (they require `NIGHT_SUBMITTED`). The Admin re-finalizes when done. `reopened_at` and `reopen_reason` are preserved on the record permanently.
   </Accordion>
 </AccordionGroup>
 

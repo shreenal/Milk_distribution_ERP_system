@@ -4,6 +4,10 @@ sidebarTitle: "Tray Tracking"
 description: "Reference for the Tray Tracking section of the Orders Page: tray movement columns, balance formula, save actions, and crate inventory rules."
 ---
 
+<Warning>
+  **Implementation status:** the corresponding scaffolding exists under `client/src/features/orders/sections/TrayTrackingSection.tsx`, `hooks/useTrayTracking.ts`, `types/tray.types.ts`, and `utils/trays.{calculations,columns}.ts`, but every one of those files is empty. There is no working Tray Tracking UI in the repository. This page documents the **design intent**.
+</Warning>
+
 The Tray Tracking section records the movement of physical milk crates (trays) for every client on a route. Milk is delivered in stackable trays, and keeping an accurate count of how many trays are at each client's premises is critical to avoiding losses. When a delivery is made, empty trays from the previous delivery are collected back. The Tray Tracking section records both directions of that movement — trays sent out and trays returned — so the business always knows the running balance at each client. This section is embedded within the Orders Page, directly below the Collections section.
 
 ---

@@ -4,6 +4,10 @@ sidebarTitle: "Collections"
 description: "Reference for the Collections section of the Orders Page: payment entry by method, role-based column visibility, status-gating rules, and save actions."
 ---
 
+<Warning>
+  **Implementation status:** the corresponding scaffolding does exist under `client/src/features/orders/sections/CollectionSection.tsx`, `hooks/useCollections.ts`, `types/collection.types.ts`, and `utils/collections.{calculations,columns}.ts`, but every one of those files is empty. There is no working Collections UI in the repository. This page documents the **design intent**.
+</Warning>
+
 The Collections section is embedded directly within the Orders Page and is where operators record payments collected from each client during delivery. Every morning when drivers return from their routes, the operator opens the Collections section for each route and enters the amounts received by payment method. The system supports four payment types — cash, cheque, online transfer, and bank deposit — and provides a separate remarks field for employees and admins. Because payment data is often updated in stages (employee records during the shift, admin reconciles afterward), the Collections section has one of the most nuanced permission and status-gating models in the application.
 
 ---

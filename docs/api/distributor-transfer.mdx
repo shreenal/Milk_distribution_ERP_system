@@ -44,7 +44,7 @@ Row shape written: `{ order_paper_id, supplier_distributor_id, owner_distributor
 
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
-| Paper not found | `404 Not Found` | Unknown `paperId` |
+| Paper not found | `404 Not Found` | `DistributorTransferService` uses `NotFoundException('Order paper not found')` for missing papers. This module is the exception to the module-wide "everything is `BadRequestException`" convention noted in [Error Handling](/architecture/error-handling). |
 | A required `(supplier, owner)` pair has no active `distributor_transfer_rule` | `400 Bad Request` | Validation service rejects |
 
 ### Related workflow

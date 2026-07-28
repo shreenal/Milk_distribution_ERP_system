@@ -4,6 +4,10 @@ sidebarTitle: "Delivery Summary"
 description: "Reference for the Delivery Summary screen: billing totals by group, finalize and reopen actions, and admin verification workflow before paper finalization."
 ---
 
+<Warning>
+  **Implementation status:** there is no `delivery-summary` feature folder scaffolded under `client/src/features/`. The client only contains an empty `orders` feature. This page documents the **design intent** for the screen the backend `delivery-summary` API is expected to feed.
+</Warning>
+
 The Delivery Summary screen is a read-only admin view that presents the final billing amounts for a paper aggregated by billing group. It sits at the last checkpoint before an admin clicks **Finalize** — once finalization happens, the paper is permanently locked and no further corrections can be made. This screen is therefore one of the most consequential views in the system: it condenses an entire day's worth of order sheets, delivery entries, and billing calculations into a single table that answers the question "does today's billing look right?"
 
 Only users with the **ADMIN** role typically access this screen, though it is technically accessible to EMPLOYEE role users as well through the delivery summary API.

@@ -16,10 +16,11 @@ The Collections module records money received from clients during the night and 
 
 ## Business rules
 
-- Night save requires `DRAFT`; morning save requires `NIGHT_SUBMITTED` or `REOPENED`.
-- Admin save is available in `MORNING_SUBMITTED` and `REOPENED`. It edits admin-only fields (correction amounts and `admin_remarks`).
+- Night save (`canEditNightCollections`): allowed in `DRAFT`, `NIGHT_SUBMITTED`, and `REOPENED`. Writes only `office_amount_given`.
+- Morning save (`canEditMorningCollections`): allowed in `NIGHT_SUBMITTED` and `REOPENED`. Writes `cash_collection`, `cheque_collection`, and `employee_remarks`.
+- Admin save (`canAdminEditCollections`): allowed in `MORNING_SUBMITTED` and `REOPENED`. Writes `online_collection`, `bank_deposit`, and `admin_remarks`.
 - One row per `(order_sheet_id, client_id, category)` — enforced by DB unique index.
-- Employees write their own field set (cash, cheque, online, office amount, bank deposit, employee\_remarks). Admins write `admin_remarks` and adjustment amounts.
+- Employees write their own field set; Admins write only the admin fields listed above.
 
 ## Dependencies
 

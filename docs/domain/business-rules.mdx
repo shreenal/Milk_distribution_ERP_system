@@ -14,7 +14,7 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
   </Accordion>
 
   <Accordion title="No papers for past dates">
-    You cannot create a paper with a sale date earlier than today (UTC). Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead.
+    You cannot create a paper with a sale date earlier than today. Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead. "Today" is evaluated in the `Asia/Kolkata` timezone (`DATE_CONFIG.TIMEZONE` in `paper.constants.ts`).
   </Accordion>
 
   <Accordion title="Maximum 30 days in the future">

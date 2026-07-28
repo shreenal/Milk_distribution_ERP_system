@@ -13,10 +13,11 @@ The Vehicle Allocation module lays out the day's loading plan. For each delivery
 - Manage one `vehicle_allocation_paper` per `(order_paper, delivery_session)`.
 - Assign `(vehicle, category)` to a distributor via `vehicle_distribution_assignment`.
 - Record per-product planned quantities via `vehicle_allocation`.
-
-## Business rules
-
-- Night-session writes require `DRAFT`; morning-session writes require `NIGHT_SUBMITTED` or `REOPENED`.
+- The endpoint targets the paper's **active execution session** (`DRAFT` → `NIGHT`, `NIGHT_SUBMITTED` → `MORNING`, `REOPENED` → whichever session the caller writes). Both sessions are editable in `REOPENED`.
+- Editable when `WorkflowStateService.canEditVehicleAllocations(status, session)` returns true:
+  - `DRAFT` → `NIGHT` session only.
+  - `NIGHT_SUBMITTED` → `MORNING` session only.
+  - `REOPENED` → either session.
 - One assignment per `(paper, session, vehicle, category)`; one allocation per `(paper, session, vehicle, distributor, category, product)`.
 - The `distributor` on an assignment must have an active procurement rule for the product's brand and product group.
 
@@ -30,7 +31,7 @@ The Vehicle Allocation module lays out the day's loading plan. For each delivery
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/vehicle-allocations/:paperId/vehicle-allocations` | EMPLOYEE | Return the allocations for a paper (both sessions) |
+| `GET` | `/vehicle-allocations/:paperId/vehicle-allocations` | EMPLOYEE | Return the allocations for the paper's active execution session |
 | `POST` | `/vehicle-allocations/:paperId/vehicle-allocations` | EMPLOYEE | Save allocations and assignments |
 
 ## Request flow
@@ -55,7 +56,7 @@ DRAFT           → night-session allocation writable
 NIGHT_SUBMITTED → morning-session allocation writable
 MORNING_SUB     → read-only
 FINALIZED       → read-only
-REOPENED        → morning-session writable again
+REOPENED        → both night- and morning-session writable
 ```
 
 ## Future improvements

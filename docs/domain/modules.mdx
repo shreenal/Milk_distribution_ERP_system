@@ -14,11 +14,11 @@ The ERP is organized into a small number of modules, each owning one clear busin
 | [Orders](/modules/orders) | Employee | `DRAFT` (night save), `NIGHT_SUBMITTED` or `REOPENED` (morning save) | `order_sheet_items` — night and morning quantities per (client, product) |
 | [Collections](/modules/collections) | Employee (night/morning), Admin (admin-save) | `DRAFT`, `NIGHT_SUBMITTED`, `MORNING_SUBMITTED`, `REOPENED` (fields differ) | `client_collection` — cash, cheque, online, office amounts per client per category |
 | [Purchase](/modules/purchase) | Employee | `NIGHT_SUBMITTED` or `REOPENED` | `purchase_paper` and `purchase_entry` — what each vehicle collected from the dairy |
-| [Vehicle Allocation](/modules/vehicle-allocation) | Employee | `DRAFT` (night session), `NIGHT_SUBMITTED` (morning session) | `vehicle_allocation_paper` with assignments and per-product quantities per session |
+| [Vehicle Allocation](/modules/vehicle-allocation) | Employee | `DRAFT` (night session), `NIGHT_SUBMITTED` (morning session), `REOPENED` (both sessions) | `vehicle_allocation_paper` with assignments and per-product quantities per session |
 | [Trays](/modules/trays) | Employee | `NIGHT_SUBMITTED` or `REOPENED` | `client_tray_transaction` — trays taken and returned at the client level |
 | Dairy Tray Tracking | Employee | `NIGHT_SUBMITTED` or `REOPENED` | `dairy_tray_paper` and `dairy_tray_transaction` — trays returned to the dairy per vehicle |
-| [Cash Settlement](/modules/cash-settlement) | Employee | `MORNING_SUBMITTED` or `REOPENED` | Route denominations, route expenses, direct collections, bank deposits |
-| [Distributor Transfer](/modules/distributor-transfer) | System-triggered by Employee | `MORNING_SUBMITTED` or `REOPENED` | `distributor_transfer` rows for cross-distributor supply reconciliation |
+| [Cash Settlement](/modules/cash-settlement) | Employee | `NIGHT_SUBMITTED` (all four channels); `REOPENED` (route expenses only) — route denominations, direct collections, and bank deposits are frozen after `NIGHT_SUBMITTED` | Route denominations, route expenses, direct collections, bank deposits |
+| [Distributor Transfer](/modules/distributor-transfer) | System-triggered by Employee | Auto-generated inside `submit-morning`; `POST /distributor-transfer/:paperId/generate` gated by `canEditDistributorTransfers` = `REOPENED` only | `distributor_transfer` rows for cross-distributor supply reconciliation |
 | [Delivery Summary](/modules/delivery-summary) | Employee (read-only) | Any status | Billing group and product-level totals for the paper |
 
 ## Reading order
