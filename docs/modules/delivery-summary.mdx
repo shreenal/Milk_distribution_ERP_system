@@ -55,12 +55,3 @@ Reads only:
 Any status → GET /delivery-summary/:paperId returns current totals
 Typical usage: after MORNING_SUBMITTED, before FINALIZED
 ```
-
-## Future improvements
-
-- Add a distributor rollup alongside the billing-group rollup for owner-vs-supplier reconciliation.
-- Support drill-down to per-client detail directly from the summary endpoint.
-
-## Open questions
-
-- Should the endpoint include unbilled items (delivered but with `final_bill_amount = 0` or null) in a separate section for Admin attention?

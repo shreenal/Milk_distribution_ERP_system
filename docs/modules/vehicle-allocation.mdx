@@ -58,12 +58,3 @@ MORNING_SUB     → read-only
 FINALIZED       → read-only
 REOPENED        → both night- and morning-session writable
 ```
-
-## Future improvements
-
-- Copy-forward from yesterday's allocation as a starting point for today.
-- Warn when the sum of allocated quantities does not match sum of ordered quantities.
-
-## Open questions
-
-- Should a `vehicle_allocation` row with `allocated_qty = 0` be preserved or deleted on save?

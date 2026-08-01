@@ -36,7 +36,7 @@ See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) fo
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `POST` | `/papers` | EMPLOYEE\* | Create paper for the given `date`; auto-creates sheets |
+| `POST` | `/papers` | EMPLOYEE | Create paper for the given `date`; auto-creates sheets |
 | `GET` | `/papers/today` | EMPLOYEE | Return `{type: "TODAY", paper}` if today's paper exists, otherwise `{type: "LATEST", paper}` for the most recent paper. Throws `400 Bad Request` (`NO_PAPERS_FOUND`) only when the database has no papers at all. |
 | `GET` | `/papers` | EMPLOYEE | List papers, optionally filtered by `date` |
 | `GET` | `/papers/:paperId` | EMPLOYEE | Read one paper with sheets |
@@ -44,8 +44,6 @@ See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) fo
 | `POST` | `/papers/:paperId/submit-morning` | EMPLOYEE | Transition `NIGHT_SUBMITTED → MORNING_SUBMITTED`; auto-generate transfers |
 | `POST` | `/papers/:paperId/finalize` | ADMIN | Transition `MORNING_SUBMITTED` or `REOPENED` → `FINALIZED` |
 | `POST` | `/papers/:paperId/reopen` | ADMIN | Transition `FINALIZED → REOPENED` (requires `reason`) |
-
-\* The `POST /papers` route is currently annotated `@Roles('EMPLOYEE')` in the controller but the paper-creation business rule expects Admin ownership. See [Open Questions](#open-questions).
 
 ## Request flow
 
@@ -77,14 +75,3 @@ POST /papers/:id/finalize       → FINALIZED
 ```
 
 See [Paper States](/workflows/paper-states) for the full state machine and [Reopen Workflow](/workflows/reopen-workflow) for the correction loop.
-
-## Future improvements
-
-- Enforce Admin-only on `POST /papers` in the controller decorator to match the business rule.
-- Add a multi-reopen audit trail so that `reopen_reason` is not overwritten on repeated reopens.
-- Add an idempotency key to `submit-morning` so a repeat call does not re-run distributor transfer generation.
-
-## Open questions
-
-- Should `POST /papers` be Admin-only or Employee-callable? Current code diverges from the actor documentation.
-- Should `submit-morning` also verify that Cash Settlement has been entered? Today it does not.

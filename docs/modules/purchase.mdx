@@ -55,12 +55,3 @@ POST /purchases/:paperId
 NIGHT_SUBMITTED / REOPENED   → POST /purchases/:paperId (upsert)
 FINALIZED                    → read-only via GET /purchases/:paperId
 ```
-
-## Future improvements
-
-- Reconciliation view against `vehicle_allocation` to flag discrepancies between planned and actual quantities.
-- Support returning products to the dairy as negative entries or as a separate `purchase_return` table.
-
-## Open questions
-
-- Should `purchase_amount` be recomputed from `purchased_qty × purchase_rate` on save, or trusted from the client? Today it is stored as-provided, which risks drift.

@@ -67,12 +67,3 @@ NIGHT_SUBMITTED → POST /trays/sheet/:id/save
 FINALIZED       → read-only
 REOPENED        → writable again
 ```
-
-## Future improvements
-
-- Reconciliation view that sums client-level taken minus returned against dairy-level returned minus taken per tray type, per day.
-- Alert on `expected_trays_taken` vs `trays_taken` mismatch.
-
-## Open questions
-
-- Should the tray-rule matching prefer active-only rules, or should inactive rules be considered when no active rule matches?

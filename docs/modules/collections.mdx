@@ -62,12 +62,3 @@ NIGHT_SUB     → POST /collections/.../morning-save
 MORNING_SUB   → POST /collections/.../admin-save (Admin only)
 REOPENED      → any of the above (subject to role)
 ```
-
-## Future improvements
-
-- Bulk import from POS/UPI transaction dumps.
-- Enforce that admin-save cannot zero out an amount without a mandatory `admin_remarks`.
-
-## Open questions
-
-- Should collections outside a client's declared categories be rejected outright, or accepted with a warning? Today the upsert would succeed.

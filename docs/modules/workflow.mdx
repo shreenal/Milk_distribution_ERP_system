@@ -56,35 +56,28 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 
 The service also exposes:
 
-- `canEditExecutionModule(status, session)` — session-aware equivalent used by vehicle allocations.
-- `canEditCompletionModule(status)` — the common `NIGHT_SUBMITTED` / `REOPENED` window shared by morning entries, trays, purchases, dairy-tray-tracking, and employee collections.
-- `getActiveExecutionSession(status)` — returns `NIGHT` for `DRAFT`, `MORNING` for `NIGHT_SUBMITTED`, and `null` otherwise.
-- `shouldValidate<X>` companions for each `canEdit*` — used by services that need to know whether to run validation but not necessarily block writes.
+- `getActiveExecutionSession(status)` — returns `NIGHT` for `DRAFT`, `MORNING` for `NIGHT_SUBMITTED`; throws `BadRequestException` for any other status.
+- `shouldValidateVehicleAllocations(status, session)`, `shouldValidatePurchases(status)`, `shouldValidateDeliveredQuantity(status)`, `shouldValidateTrays(status)`, `shouldValidateEmployeeCollections(status)`, `shouldValidateDairyTrayTracking(status)` — used by services that need to know whether to run validation but not necessarily block writes.
+
+Internally, two `private` helpers back most of the public `canEdit*` methods:
+
+- `canEditCompletionModule(status)` returns `true` for `NIGHT_SUBMITTED` and `REOPENED`. Used by morning entries, trays, purchases, dairy-tray-tracking, employee collections, and route expenses.
+- `canEditExecutionModule(status, session)` returns `true` in `REOPENED` for either session, `NIGHT` in `DRAFT`, and `MORNING` in `NIGHT_SUBMITTED`. Used by vehicle allocations.
 
 ## `WorkflowBuilder`
 
-Builds the standard workflow envelope returned to the frontend from each read endpoint. Methods (one per consumer module):
+Builds the workflow envelope returned to the frontend from each read endpoint. All methods take an `OrderPaperStatus` (`buildVehicleAllocationWorkflow` also takes a `DeliverySession`) and return a small object shaped per module:
 
-- `buildOrdersWorkflow(paper)`
-- `buildCollectionsWorkflow(paper)`
-- `buildTraysWorkflow(paper)`
-- `buildPurchasesWorkflow(paper)`
-- `buildDairyTrayTrackingWorkflow(paper)`
-- `buildVehicleAllocationWorkflow(paper)`
-- `buildDistributorTransferWorkflow(paper)`
-- `buildCashSettlementWorkflow(paper)`
-
-Each method returns something along the lines of:
-
-```typescript
-{
-  status: paper.status,
-  canEditNight: boolean,
-  canEditMorning: boolean,
-  canFinalize: boolean,
-  // ...module-specific flags
-}
-```
+| Method | Return shape |
+| --- | --- |
+| `buildOrdersWorkflow(status)` | `{ status, editable }` — `editable = canEditNightEntries \|\| canEditMorningEntries` |
+| `buildTraysWorkflow(status)` | `{ status, editable }` — `editable = canEditTrays` |
+| `buildPurchasesWorkflow(status)` | `{ status, editable }` — `editable = canEditPurchases` |
+| `buildDairyTrayTrackingWorkflow(status)` | `{ status, editable }` — `editable = canEditDairyTrayTracking` |
+| `buildVehicleAllocationWorkflow(status, session)` | `{ status, editable }` — `editable = canEditVehicleAllocations(status, session)` |
+| `buildCollectionsWorkflow(status)` | `{ status, permissions: { canEditNightCollections, canEditMorningCollections, canEditAdminCollections, canFinalize } }` |
+| `buildCashSettlementWorkflow(status)` | `{ status, permissions: { canEditRouteExpenses, canEditRouteDenominations, canEditDirectCollections, canEditBankDeposits } }` |
+| `buildDistributorTransferWorkflow(status)` | `{ status }` — no boolean fields; the frontend consults `canEditDistributorTransfers` directly for the `REOPENED`-only regenerate action |
 
 ## Dependencies
 

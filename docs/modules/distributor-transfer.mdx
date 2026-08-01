@@ -62,12 +62,3 @@ MORNING_SUBMITTED (on submit) → auto-generate transfers
 MORNING_SUBMITTED / REOPENED  → POST /distributor-transfer/:paperId/generate to recompute
 FINALIZED                     → read-only
 ```
-
-## Future improvements
-
-- Track `generated_at` and `generated_by` on each transfer row for audit purposes.
-- Compute a monetary settlement using the supplier's purchase rate or a mutually agreed transfer rate instead of just qty.
-
-## Open questions
-
-- What should happen when `distributor_transfer_rule` for a needed pair is missing? Currently the transfer is silently skipped; a warning to the operator would be safer.
