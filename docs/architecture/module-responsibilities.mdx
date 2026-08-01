@@ -13,12 +13,12 @@ Each backend module owns one slice of the domain. Boundaries are defined by whic
 | `auth` | `users` | `AuthService.login`; `AuthController` also exposes `GET /auth/me` which returns `req.user` set by `JwtAuthGuard` | (no domain dependencies) |
 | `paper` | `order_paper`, `order_sheet` | `generatePaperService`, `getTodayPaperService`, `getPaperByIdService`, `getPapersService`, `submitNightEntryService`, `submitMorningEntryService`, `finalizePaperService`, `reopenPaperService` | `workflow`, `orders`, `vehicle-allocation`, `trays`, `purchase`, `collections`, `cash-settlement`, `dairy-tray-tracking`, `distributor-transfer` (via readiness validators) |
 | `orders` | `order_sheet_items` | `getSheetService`, `getSheetItemsService`, `saveNightEntriesService`, `saveMorningEntriesService` | `workflow`, `products`, `clients` |
-| `collections` | `client_collections` | `getCollectionGrid`, `saveNightCollections`, `saveMorningCollections`, `saveAdminCollections` | `workflow` |
+| `collections` | `client_collection` | `getCollectionGrid`, `saveNightCollections`, `saveMorningCollections`, `saveAdminCollections` | `workflow` |
 | `purchase` | `purchase_paper`, `purchase_entry` | `getPurchases`, `savePurchases` | `workflow`, `products`, `vehicle-allocation` |
-| `vehicle-allocation` | `vehicle_allocation_paper`, `vehicle_allocation_entry` | `getVehicleAllocations`, `saveVehicleAllocations` | `workflow` |
+| `vehicle-allocation` | `vehicle_allocation_paper`, `vehicle_allocation`, `vehicle_distribution_assignment` | `getVehicleAllocations`, `saveVehicleAllocations` | `workflow` |
 | `trays` | `client_tray_transaction` | `getTraySheetService`, `saveTrayEntriesService` | `workflow`, `products` (rule matching) |
-| `dairy-tray-tracking` | `dairy_tray_paper` | `getDairyTrayGrid`, `saveDairyTrayEntries` | `workflow`, `trays`, `purchase` |
-| `cash-settlement` | `cash_route_expense`, denomination rows, `cash_direct_collection`, `cash_bank_deposit` | `getCashSettlementService`, `saveRouteExpensesService`, `saveRouteDenominationsService`, `saveDirectCollectionsService`, `saveBankDepositsService` | `workflow`, `collections` |
+| `dairy-tray-tracking` | `dairy_tray_paper`, `dairy_tray_transaction` | `getDairyTrayGrid`, `saveDairyTrayEntries` | `workflow`, `trays`, `purchase` |
+| `cash-settlement` | `cash_route_settlement`, `cash_route_expense`, `cash_direct_collection`, `cash_bank_deposit` | `getCashSettlementService`, `saveRouteExpensesService`, `saveRouteDenominationsService`, `saveDirectCollectionsService`, `saveBankDepositsService` | `workflow`, `collections` |
 | `distributor-transfer` | `distributor_transfer` | `getTransferSummary`, `generateTransfer` | `workflow`, `orders`, `vehicle-allocation` |
 | `delivery-summary` | (read-only) | `getBillingGroupSummary` | `collections`, `orders` |
 | `workflow` | (no writes) | `validateTransition` plus fine-grained `canEdit*` methods (`canEditNightEntries`, `canEditMorningEntries`, `canEditNightCollections`, `canEditMorningCollections`, `canEditTrays`, `canEditEmployeeCollections`, `canAdminEditCollections`, `canEditVehicleAllocations`, `canEditPurchases`, `canEditRouteExpenses`, `canEditRouteDenominations`, `canEditDirectCollections`, `canEditBankDeposits`, `canEditDairyTrayTracking`, `canEditDistributorTransfers`, `canFinalize`) | (no domain dependencies) |
