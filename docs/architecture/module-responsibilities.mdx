@@ -29,17 +29,19 @@ Each backend module owns one slice of the domain. Boundaries are defined by whic
 
 Two services are injected across almost every module:
 
-- **`WorkflowStateService`** — pure boolean methods keyed on `PaperStatus`. Every write-side service calls it before mutating; no module implements state gating on its own.
-- **`PrismaService`** — the singleton Prisma client, used by services (via `$transaction`) and repositories (via query builders).
+- **`WorkflowStateService`** — pure boolean methods keyed on `OrderPaperStatus`. Every write-side transaction service calls it before mutating; no module implements state gating on its own. Exported from `WorkflowModule` in `src/modules/transactions/workflow/`.
+- **`PrismaService`** — the singleton Prisma client used by services (via `$transaction`) and repositories (via query builders). Registered `@Global()` from `src/prisma/prisma.module.ts` so no other module has to import it.
 
-One shared repository lives under `common/repositories`:
+One shared repository lives under `src/common/repositories/`:
 
-- **`OrderItemsRepository`** — reused by modules that read order-sheet-item data (for example `orders`, `delivery-summary`, and `distributor-transfer`).
+- **`OrderItemsRepository`** — joins `order_sheet_items` with sheet, group supply rules, product, brand, product group, product type, and packaging type. Reused by `distributor-transfer` and `delivery-summary`.
 
-Two shared builders live under `common/builders`:
+Two shared builders live under `src/common/builders/`:
 
-- **`AllocationSummaryBuilder`** (`allocation-summary.builder.ts`)
-- **`ProductColumnsBuilder`** (`product-columns.builder.ts`)
+- **`AllocationSummaryBuilder`** (`allocation-summary.builder.ts`) — groups order items by `(distributor, category, brand)` and pivots into per-group rows keyed by `product_<id>`.
+- **`ProductColumnsBuilder`** (`product-columns.builder.ts`) — turns a product list into the nested grid column definition consumed by the frontend (`brand → product group → product type → packaging → size`).
+
+The `src/common/` tree also contains reserved-but-empty files: `common/crud/{base.repository,base.service,index}.ts`, `common/dto/{id-param,lookup,pagination,index}.ts`, `common/errors/{base.errors,not-found.error,validation.error}.ts`, `common/filters/http-exception.filter.ts`, and `common/pagination/{pagination.types,pagination.util,index}.ts`. These are placeholder files with no implementation.
 
 ## Why the split matters
 

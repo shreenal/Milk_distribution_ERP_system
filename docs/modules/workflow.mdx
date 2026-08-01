@@ -1,0 +1,104 @@
+---
+title: "Workflow Module — Paper State Machine and Edit Gates"
+sidebarTitle: "Workflow"
+description: "The pure state-machine module that every write-side transaction service consults before mutating. Documents WorkflowStateService, WorkflowBuilder, and the full canEdit* matrix."
+---
+
+## Purpose
+
+The Workflow module owns the paper state machine and every `canEdit*` decision that other transaction modules consult before writing. It has no controller and no repository — it is a pure services \+ types package that `WorkflowModule` exports for injection.
+
+## Files
+
+```text
+src/modules/transactions/workflow/
+├── workflow-state.service.ts      # WorkflowStateService (validateTransition, canEdit*, shouldValidate*)
+├── workflow.builder.ts            # WorkflowBuilder — per-module response envelopes
+├── workflow.module.ts             # Exports both services
+├── constants/
+│   └── workflow-status.constants.ts
+├── guards/
+│   └── workflow-status.guard.ts    # Reserved; currently not registered on any route
+└── types/
+    └── workflow.types.ts
+```
+
+## State machine (`OrderPaperStatus`)
+
+```text
+DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
+                                                    ↓
+                                                REOPENED → FINALIZED
+```
+
+`WorkflowStateService.validateTransition(currentStatus, target)` is the single guard for state changes. It rejects any other pairing with `BadRequestException`.
+
+## `canEdit*` methods
+
+| Method | Editable when status is |
+| --- | --- |
+| `canEditNightEntries(status)` | `DRAFT` |
+| `canEditMorningEntries(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditNightCollections(status)` | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditMorningCollections(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canAdminEditCollections(status)` | `MORNING_SUBMITTED`, `REOPENED` |
+| `canEditTrays(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditPurchases(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditDairyTrayTracking(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditEmployeeCollections(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditVehicleAllocations(status, session)` | `DRAFT` \+ `NIGHT`, `NIGHT_SUBMITTED` \+ `MORNING`, or `REOPENED` (either session) |
+| `canEditRouteExpenses(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditRouteDenominations(status)` | `NIGHT_SUBMITTED` |
+| `canEditDirectCollections(status)` | `NIGHT_SUBMITTED` |
+| `canEditBankDeposits(status)` | `NIGHT_SUBMITTED` |
+| `canEditDistributorTransfers(status)` | `REOPENED` |
+| `canFinalize(status)` | `MORNING_SUBMITTED`, `REOPENED` |
+
+The service also exposes:
+
+- `canEditExecutionModule(status, session)` — session-aware equivalent used by vehicle allocations.
+- `canEditCompletionModule(status)` — the common `NIGHT_SUBMITTED` / `REOPENED` window shared by morning entries, trays, purchases, dairy-tray-tracking, and employee collections.
+- `getActiveExecutionSession(status)` — returns `NIGHT` for `DRAFT`, `MORNING` for `NIGHT_SUBMITTED`, and `null` otherwise.
+- `shouldValidate<X>` companions for each `canEdit*` — used by services that need to know whether to run validation but not necessarily block writes.
+
+## `WorkflowBuilder`
+
+Builds the standard workflow envelope returned to the frontend from each read endpoint. Methods (one per consumer module):
+
+- `buildOrdersWorkflow(paper)`
+- `buildCollectionsWorkflow(paper)`
+- `buildTraysWorkflow(paper)`
+- `buildPurchasesWorkflow(paper)`
+- `buildDairyTrayTrackingWorkflow(paper)`
+- `buildVehicleAllocationWorkflow(paper)`
+- `buildDistributorTransferWorkflow(paper)`
+- `buildCashSettlementWorkflow(paper)`
+
+Each method returns something along the lines of:
+
+```typescript
+{
+  status: paper.status,
+  canEditNight: boolean,
+  canEditMorning: boolean,
+  canFinalize: boolean,
+  // ...module-specific flags
+}
+```
+
+## Dependencies
+
+None. `WorkflowStateService` is pure; it takes a status (and optionally a session) and returns a boolean.
+
+## Consumers
+
+Every mutating transaction service imports `WorkflowStateService`:
+
+- `PaperService` — `validateTransition` for status changes.
+- `OrdersService`, `CollectionsService`, `TraysService`, `PurchaseService`, `VehicleAllocationService`, `DairyTrayTrackingService`, `DistributorTransferService`, `CashSettlementService` — all check the relevant `canEdit*` before upserting.
+
+## Related
+
+- [Paper States](/workflows/paper-states) — diagram of the state machine.
+- [Reopen workflow](/workflows/reopen-workflow) — the `REOPENED` branch.
+- [Business rules](/domain/business-rules) — the natural-language version of every `canEdit*`.

@@ -1,0 +1,101 @@
+---
+title: "Masters API — ADMIN-only CRUD Endpoint Matrix"
+sidebarTitle: "Masters (matrix)"
+description: "Every ADMIN-only CRUD endpoint exposed by src/modules/masters/ in one matrix: standard GET/POST/PATCH/DELETE plus the /active variants and composite-key exceptions."
+---
+
+The Masters API is the collection of ADMIN-only CRUD endpoints exposed by every module under `src/modules/masters/`. All routes require `Authorization: Bearer <token>` and a JWT with `role = ADMIN`. The controllers are guarded by `JwtAuthGuard` \+ `RolesGuard` and decorated `@Roles('ADMIN')` at the class level.
+
+Because every master follows the same REST shape, this page documents the endpoint surface as a matrix rather than one section per resource. For each resource's DTO shape, foreign-key checks, and side effects, see the corresponding [Masters module page](/modules/masters).
+
+## Standard endpoint shape
+
+Unless the resource is called out in the [exceptions](#exceptions) section below, every master exposes:
+
+| Method | Path | Purpose | Body |
+| --- | --- | --- | --- |
+| `GET` | `/<resource>` | List all rows | — |
+| `GET` | `/<resource>/active` | List active rows (`is_active = true`) | — |
+| `GET` | `/<resource>/:id` | Get one by primary key | — |
+| `POST` | `/<resource>` | Create | `Create<Resource>Dto` |
+| `PATCH` | `/<resource>/:id` | Partial update | `Update<Resource>Dto` = `PartialType(Create<Resource>Dto)` |
+| `DELETE` | `/<resource>/:id` | Delete by primary key | — |
+
+All responses are JSON. Validation errors return `400 Bad Request` with a `class-validator` message array. Missing rows return `404 Not Found`. Duplicate unique keys (e.g. duplicate `username`, `email`, `vehicle_number`, `(brand, color)` tray-type) return `409 Conflict` from the corresponding service.
+
+## Resource matrix
+
+### Administration
+
+| Resource | Path prefix | Has `/active`? | Notes |
+| --- | --- | --- | --- |
+| Roles | `/roles` | No | No `is_active` column |
+| Users | `/users` | No | `password` bcrypt-hashed server-side; response omits the hash |
+
+### Clients
+
+| Resource | Path prefix | Has `/active`? | Notes |
+| --- | --- | --- | --- |
+| Clients | `/clients` | Yes | Server assigns `code = CLI{padStart(id, 6)}` after insert |
+| Groups | `/groups` | Yes | `delivery_session` is `NIGHT` or `MORNING` |
+| Client categories | `/client-categories` | No | See [exceptions](#exceptions) — uses composite-key routes |
+| Client product rates | `/client-product-rates` | Yes | Effective-dated selling rate per `(client, product_link)` |
+
+### Distribution
+
+| Resource | Path prefix | Has `/active`? | Notes |
+| --- | --- | --- | --- |
+| Distributors | `/distributors` | Yes |  |
+| Group supply rules | `/group-supply-rules` | Yes | Unique on `(group_id, category)` |
+| Procurement rules | `/procurement-rules` | Yes | Unique on `(distributor, category, brand, group)` |
+| Transfer rules | `/transfer-rules` | Yes | Unique on `(supplier, owner)` |
+
+### Finance
+
+| Resource | Path prefix | Has `/active`? | Notes |
+| --- | --- | --- | --- |
+| Banks | `/banks` | Yes |  |
+| Expense types | `/expense-types` | Yes |  |
+
+### Fleet
+
+| Resource | Path prefix | Has `/active`? | Notes |
+| --- | --- | --- | --- |
+| Drivers | `/drivers` | Yes | Optional `vehicle_id` |
+| Employees | `/employees` | Yes |  |
+| Vehicles | `/vehicles` | Yes | `vehicle_number` unique |
+
+### Products
+
+| Resource | Path prefix | Has `/active`? | Notes |
+| --- | --- | --- | --- |
+| Dairies | `/dairies` | Yes |  |
+| Brands | `/brands` | Yes | `gatepass_date_policy` = `SAME_DAY` or `PREVIOUS_DAY` |
+| Product types | `/product-types` | No | Unique on `(brand_id, name)` |
+| Product groups | `/product-groups` | No | Carries `SupplyCategory` |
+| Packaging types | `/packaging-types` | No |  |
+| Products | `/products` | Yes | Server assigns `code = PRD{padStart(id, 6)}`. `gst_percentage` ≤ `MAX_GST_PERCENTAGE = 5` |
+| Product links | `/product-links` | Yes | Unique on `(distributor, product)` |
+| Distributor product rates | `/distributor-product-rates` | Yes | `purchase_rate` and `selling_rate`, both effective-dated |
+| Tray types | `/tray-types` | Yes | Unique on `(brand_id, color)` |
+| Tray rules | `/tray-rules` | Yes | Hierarchical match keys, all optional except `tray_type_id` |
+
+## Exceptions
+
+### Client categories
+
+`client-categories` uses composite-key routing because the underlying `master_client_category` row has a composite primary key of `(client_id, category)` and no other columns to update:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/client-categories` | List all |
+| `GET` | `/client-categories/client/:clientId` | List categories for one client |
+| `POST` | `/client-categories` | Create |
+| `DELETE` | `/client-categories/:clientId/:category` | Delete by composite key |
+
+There is no `GET /client-categories/:id`, no `PATCH`, and no `/active` route.
+
+## Related
+
+- [Masters module documentation](/modules/masters) — per-resource DTO shape, foreign-key checks, and side effects.
+- [Auth API](/api/auth) — obtain the ADMIN JWT that every masters endpoint requires.

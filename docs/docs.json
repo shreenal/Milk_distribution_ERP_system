@@ -97,8 +97,11 @@
             ]
           },
           {
-            "group": "Modules",
+            "group": "Modules (Masters & Transactions)",
             "pages": [
+              "modules/masters",
+              "modules/auth",
+              "modules/workflow",
               "modules/paper",
               "modules/orders",
               "modules/collections",
@@ -106,6 +109,7 @@
               "modules/vehicle-allocation",
               "modules/trays",
               "modules/cash-settlement",
+              "modules/dairy-tray-tracking",
               "modules/distributor-transfer",
               "modules/delivery-summary"
             ]
@@ -119,6 +123,12 @@
             "group": "Auth",
             "pages": [
               "api/auth"
+            ]
+          },
+          {
+            "group": "Masters",
+            "pages": [
+              "api/masters"
             ]
           },
           {

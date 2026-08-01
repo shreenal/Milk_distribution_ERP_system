@@ -1,0 +1,258 @@
+---
+title: "Masters — Reference Data CRUD Modules"
+sidebarTitle: "Masters"
+description: "Every master module under src/modules/masters/, its domain group, HTTP endpoints, DTOs, and business rules — organized by administration, clients, distribution, finance, fleet, and products."
+---
+
+## Purpose
+
+The Masters tree (`src/modules/masters/`) holds every non-transactional reference-data module. Every master follows the same NestJS CRUD pattern (`<module>.controller.ts`, `<module>.service.ts`, `<module>.repository.ts`, `<module>.module.ts`, and a `dto/` folder with `create-*.dto.ts` and `update-*.dto.ts`). Two modules also ship a small `<module>.constants.ts` for code-generation prefixes.
+
+All master controllers are guarded by `JwtAuthGuard` \+ `RolesGuard` and decorated `@Roles('ADMIN')` at the class level, so every route requires an admin JWT.
+
+## Standard endpoint shape
+
+Unless noted otherwise, every master exposes the same five REST endpoints:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/<resource>` | List all rows |
+| `GET` | `/<resource>/:id` | Get one row by primary key |
+| `POST` | `/<resource>` | Create — body validated by `Create*Dto` |
+| `PATCH` | `/<resource>/:id` | Partial update — body validated by `Update*Dto` (extends `PartialType(CreateDto)`) |
+| `DELETE` | `/<resource>/:id` | Delete by primary key |
+
+Masters whose Prisma table has an `is_active` column also expose `GET /<resource>/active` returning only rows where `is_active = true`. That covers most masters; the exceptions are called out per-module below.
+
+## Hierarchy
+
+```text
+src/modules/masters/
+├── administration/
+│   ├── roles/
+│   └── users/
+├── clients/
+│   ├── clients/
+│   ├── client-categories/
+│   ├── client-product-rates/
+│   └── groups/
+├── distribution/
+│   ├── distributors/
+│   ├── group-supply-rules/
+│   ├── procurement-rules/
+│   └── transfer-rules/
+├── finance/
+│   ├── banks/
+│   └── expense-types/
+├── fleet/
+│   ├── drivers/
+│   ├── employees/
+│   └── vehicles/
+└── products/
+    ├── brands/
+    ├── dairies/
+    ├── distributor-product-rates/
+    ├── packaging-types/
+    ├── product-groups/
+    ├── product-links/
+    ├── product-types/
+    ├── products/
+    ├── tray-rules/
+    └── tray-types/
+```
+
+## Administration
+
+### `roles`
+
+- **Table:** `roles` (`id`, `name`, timestamps).
+- **DTO fields:** `name` (`@IsString @MinLength(2) @MaxLength(50)`).
+- **Endpoints:** standard five. No `/active` (no `is_active` column).
+- **Business rules:** the seeded rows `ADMIN` and `EMPLOYEE` are what the `RolesGuard` hierarchy checks against; deleting them will break authorization for every endpoint that references those names.
+
+### `users`
+
+- **Table:** `users` (`id`, `role_id`, `username` unique, `email` unique, `password`, `first_name`, `last_name`, timestamps).
+- **DTO fields:** `role_id`, `username` (3–50), `email` (`@IsEmail`), `password` (8–100), `first_name`, `last_name` (2–50 each).
+- **Endpoints:** standard five. No `/active`.
+- **Business rules (from `UsersService`):**
+  - Rejects create/update if `role_id` does not resolve to an existing role (`NotFoundException`).
+  - Rejects create/update if `username` or `email` already belongs to another row (`ConflictException`).
+  - Hashes `password` with `bcrypt` (`cost = 10`) on both create and update.
+  - `findById` and repository responses use a `select` that omits `password_hash`; `findByIdWithPassword` is used only by `AuthService`.
+
+## Clients
+
+### `clients`
+
+- **Table:** `master_client` (`id`, `code` unique nullable, `name`, `contact`, `shop_name`, `billing_group_id`, `delivery_group_id`, `owner_distributor_id`, `is_active`, timestamps).
+- **DTO fields:** `name`, optional `contact`, optional `shop_name`, `billing_group_id`, `delivery_group_id`, `owner_distributor_id`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /clients/active`.
+- **Business rules (from `ClientsService`):**
+  - `billing_group_id`, `delivery_group_id`, and `owner_distributor_id` must resolve to existing rows (`NotFoundException` otherwise) on create and update.
+  - On create, the service inserts with `code = null` and then patches `code = CLI{padStart(id, 6)}` via `ClientsRepository.updateCode` (`CLIENT_CODE_PREFIX = 'CLI'`, `CLIENT_CODE_LENGTH = 6` — from `clients.constants.ts`).
+
+### `groups`
+
+- **Table:** `master_group` (`id`, `name`, `vehicle_id` nullable, `delivery_session` (`NIGHT` | `MORNING`, default `MORNING`), `is_active`, timestamps).
+- **DTO fields:** `name`, optional `vehicle_id` (nullable), optional `delivery_session`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /groups/active`.
+
+### `client-categories`
+
+- **Table:** `master_client_category` (composite PK `client_id + category`, plus timestamps).
+- **DTO fields:** `client_id`, `category` (`SupplyCategory`).
+- **Endpoints (non-standard):**
+  - `GET /client-categories` — all rows.
+  - `GET /client-categories/client/:clientId` — categories for one client.
+  - `POST /client-categories` — create.
+  - `DELETE /client-categories/:clientId/:category` — delete by composite key.
+  - No `PATCH` (the row has no non-key columns to update).
+- **Business rules:** rejects insert if the `(client, category)` pair already exists.
+
+### `client-product-rates`
+
+- **Table:** `master_client_rate_product` (`id`, `client_id`, `product_link_id`, `selling_rate`, `effective_from`, `effective_to` nullable, `is_active`, timestamps).
+- **DTO fields:** `client_id`, `product_link_id`, `selling_rate` (decimal, 2 dp), optional `effective_from`, optional `effective_to`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /client-product-rates/active`.
+- **Business rules:** the Orders module resolves the selling rate for an item by picking the row where `effective_from <= sale_date <= (effective_to ?? +∞)` and `is_active = true`.
+
+## Distribution
+
+### `distributors`
+
+- **Filename convention:** singular — `distributor.controller.ts` and friends.
+- **Table:** `master_distributor` (`id`, `name`, `contact`, `email`, `is_active`, timestamps).
+- **DTO fields:** `name` (max 100), optional `contact` (max 20), optional `email` (`@IsEmail`, max 100), optional `is_active`.
+- **Endpoints:** standard five plus `GET /distributors/active`.
+
+### `group-supply-rules`
+
+- **Table:** `master_group_supply_rule` (`id`, `group_id`, `category`, `distributor_id`, `is_active`, timestamps; unique on `(group_id, category)`).
+- **DTO fields:** `group_id`, `category` (`SupplyCategory`), `distributor_id`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /group-supply-rules/active`.
+- **Business rules:** the transfer-generation code in `distributor-transfer` reads this table to determine the **supplier** distributor for each `(group, category)`.
+
+### `procurement-rules`
+
+- **Table:** `distributor_procurement_rule` (`id`, `distributor_id`, `brand_id`, `product_group_id`, `category`, `is_active`, timestamps; unique on `(distributor, category, brand, group)`).
+- **DTO fields:** `distributor_id`, `brand_id`, `product_group_id`, `category`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /procurement-rules/active`.
+- **Business rules:** Vehicle Allocation reads this rule set to verify that the chosen distributor for a `(vehicle, category)` assignment can supply the product's brand \+ group.
+
+### `transfer-rules`
+
+- **Table:** `distributor_transfer_rule` (`id`, `supplier_distributor_id`, `owner_distributor_id`, `is_active`, timestamps; unique on `(supplier, owner)`).
+- **DTO fields:** `supplier_distributor_id`, `owner_distributor_id`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /transfer-rules/active`.
+- **Business rules:** the Distributor Transfer module rejects transfers whose `(supplier, owner)` pair does not appear here with `is_active = true` — see [Distributor Transfer](/modules/distributor-transfer).
+
+## Finance
+
+### `banks`
+
+- **Table:** `master_bank` (`id`, `name`, `is_active`, timestamps).
+- **DTO fields:** `name` (max 100), optional `is_active`.
+- **Endpoints:** standard five plus `GET /banks/active`.
+
+### `expense-types`
+
+- **Table:** `master_expense_type` (`id`, `name`, `is_active`, timestamps).
+- **DTO fields:** `name` (max 100), optional `is_active`.
+- **Endpoints:** standard five plus `GET /expense-types/active`.
+
+## Fleet
+
+### `drivers`
+
+- **Table:** `master_driver` (`id`, `name`, `contact`, `vehicle_id` nullable, `is_active`, timestamps).
+- **DTO fields:** `name` (max 100), optional `contact` (max 20), optional `vehicle_id`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /drivers/active`.
+
+### `employees`
+
+- **Table:** `master_employee` (`id`, `name`, `contact`, `is_active`, timestamps).
+- **DTO fields:** `name`, optional `contact`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /employees/active`.
+- **Business rules:** referenced by `cash_direct_collection.employee_id`.
+
+### `vehicles`
+
+- **Table:** `master_vehicle` (`id`, `vehicle_number` unique, `vehicle_name`, `capacity`, `is_active`, timestamps).
+- **DTO fields:** `vehicle_number` (max 20), optional `vehicle_name`, optional `capacity`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /vehicles/active`.
+
+## Products
+
+### `dairies`
+
+- **Table:** `master_dairy` (`id`, `name`, `city`, `is_active`, timestamps).
+- **DTO fields:** `name`, optional `city`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /dairies/active`.
+
+### `brands`
+
+- **Table:** `master_brand` (`id`, `name`, `dairy_id`, `gatepass_date_policy` (`SAME_DAY` | `PREVIOUS_DAY`), `is_active`, timestamps).
+- **DTO fields:** `name`, `dairy_id`, optional `is_active`, optional `gatepass_date_policy`.
+- **Endpoints:** standard five plus `GET /brands/active`.
+- **Business rules:** `gatepass_date_policy` drives the default `gatepass_date` set by the Purchase module (`SAME_DAY` → sale date; `PREVIOUS_DAY` → sale date − 1).
+
+### `product-types`
+
+- **Table:** `master_product_type` (`id`, `brand_id`, `name`, `is_active`, timestamps; unique on `(brand_id, name)`).
+- **DTO fields:** `brand_id`, `name`.
+- **Endpoints:** standard five (no `/active` — `is_active` exists in schema but not exposed as its own route).
+
+### `product-groups`
+
+- **Filename convention:** singular — `product-group.controller.ts` and friends.
+- **Table:** `master_product_group` (`id`, `name`, `category`, timestamps).
+- **DTO fields:** `name`, `category` (`SupplyCategory`).
+- **Endpoints:** standard five. No `/active` (no `is_active` column).
+
+### `packaging-types`
+
+- **Table:** `master_packaging_type` (`id`, `name`, timestamps).
+- **DTO fields:** `name`.
+- **Endpoints:** standard five. No `/active`.
+
+### `products`
+
+- **Table:** `master_product` (`id`, `code` unique nullable, `brand_id`, `product_group_id`, `product_type_id` nullable, `packaging_type_id` nullable, `packaging_size` decimal, `packaging_unit`, `gst_percentage` decimal, `is_gst_inclusive` bool, `is_active`, timestamps; unique on `(brand, group, type, packaging, size, unit)`).
+- **DTO fields:** `brand_id`, `product_group_id`, optional `product_type_id`, optional `packaging_type_id`, `packaging_size` (min 0.01), `packaging_unit`, optional `gst_percentage` (0 to `MAX_GST_PERCENTAGE = 5`), optional `is_gst_inclusive`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /products/active`.
+- **Constants (`products.constants.ts`):** `MAX_GST_PERCENTAGE = 5`, `PRODUCT_CODE_PREFIX = 'PRD'`, `PRODUCT_CODE_LENGTH = 6`.
+- **Business rules:** creates the row and then patches `code = PRD{padStart(id, 6)}`, matching the client-code pattern.
+
+### `product-links`
+
+- **Table:** `master_product_link` (`id`, `distributor_id`, `product_id`, `is_active`, timestamps; unique on `(distributor, product)`).
+- **DTO fields:** `distributor_id`, `product_id`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /product-links/active`.
+- **Business rules:** every order line, purchase entry, distributor rate, and client rate hangs off a product link — this is the join between a distributor and a product.
+
+### `distributor-product-rates`
+
+- **Table:** `distributor_product_rate` (`id`, `product_link_id`, `purchase_rate`, `selling_rate`, `effective_from`, `effective_to` nullable, `is_active`, timestamps).
+- **DTO fields:** `product_link_id`, `purchase_rate` (2 dp), `selling_rate` (2 dp), optional `effective_from`, optional `effective_to`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /distributor-product-rates/active`.
+- **Business rules:** acts as the fallback selling rate when no active `master_client_rate_product` exists for a `(client, product_link)` on the paper's sale date.
+
+### `tray-types`
+
+- **Table:** `master_tray_type` (`id`, `brand_id`, `color`, `description`, `is_active`, timestamps; unique on `(brand_id, color)`).
+- **DTO fields:** `brand_id`, `color` (max 50), optional `description` (max 255), optional `is_active`.
+- **Endpoints:** standard five plus `GET /tray-types/active`.
+
+### `tray-rules`
+
+- **Table:** `product_tray_rule` (`id`, `product_group_id` nullable, `brand_id` nullable, `product_type_id` nullable, `packaging_type_id` nullable, `tray_type_id`, `applies_to_packaging` bool, `is_active`, timestamps).
+- **DTO fields:** optional `product_group_id`, optional `brand_id`, optional `product_type_id`, optional `packaging_type_id`, `tray_type_id`, optional `applies_to_packaging`, optional `is_active`.
+- **Endpoints:** standard five plus `GET /tray-rules/active`.
+- **Business rules:** the tray sheet in [Trays](/modules/trays) picks the most specific matching rule (most non-null fields matching the product) to derive `expected_trays_taken` from `delivered_qty`.
+
+## Cross-references
+
+- Every master is registered in `AppModule` (`src/app.module.ts`). Deleting a master module means removing it from the imports array as well.
+- `roles` and `users` are also implicitly consumed by the `auth` transaction module — see [Authentication](/architecture/authentication).
+- Masters have no `*-validation.service.ts` files; validation happens inline in the `Service`. Foreign-key checks are done by explicit `findById` calls against the referenced repository (see `ClientsService.create` for the canonical pattern).

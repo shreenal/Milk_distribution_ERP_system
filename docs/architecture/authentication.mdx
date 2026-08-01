@@ -10,12 +10,12 @@ Every route in the Milk Distribution ERP API is protected. There are no public e
 
 `POST /auth/login` is the only route that runs without a token. It:
 
-1. Looks up the `users` row by `username` (via `AuthRepository.findUserByUsername`).
+1. Looks up the `users` row by `username` via `UsersRepository.findByUsername` (injected into `AuthService` from `masters/administration/users`). A local `auth.repository.ts` file exists but is fully commented out.
 2. Compares the supplied password against the stored bcrypt hash with `bcrypt.compare`.
 3. On match, signs a JWT with the payload `{ sub: user.id, username, role: user.role.name }`.
 4. Returns `{ accessToken, user: { id, username, role } }`.
 
-The signing key must be set via the `JWT_SECRET` environment variable in both `AuthModule` (`JwtModule.register`) and `JwtStrategy`. Tokens expire in `1d` (`signOptions.expiresIn: '1d'`). Moving the secret to `JWT_SECRET` in the environment is a known follow-up.
+The signing key is read from the `SECRET` environment variable via `ConfigService`. Both `AuthModule` (through `JwtModule.registerAsync`) and `JwtStrategy` (`config.get<string>('SECRET')`) resolve the same key. Tokens expire in `1d` (`signOptions: { expiresIn: '1d' }`).
 
 ## Token validation
 
@@ -33,7 +33,12 @@ Only two roles exist:
 | `EMPLOYEE` | Delivery drivers, route staff, night/morning ops | Read all data, write orders/collections/purchases/trays during the working states |
 | `ADMIN` | Supervisors, office managers | Everything an `EMPLOYEE` can do plus finalize, reopen, admin collections, cash settlement |
 
-Roles live in a separate `roles` table (`id`, `name`) referenced from `users.role_id`. The JWT stores the role name string, so `request.user.role` is `'ADMIN'` or `'EMPLOYEE'`. Provisioning happens directly at the database level; there is no user-management endpoint. The only other auth route is `GET /auth/me` (guarded by `JwtAuthGuard`), which returns the `{ id, username, role }` payload attached by the JWT strategy.
+Roles live in a separate `roles` table (`id`, `name`) referenced from `users.role_id`. The JWT stores the role name string, so `request.user.role` is `'ADMIN'` or `'EMPLOYEE'`. User and role provisioning is exposed as ADMIN-only master CRUD:
+
+- `roles` — see [Roles master](/modules/masters/administration/roles).
+- `users` — see [Users master](/modules/masters/administration/users). `UsersService.create` and `UsersService.update` bcrypt-hash the password (cost 10) and enforce unique `username` and `email`.
+
+The only other auth route is `GET /auth/me` (guarded by `JwtAuthGuard`), which returns `{ id, username, role }` for the current token. The handler reloads the user from `UsersRepository.findById` on every call, so a deleted user cannot keep using an issued token.
 
 ## Handler-level enforcement
 

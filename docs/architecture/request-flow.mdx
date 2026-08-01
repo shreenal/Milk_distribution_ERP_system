@@ -41,7 +41,7 @@ Failures raise `BadRequestException` (`400`) before the controller ever runs.
 
 ## Stage 3 — JwtAuthGuard
 
-Reads the `Authorization: Bearer <token>` header, verifies the JWT signature with the signing key configured in `JwtStrategy` (currently the hardcoded string `'milk-distribution-secret'`), and rejects expired or malformed tokens with `401`. On success it attaches the decoded payload — `{ id, username, role }` returned from `JwtStrategy.validate` — to `request.user`.
+Reads the `Authorization: Bearer <token>` header, verifies the JWT signature with the signing key configured in `JwtStrategy` (read from `process.env.SECRET` via `ConfigService`), and rejects expired or malformed tokens with `401`. On success it attaches the decoded payload — `{ id, username, role }` returned from `JwtStrategy.validate` — to `request.user`.
 
 ## Stage 4 — RolesGuard
 
