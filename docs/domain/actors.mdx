@@ -17,7 +17,7 @@ The Admin is the operations manager or business owner. Admins have authority ove
 - **Finalize** a paper once all data entry is complete — locking the day's records. `POST /papers/:paperId/finalize` is `@Roles('ADMIN')`.
 - **Reopen** a finalized paper when a correction is needed, providing a documented reason for the reopening. `POST /papers/:paperId/reopen` is `@Roles('ADMIN')`.
 - **Edit admin-only collection fields** on a client's collection record — `online_collection`, `bank_deposit`, and `admin_remarks` — via `POST /collections/sheet/:sheetId/{milk,non-milk}/admin-save`. `WorkflowStateService.canAdminEditCollections` allows this in `MORNING_SUBMITTED` and `REOPENED`.
-- **Create** an Order Paper: business-practice is that Admin creates the paper, but the endpoint `POST /papers` is decorated `@Roles('EMPLOYEE')`, so an Employee may call it too. The `RolesGuard` hierarchy also lets Admin satisfy that check.
+- **Create** an Order Paper: business-practice is that Admin,employee both can creates the paper, but the endpoint `POST /papers` is decorated `@Roles('EMPLOYEE')`, so an Employee may call it too. The `RolesGuard` hierarchy also lets Admin satisfy that check.
 
 An Admin cannot skip lifecycle steps. Even with elevated privileges, the paper must pass through `NIGHT_SUBMITTED` → `MORNING_SUBMITTED` before it can be finalized. The Admin also cannot finalize a paper that is still in `DRAFT` or `NIGHT_SUBMITTED` status.
 

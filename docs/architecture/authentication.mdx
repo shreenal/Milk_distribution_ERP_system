@@ -15,7 +15,7 @@ Every route in the Milk Distribution ERP API is protected. There are no public e
 3. On match, signs a JWT with the payload `{ sub: user.id, username, role: user.role.name }`.
 4. Returns `{ accessToken, user: { id, username, role } }`.
 
-The signing key is currently hardcoded as `'milk-distribution-secret'` in both `AuthModule` (`JwtModule.register`) and `JwtStrategy`. Tokens expire in `1d` (`signOptions.expiresIn: '1d'`). Moving the secret to `JWT_SECRET` in the environment is a known follow-up.
+The signing key must be set via the `JWT_SECRET` environment variable in both `AuthModule` (`JwtModule.register`) and `JwtStrategy`. Tokens expire in `1d` (`signOptions.expiresIn: '1d'`). Moving the secret to `JWT_SECRET` in the environment is a known follow-up.
 
 ## Token validation
 
