@@ -79,7 +79,7 @@ model master_brand {
 
 model master_client {
   id                         Int                          @id @default(autoincrement())
-  code                       String                       @unique
+  code                       String?                       @unique
   name                       String
   contact                    String?
   shop_name                  String?
@@ -226,7 +226,7 @@ model distributor_procurement_rule {
 
 model master_driver {
   id             Int             @id @default(autoincrement())
-  name           String
+  name           String          @unique
   contact        String?
   vehicle_id     Int?
   is_active      Boolean         @default(true)
@@ -237,7 +237,7 @@ model master_driver {
 
 model master_group {
   id                    Int                        @id @default(autoincrement())
-  name                  String
+  name                  String                     @unique
   vehicle_id            Int?
   is_active             Boolean                    @default(true)
   created_at            DateTime                   @default(now())
@@ -327,7 +327,7 @@ model product_tray_rule {
 
 model master_product {
   id                Int      @id @default(autoincrement())
-  code              String   @unique
+  code              String? @unique
   brand_id          Int
   product_group_id  Int
   product_type_id   Int?
