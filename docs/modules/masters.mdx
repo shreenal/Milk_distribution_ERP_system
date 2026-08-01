@@ -65,7 +65,7 @@ src/modules/masters/
 
 ### `roles`
 
-- **Table:** `roles` (`id`, `name`, timestamps).
+- **Table:** `roles` (`id`, `name` unique). No timestamps.
 - **DTO fields:** `name` (`@IsString @MinLength(2) @MaxLength(50)`).
 - **Endpoints:** standard five. No `/active` (no `is_active` column).
 - **Business rules:** the seeded rows `ADMIN` and `EMPLOYEE` are what the `RolesGuard` hierarchy checks against; deleting them will break authorization for every endpoint that references those names.
@@ -94,13 +94,13 @@ src/modules/masters/
 
 ### `groups`
 
-- **Table:** `master_group` (`id`, `name`, `vehicle_id` nullable, `delivery_session` (`NIGHT` | `MORNING`, default `MORNING`), `is_active`, timestamps).
+- **Table:** `master_group` (`id`, `name` unique, `vehicle_id` nullable, `delivery_session` (`NIGHT` | `MORNING`, default `NIGHT`), `is_active`, timestamps).
 - **DTO fields:** `name`, optional `vehicle_id` (nullable), optional `delivery_session`, optional `is_active`.
 - **Endpoints:** standard five plus `GET /groups/active`.
 
 ### `client-categories`
 
-- **Table:** `master_client_category` (composite PK `client_id + category`, plus timestamps).
+- **Table:** `master_client_category` (composite PK `(client_id, category)`; no other columns).
 - **DTO fields:** `client_id`, `category` (`SupplyCategory`).
 - **Endpoints (non-standard):**
   - `GET /client-categories` — all rows.
@@ -112,7 +112,7 @@ src/modules/masters/
 
 ### `client-product-rates`
 
-- **Table:** `master_client_rate_product` (`id`, `client_id`, `product_link_id`, `selling_rate`, `effective_from`, `effective_to` nullable, `is_active`, timestamps).
+- **Table:** `master_client_rate_product` (`id`, `client_id`, `product_link_id`, `selling_rate`, `effective_from`, `effective_to` nullable, `is_active`; no timestamps). Unique on `(client_id, product_link_id, effective_from)`.
 - **DTO fields:** `client_id`, `product_link_id`, `selling_rate` (decimal, 2 dp), optional `effective_from`, optional `effective_to`, optional `is_active`.
 - **Endpoints:** standard five plus `GET /client-product-rates/active`.
 - **Business rules:** the Orders module resolves the selling rate for an item by picking the row where `effective_from <= sale_date <= (effective_to ?? +∞)` and `is_active = true`.
@@ -122,7 +122,7 @@ src/modules/masters/
 ### `distributors`
 
 - **Filename convention:** singular — `distributor.controller.ts` and friends.
-- **Table:** `master_distributor` (`id`, `name`, `contact`, `email`, `is_active`, timestamps).
+- **Table:** `master_distributor` (`id`, `name` unique, `contact`, `email`, `is_active`; no timestamps).
 - **DTO fields:** `name` (max 100), optional `contact` (max 20), optional `email` (`@IsEmail`, max 100), optional `is_active`.
 - **Endpoints:** standard five plus `GET /distributors/active`.
 
@@ -135,7 +135,7 @@ src/modules/masters/
 
 ### `procurement-rules`
 
-- **Table:** `distributor_procurement_rule` (`id`, `distributor_id`, `brand_id`, `product_group_id`, `category`, `is_active`, timestamps; unique on `(distributor, category, brand, group)`).
+- **Table:** `distributor_procurement_rule` (`id`, `distributor_id`, `brand_id`, `product_group_id`, `category`, `is_active`; no timestamps; unique on `(distributor, category, brand, group)`).
 - **DTO fields:** `distributor_id`, `brand_id`, `product_group_id`, `category`, optional `is_active`.
 - **Endpoints:** standard five plus `GET /procurement-rules/active`.
 - **Business rules:** Vehicle Allocation reads this rule set to verify that the chosen distributor for a `(vehicle, category)` assignment can supply the product's brand \+ group.
@@ -186,7 +186,7 @@ src/modules/masters/
 
 ### `dairies`
 
-- **Table:** `master_dairy` (`id`, `name`, `city`, `is_active`, timestamps).
+- **Table:** `master_dairy` (`id`, `name` unique, `city` nullable, `is_active`; no timestamps).
 - **DTO fields:** `name`, optional `city`, optional `is_active`.
 - **Endpoints:** standard five plus `GET /dairies/active`.
 
@@ -199,20 +199,20 @@ src/modules/masters/
 
 ### `product-types`
 
-- **Table:** `master_product_type` (`id`, `brand_id`, `name`, `is_active`, timestamps; unique on `(brand_id, name)`).
+- **Table:** `master_product_type` (`id`, `brand_id`, `name`, `created_at`; unique on `(brand_id, name)`). No `is_active` column, no `updated_at`.
 - **DTO fields:** `brand_id`, `name`.
-- **Endpoints:** standard five (no `/active` — `is_active` exists in schema but not exposed as its own route).
+- **Endpoints:** standard five. No `/active` (no `is_active` column).
 
 ### `product-groups`
 
 - **Filename convention:** singular — `product-group.controller.ts` and friends.
-- **Table:** `master_product_group` (`id`, `name`, `category`, timestamps).
+- **Table:** `master_product_group` (`id`, `name` unique, `category`, `created_at`; no `updated_at`).
 - **DTO fields:** `name`, `category` (`SupplyCategory`).
 - **Endpoints:** standard five. No `/active` (no `is_active` column).
 
 ### `packaging-types`
 
-- **Table:** `master_packaging_type` (`id`, `name`, timestamps).
+- **Table:** `master_packaging_type` (`id`, `name` unique, `created_at`; no `updated_at`).
 - **DTO fields:** `name`.
 - **Endpoints:** standard five. No `/active`.
 
@@ -233,7 +233,7 @@ src/modules/masters/
 
 ### `distributor-product-rates`
 
-- **Table:** `distributor_product_rate` (`id`, `product_link_id`, `purchase_rate`, `selling_rate`, `effective_from`, `effective_to` nullable, `is_active`, timestamps).
+- **Table:** `distributor_product_rate` (`id`, `product_link_id`, `purchase_rate`, `selling_rate`, `effective_from`, `effective_to` nullable, `is_active`; no timestamps). Unique on `(product_link_id, effective_from)`.
 - **DTO fields:** `product_link_id`, `purchase_rate` (2 dp), `selling_rate` (2 dp), optional `effective_from`, optional `effective_to`, optional `is_active`.
 - **Endpoints:** standard five plus `GET /distributor-product-rates/active`.
 - **Business rules:** acts as the fallback selling rate when no active `master_client_rate_product` exists for a `(client, product_link)` on the paper's sale date.
@@ -246,7 +246,7 @@ src/modules/masters/
 
 ### `tray-rules`
 
-- **Table:** `product_tray_rule` (`id`, `product_group_id` nullable, `brand_id` nullable, `product_type_id` nullable, `packaging_type_id` nullable, `tray_type_id`, `applies_to_packaging` bool, `is_active`, timestamps).
+- **Table:** `product_tray_rule` (`id`, `product_group_id` nullable, `brand_id` nullable, `product_type_id` nullable, `packaging_type_id` nullable, `tray_type_id`, `applies_to_packaging` bool default `true`, `is_active`; no timestamps).
 - **DTO fields:** optional `product_group_id`, optional `brand_id`, optional `product_type_id`, optional `packaging_type_id`, `tray_type_id`, optional `applies_to_packaging`, optional `is_active`.
 - **Endpoints:** standard five plus `GET /tray-rules/active`.
 - **Business rules:** the tray sheet in [Trays](/modules/trays) picks the most specific matching rule (most non-null fields matching the product) to derive `expected_trays_taken` from `delivered_qty`.

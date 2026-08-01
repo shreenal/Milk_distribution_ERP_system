@@ -51,7 +51,7 @@ Uniqueness: `@@unique([group_id, category])` — one supplier per (delivery grou
 
 ## `distributor_transfer_rule`
 
-Purpose: whitelist of allowed `(supplier_distributor, owner_distributor)` pairs for automatic distributor transfer generation. If a pair is not present, the transfer is not created even when the supply rule and owner distributor differ.
+Purpose: whitelist of allowed `(supplier_distributor, owner_distributor)` pairs for automatic distributor transfer generation. If a pair required by the paper's delivered items has no active rule, `DistributorTransferValidationService.validateTransferRules` aborts generation with `BadRequestException` — missing rules are surfaced as an error, not silently skipped.
 
 | Column | Type | Notes |
 | --- | --- | --- |

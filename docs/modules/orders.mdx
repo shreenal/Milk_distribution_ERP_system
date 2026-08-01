@@ -65,12 +65,3 @@ DRAFT       → POST /orders/sheet/:id/night-save   → night_* columns set
 NIGHT_SUB   → POST /orders/sheet/:id/morning-save → delivered_qty, final_* columns set
               (item must already exist from night save)
 ```
-
-## Future improvements
-
-- Return per-row error results instead of failing the whole batch on the first invalid line.
-- Support partial rate lookups: if a rate is expired mid-day but a same-effective row already exists on the paper, allow reuse.
-
-## Open questions
-
-- Should morning-save be allowed to create _new_ items for clients that were absent from night entry (walk-in delivery), or is this always an error?

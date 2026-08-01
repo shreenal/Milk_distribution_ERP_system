@@ -65,12 +65,3 @@ MORNING_SUBMITTED → read-only for cash-settlement (route-expenses too)
 FINALIZED         → read-only via GET
 REOPENED          → POST /cash-settlement/:id/route-expenses (only channel unlocked again)
 ```
-
-## Future improvements
-
-- Server-side reconciliation: compute expected route cash = collections − expenses and warn when denominations do not match.
-- Attach photos of physical deposit slips to `cash_bank_deposit`.
-
-## Open questions
-
-- Should `cash_bank_deposit` allow multiple deposits into the same bank on the same paper, and if so what should the natural key be?
