@@ -80,7 +80,11 @@ server/
 │   │       └── workflow/       # Shared workflow state machine
 │   ├── prisma/                 # PrismaModule / PrismaService (global)
 │   ├── generated/prisma/       # Prisma-generated client (output target)
-│   └── types/                  # Shared TypeScript types
+│   └── types/                  # Shared TS types imported by services and builders
+│                               # (collection, dairy-tray-tracking, delivery-summary,
+│                               # distributor-transfer, order, purchase, transaction,
+│                               # trays, vehicle-allocation; client.types.ts and
+│                               # index.ts exist but are empty)
 └── prisma/
     └── schema.prisma           # Database schema (Prisma → PostgreSQL via adapter-pg)
 ```
