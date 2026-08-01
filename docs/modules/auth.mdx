@@ -1,0 +1,70 @@
+---
+title: "Auth Module — JWT Login and Role Guards"
+sidebarTitle: "Auth"
+description: "How the Auth module issues JWTs, exposes the current user, and provides the guards and decorators every other module composes to enforce authentication and role hierarchy."
+---
+
+## Purpose
+
+The Auth module owns JWT-based session issuance and the guards \+ decorators that every other module composes to enforce authentication and role checks. It lives at `src/modules/transactions/auth/` even though it is not "transactional" in the business sense — it is co-located with the daily-workflow modules that all import from it.
+
+## Responsibilities
+
+- Verify username/password and issue a signed JWT (`POST /auth/login`).
+- Return the current authenticated user for the frontend (`GET /auth/me`).
+- Export `JwtAuthGuard`, `RolesGuard`, and the `@Roles(...)` decorator so downstream controllers can gate themselves.
+
+## Files
+
+```text
+src/modules/transactions/auth/
+├── auth.controller.ts       # POST /auth/login, GET /auth/me
+├── auth.service.ts          # login(), getCurrentUser()
+├── auth.repository.ts       # File exists but body is fully commented out
+├── auth.module.ts           # Registers JwtModule.registerAsync using SECRET env var
+├── auth.guard.ts            # JwtAuthGuard extends AuthGuard('jwt')
+├── jwt.strategy.ts          # PassportStrategy for extracting + validating the bearer token
+├── roles.guard.ts           # Role hierarchy: ADMIN = 2, EMPLOYEE = 1
+├── roles.decorator.ts       # @Roles(...) sets metadata under ROLES_KEY = 'roles'
+└── dto/
+    └── login.dto.ts         # { username: string; password: string }
+```
+
+## Business rules
+
+- **Login (`AuthService.login`):**
+  1. Looks up the user by `username` via `UsersRepository.findByUsername` (from `masters/administration/users`). If missing, throws `UnauthorizedException('Invalid credentials')`.
+  2. `bcrypt.compare(password, user.password)`. If it fails, throws `UnauthorizedException('Invalid credentials')`.
+  3. Signs `{ sub: user.id, username: user.username, role: user.role.name }` with `expiresIn: '1d'`.
+  4. Returns `{ access_token, user: { id, username, role: user.role.name } }`.
+- **Current user (`AuthService.getCurrentUser`):** reloads the user from `UsersRepository.findById(req.user.sub)` so a deleted or role-changed user cannot keep transacting on a stale token.
+- **JWT secret:** read from `process.env.SECRET` in both `AuthModule` (`JwtModule.registerAsync` → `secret: config.get<string>('SECRET')`) and `JwtStrategy` (`secretOrKey: config.get<string>('SECRET')`). There is no fallback and no hardcoded key.
+- **Role hierarchy (`RolesGuard`):**
+  ```ts
+  const HIERARCHY = { ADMIN: 2, EMPLOYEE: 1 };
+  ```
+  `RolesGuard` reads the required roles via `Reflector.getAllAndOverride(ROLES_KEY, [handler, class])`, converts the user's role and the maximum required role to their rank, and passes when `userRank >= requiredRank`. An `ADMIN` implicitly satisfies any `@Roles('EMPLOYEE')` route.
+
+## Endpoints
+
+| Method | Path | Guards | Role | Purpose |
+| --- | --- | --- | --- | --- |
+| `POST` | `/auth/login` | (none) | public | Exchange credentials for a JWT |
+| `GET` | `/auth/me` | `JwtAuthGuard` | (any authenticated) | Return `{ id, username, role }` for the current token |
+
+## Dependencies
+
+- `UsersRepository` from `masters/administration/users` — imported via `UsersModule`.
+- `@nestjs/jwt`, `@nestjs/passport`, `passport-jwt`.
+- `bcrypt`.
+- `ConfigService` — available globally because `AppModule` calls `ConfigModule.forRoot({ isGlobal: true })`.
+
+## Consumers
+
+Every other controller in the codebase imports the guards and decorator from this module. There is no `@Public()` decorator today — endpoints that should skip auth simply omit the guards.
+
+## Related
+
+- [Authentication architecture](/architecture/authentication) — header contract, guard order, request lifecycle.
+- [Users master](/modules/masters#users) — how the accounts that log in are created.
+- [Auth API](/api/auth) — request and response shapes.

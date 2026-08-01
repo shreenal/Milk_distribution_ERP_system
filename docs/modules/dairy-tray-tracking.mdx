@@ -1,0 +1,59 @@
+---
+title: "Dairy Tray Tracking — Per-Vehicle Tray Returns at the Dairy"
+sidebarTitle: "Dairy Tray Tracking"
+description: "Per-vehicle, per-tray-type record of what each morning vehicle returned to the dairy. Closes the tray-accounting loop against client-level takings."
+---
+
+## Purpose
+
+The Dairy Tray Tracking module records what each vehicle physically returned to the dairy at the end of the morning route, broken down by tray type. It sits alongside [Trays](/modules/trays) (client-level movement) and closes the tray-accounting loop by matching what left the dairy with what came back.
+
+## Responsibilities
+
+- Ensure a single `dairy_tray_paper` row exists per `order_paper` (1:1).
+- Upsert `dairy_tray_transaction` rows keyed by `(dairy_tray_paper, vehicle, tray_type)`.
+- Return a grid combining expected trays (from client-level takings) and returned trays (from this module's own rows).
+
+## Business rules
+
+- Writes require `NIGHT_SUBMITTED` or `REOPENED` (`WorkflowStateService.canEditDairyTrayTracking`).
+- One row per `(dairy_tray_paper_id, vehicle_id, tray_type_id)` — enforced by DB unique index.
+- The tray-returned quantity is captured verbatim; no reconciliation is enforced against the client-level takings — that comparison happens in the read payload for the operator to eyeball.
+
+## Dependencies
+
+- `PrismaService` — reads and writes `dairy_tray_paper`, `dairy_tray_transaction`.
+- `WorkflowStateService` — status gate.
+- Reads from `master_tray_type`, `master_vehicle` for grid rendering.
+
+## Endpoints
+
+| Method | Path | Role | Purpose |
+| --- | --- | --- | --- |
+| `GET` | `/dairy-tray-tracking/:paperId` | EMPLOYEE | Return the dairy-tray grid (vehicles × tray types) |
+| `POST` | `/dairy-tray-tracking/:paperId/save` | EMPLOYEE | Upsert dairy-tray transaction rows |
+
+## Request flow
+
+```text
+POST /dairy-tray-tracking/:paperId/save
+  → DairyTrayTrackingController
+  → DairyTrayTrackingService.saveDairyTrayEntries(paperId, dto)
+       verify canEditDairyTrayTracking(paper.status)
+       ensure dairy_tray_paper exists for the paper (create if missing)
+       for each entry:
+         upsert dairy_tray_transaction keyed by (paper, vehicle, tray_type)
+```
+
+## Database tables
+
+- `dairy_tray_paper` — 1:1 with `order_paper` (`order_paper_id` unique).
+- `dairy_tray_transaction` — one row per `(dairy_tray_paper, vehicle, tray_type)`.
+
+See the [Trays data model](/data-model/trays) for the schema.
+
+## Related
+
+- [Trays module](/modules/trays) — client-level tray movement (the source of `expected_trays_taken`).
+- [Trays data model](/data-model/trays).
+- [Dairy Tray Tracking API](/api/dairy-tray-tracking) — request/response shapes.
