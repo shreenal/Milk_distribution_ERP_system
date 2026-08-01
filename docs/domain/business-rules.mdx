@@ -14,7 +14,7 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
   </Accordion>
 
   <Accordion title="No papers for past dates">
-    You cannot create a paper with a sale date earlier than today. Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead. In current code, "today" is evaluated in **UTC** — the service constructs `todayUtc = Date.UTC(year, month, day)` from `new Date()`. `DATE_CONFIG.TIMEZONE = 'Asia/Kolkata'` is defined in `paper.constants.ts` but is not actually referenced by the comparison, so operators in IST close to midnight UTC may see the day roll over differently than the wall clock suggests.
+    You cannot create a paper with a sale date earlier than today. Dairy delivery operations cannot be retroactively created because physical products have already been (or not been) delivered. If you need to correct past data, use the Reopen workflow instead. The system evaluates "today" using the Asia/Kolkata (IST) calendar. The requested sale date is compared against the current IST business day to determine whether it is in the past. Dates continue to be stored internally as date-only values normalized to UTC midnight, but all business-day validation uses the IST calendar.
   </Accordion>
 
   <Accordion title="Maximum 30 days in the future">
