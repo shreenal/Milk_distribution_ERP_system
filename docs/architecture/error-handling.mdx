@@ -33,12 +33,13 @@ The codebase uses three categories of error:
 | Category | How it is thrown | HTTP status | Example |
 | --- | --- | --- | --- |
 | **DTO validation** | `ValidationPipe` automatically | 400 | `"orderedQty must be a number"` |
-| **Business-rule violation** | `throw new BadRequestException(...)` in service | 400 | `"Client 12 does not belong to group 3"` |
-| **Not-found** | Throw `BadRequestException(...)` in service (site-wide convention) | 400 | `"Order paper not found"` (note: 400, not 404) |
-| **Not-found (exception)** | `DistributorTransferService.generateTransfer` throws `NotFoundException` | 404 | `"Order paper not found"` — this module is the only one that uses `NotFoundException`; the rest of the codebase throws `BadRequestException` for missing records |
+| **Business-rule violation** | `throw new BadRequestException(...)` in a transaction service | 400 | `"Client 12 does not belong to group 3"` |
+| **Not-found (transactions)** | `throw new BadRequestException(...)` in a transaction service | 400 | `"Order paper not found"` (note: 400, not 404) |
+| **Not-found (masters \+ distributor-transfer)** | `throw new NotFoundException(...)` in a master or `DistributorTransferService.generateTransfer` | 404 | `"Client not found"`, `"Order paper not found"` |
+| **Duplicate unique key (masters)** | `throw new ConflictException(...)` in a master service | 409 | `"Username already exists"`, `"Tray type already exists for this brand and color"` |
 | **Auth failure** | `JwtAuthGuard` / `RolesGuard` | 401 / 403 | `"Unauthorized"` / `"Forbidden resource"` |
 
-> **Why 400 for not-found?** The codebase intentionally throws `BadRequestException` (400) for missing records rather than `NotFoundException` (404). This is a deliberate convention — the frontend treats all non-success responses as "something went wrong" and reads the message string rather than branching on status code.
+> **Why the split?** Transaction services (`paper`, `orders`, `collections`, `trays`, `purchase`, `vehicle-allocation`, `cash-settlement`, `dairy-tray-tracking`, `delivery-summary`) throw `BadRequestException` for missing rows so the frontend can treat every non-success response uniformly. Master services (`src/modules/masters/*`) follow the CRUD idiom and use `NotFoundException` (404) for missing rows and `ConflictException` (409) for duplicate unique keys. `DistributorTransferService.generateTransfer` is the one transaction service that also uses `NotFoundException` for a missing paper.
 
 ## Error Messages by Module
 

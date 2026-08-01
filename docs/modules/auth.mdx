@@ -36,7 +36,7 @@ src/modules/transactions/auth/
   1. Looks up the user by `username` via `UsersRepository.findByUsername` (from `masters/administration/users`). If missing, throws `UnauthorizedException('Invalid credentials')`.
   2. `bcrypt.compare(password, user.password)`. If it fails, throws `UnauthorizedException('Invalid credentials')`.
   3. Signs `{ sub: user.id, username: user.username, role: user.role.name }` with `expiresIn: '1d'`.
-  4. Returns `{ access_token, user: { id, username, role: user.role.name } }`.
+  4. Returns `{ accessToken, user: { id, username, role: user.role.name } }`.
 - **Current user (`AuthService.getCurrentUser`):** reloads the user from `UsersRepository.findById(req.user.sub)` so a deleted or role-changed user cannot keep transacting on a stale token.
 - **JWT secret:** read from `process.env.SECRET` in both `AuthModule` (`JwtModule.registerAsync` → `secret: config.get<string>('SECRET')`) and `JwtStrategy` (`secretOrKey: config.get<string>('SECRET')`). There is no fallback and no hardcoded key.
 - **Role hierarchy (`RolesGuard`):**

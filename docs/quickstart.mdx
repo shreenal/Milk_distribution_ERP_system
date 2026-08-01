@@ -1,47 +1,98 @@
 ---
 title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+description: "Run the Milk Distribution ERP backend locally: install dependencies, configure Postgres and JWT, generate the Prisma client, apply migrations, seed, and start the NestJS server."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
-
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
+This walks through starting the NestJS backend (`server/`) from a fresh clone. The Electron/Vite frontend under `client/` is out of scope for this page.
 
 ## Prerequisites
 
-Before you begin, you must have:
+- **Node.js 20\+** (the project uses ESM and NestJS 11).
+- **PostgreSQL** reachable via a `DATABASE_URL` connection string. The Prisma client is configured with the `@prisma/adapter-pg` driver-adapter (see `src/prisma/prisma.service.ts`).
+- **npm** (or a compatible package manager).
 
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
+## Environment variables
+
+Create `server/.env` with:
+
+```bash
+DATABASE_URL=postgresql://user:password@localhost:5432/milk_erp
+SECRET=change-me-to-a-long-random-string
+PORT=3000
+```
+
+- `DATABASE_URL` — read by `PrismaService` (via `PrismaPg`) and by Prisma CLI.
+- `SECRET` — signs and verifies JWTs. Read by `AuthModule` (`JwtModule.registerAsync`) and `JwtStrategy` through `ConfigService`.
+- `PORT` — bound in `main.ts` (`process.env.PORT ?? 3000`).
+
+`main.ts` also enables CORS for `http://localhost:5173` with `credentials: true` — this is the origin the Vite dev server uses.
 
 ## Get started
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
-
+  <Step title="Install dependencies">
     ```bash
-    npm install your-package
+    cd server
+    npm install
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
+  <Step title="Generate the Prisma client">
+    The client is emitted into `src/generated/prisma/` — every service and repository imports from there.
 
     ```bash
-    your-cli init
+    npx prisma generate
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
-
+  <Step title="Apply migrations">
     ```bash
-    your-cli start
+    npx prisma migrate deploy
     ```
+
+    Use `npx prisma migrate dev` while iterating on the schema.
+  </Step>
+  <Step title="Seed reference data (optional)">
+    ```bash
+    npx tsx prisma/seed.ts
+    ```
+
+    The seed creates the `ADMIN` and `EMPLOYEE` roles and a starting user. Adjust as needed before running against a real database.
+  </Step>
+  <Step title="Run the server">
+    ```bash
+    npm run start:dev
+    ```
+
+    The API is served at `http://localhost:3000`. Every route except `POST /auth/login` requires an `Authorization: Bearer <token>` header — see the [Auth API](/api/auth) to obtain a JWT.
   </Step>
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+## Verifying the install
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+Log in and hit `/auth/me`:
+
+```bash
+curl -X POST http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"your-seeded-password"}'
+
+# then, with the accessToken from the response:
+curl http://localhost:3000/auth/me \
+  -H "Authorization: Bearer <accessToken>"
+```
+
+## Tests
+
+Vitest is wired up. Only one repository spec ships today.
+
+```bash
+npm test              # single run
+npm run test:watch    # watch mode
+npm run test:cov      # coverage
+```
+
+## Where to go next
+
+- [Architecture overview](/architecture/overview) — how `src/` is laid out and how a request flows through Nest.
+- [Business overview](/domain/business-overview) — the delivery day the ERP models.
+- [Masters](/modules/masters) — the 25 ADMIN-only CRUD modules that feed the transactions.
+- [Paper module](/modules/paper) — the lifecycle every other transaction module hangs off.
