@@ -79,7 +79,7 @@ src/modules/masters/
   - Rejects create/update if `role_id` does not resolve to an existing role (`NotFoundException`).
   - Rejects create/update if `username` or `email` already belongs to another row (`ConflictException`).
   - Hashes `password` with `bcrypt` (`cost = 10`) on both create and update.
-  - `findById` and repository responses use a `select` that omits `password_hash`; `findByIdWithPassword` is used only by `AuthService`.
+  - `UsersRepository.findAll`, `findById`, `create`, `update`, and `delete` project through a `select` that omits `password`. `findByUsername` (used by `AuthService.login`) returns the full row including `password` and the `role` relation for bcrypt comparison. `findByIdWithPassword` also returns the full row plus `role` and is available for callers that need the raw record.
 
 ## Clients
 
