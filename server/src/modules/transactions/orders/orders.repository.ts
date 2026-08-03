@@ -6,7 +6,7 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async getActiveGroups() {
     return this.prisma.master_group.findMany({
@@ -87,9 +87,10 @@ export class OrdersRepository {
   }
 
   async getProductsByGroup(groupName: string) {
-    const data = await this.prisma.master_product.findMany({
+    return this.prisma.master_product.findMany({
       where: {
         is_active: true,
+        show_by_default: true,
 
         master_product_group: {
           name: groupName,
@@ -98,52 +99,127 @@ export class OrdersRepository {
 
       include: {
         master_brand: true,
-
         master_product_type: true,
-
         master_packaging_type: true,
-
         master_product_group: true,
       },
 
       orderBy: [
         {
+          display_order: "asc",
+        },
+        {
           master_brand: {
-            name: 'asc',
+            name: "asc",
           },
         },
-
         {
-          packaging_size: 'asc',
+          packaging_size: "asc",
         },
       ],
     });
-
-    return data;
   }
 
-  async getProductsByCategory(category: SupplyCategory) {
+  async createSheetItems(
+    data: Prisma.order_sheet_itemsCreateManyInput[],
+    tx: Prisma.TransactionClient = this.prisma,
+  ) {
+    const result = await tx.order_sheet_items.createMany({
+      data,
+      skipDuplicates: true,
+    });
+
+    return result;
+  }
+
+  async deleteSheetItems(
+    sheetId: number,
+    productId: number,
+    tx: Prisma.TransactionClient = this.prisma,
+  ) {
+    return tx.order_sheet_items.deleteMany({
+      where: {
+        order_sheet_id: sheetId,
+        product_id: productId,
+      },
+    });
+  }
+
+
+  async findAvailableProducts(category?: SupplyCategory) {
     return this.prisma.master_product.findMany({
       where: {
         is_active: true,
-        master_product_group: {
-          category,
-        },
+        ...(category && {
+          master_product_group: {
+            category,
+          },
+        }),
       },
+
       include: {
         master_brand: true,
         master_product_type: true,
         master_packaging_type: true,
         master_product_group: true,
       },
+
       orderBy: [
         {
           master_brand: {
-            name: 'asc',
+            name: "asc",
           },
         },
         {
-          packaging_size: 'asc',
+          packaging_size: "asc",
+        },
+      ],
+    });
+  }
+
+  async getProductsForSheet(
+    sheetId: number,
+    category: SupplyCategory,
+  ) {
+    return this.prisma.master_product.findMany({
+      where: {
+        is_active: true,
+        master_product_group: {
+          category,
+        },
+
+        OR: [
+          {
+            show_by_default: true,
+          },
+          {
+            order_sheet_items: {
+              some: {
+                order_sheet_id: sheetId,
+              },
+            },
+          },
+        ],
+      },
+
+      include: {
+        master_brand: true,
+        master_product_type: true,
+        master_packaging_type: true,
+        master_product_group: true,
+      },
+
+      orderBy: [
+        {
+          display_order: "asc",
+        },
+        {
+          master_brand: {
+            name: "asc",
+          },
+        },
+        {
+          packaging_size: "asc",
         },
       ],
     });
