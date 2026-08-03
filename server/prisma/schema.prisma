@@ -515,6 +515,7 @@ model users {
   created_at DateTime @default(now())
   updated_at DateTime @default(now()) @updatedAt
   role       roles    @relation(fields: [role_id], references: [id])
+  purchase_variance_acknowledgements purchase_variance_acknowledgement[]
 }
 
 model vehicle_allocation_paper {
@@ -588,7 +589,8 @@ model purchase_entry {
   purchase_rate     Decimal             @db.Decimal(10, 2)
   distributor_id    Int
   gatepass_date     DateTime            @db.Date
-  delivery_session  DeliverySession?
+  variance_acknowledgement purchase_variance_acknowledgement?
+  delivery_session  DeliverySession
   category          SupplyCategory
   distributor       master_distributor  @relation("DistributorPurchases", fields: [distributor_id], references: [id])
   master_product    master_product      @relation(fields: [product_id], references: [id])
@@ -600,6 +602,28 @@ model purchase_entry {
   @@index([purchase_paper_id, vehicle_id])
   @@index([distributor_id])
 }
+
+model purchase_variance_acknowledgement {
+  id                Int      @id @default(autoincrement())
+
+  purchase_entry_id Int      @unique
+
+  reason            PurchaseVarianceReason
+  remarks           String?
+
+  acknowledged_by   Int
+  acknowledged_at   DateTime @default(now())
+
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  purchase_entry    purchase_entry @relation(fields: [purchase_entry_id],references: [id],onDelete: Cascade)
+
+  user users @relation(fields: [acknowledged_by],references: [id])
+
+  @@index([acknowledged_by])
+}
+
 
 model cash_route_settlement {
   id             Int                  @id @default(autoincrement())
@@ -746,4 +770,13 @@ enum SupplyCategory {
 enum DeliverySession {
   NIGHT
   MORNING
+}
+
+enum PurchaseVarianceReason {
+  SHORT_SUPPLY
+  EXCESS_SUPPLY
+  DAMAGED_PRODUCT
+  QUALITY_REJECTION
+  MANUAL_ADJUSTMENT
+  OTHER
 }

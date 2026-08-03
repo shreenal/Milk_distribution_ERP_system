@@ -12,18 +12,23 @@ import {
   PurchaseGridItem,
   PurchaseRateDefault,
   VehicleAllocation,
+  PurchaseVarianceAcknowledgement,
 } from '../../../types/purchase.types.js';
-import { SupplyCategory } from '../../../generated/prisma/client.js';
+import { DeliverySession, SupplyCategory } from '../../../generated/prisma/client.js';
 import { QUANTITY_PRECISION } from './purchase.constants.js';
 
 import {
   Product,
   AllocationSummary,
 } from '../../../common/builders/allocation-summary.builder.js';
+import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 
 @Injectable()
 export class PurchaseBuilder {
-  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
+  constructor(
+    private readonly productColumnsBuilder: ProductColumnsBuilder,
+    private readonly purchaseVarianceCalculator: PurchaseVarianceCalculator,
+  ) { }
 
   buildPurchaseGrids(
     summaries: AllocationSummary[],
@@ -151,30 +156,19 @@ export class PurchaseBuilder {
       // const purchasedField = `product_${allocation.product_id}_purchased`;
       const quantityField = `product_${allocation.product_id}`;
 
-      const grid = result.purchases.find(
-        (purchase) =>
-          purchase.distributor.id === allocation.distributor_id &&
-          purchase.category === allocation.category &&
-          purchase.rows.some((row) => quantityField in row),
-      );
-
-      if (!grid) {
-        continue;
-      }
-
-      const row = grid.rows.find(
-        (vehicle) =>
-          vehicle.vehicleId === allocation.vehicle_id &&
-          vehicle.deliverySession ===
-            allocation.vehicle_allocation_paper.delivery_session,
+      const row = this.findPurchaseRow(
+        result,
+        allocation.distributor_id,
+        allocation.category,
+        allocation.vehicle_id,
+        allocation.vehicle_allocation_paper.delivery_session,
+        quantityField,
       );
 
       if (!row) {
         continue;
       }
 
-      // row[allocatedField] = Number(allocation.allocated_qty);
-      // row[purchasedField] = Number(allocation.allocated_qty);
       row[quantityField] = Number(allocation.allocated_qty);
     }
 
@@ -192,21 +186,13 @@ export class PurchaseBuilder {
       const rateField = `product_${entry.product_id}_rate`;
       const amountField = `product_${entry.product_id}_amount`;
 
-      const grid = result.purchases.find(
-        (purchase) =>
-          purchase.distributor.id === entry.distributor_id &&
-          purchase.category === entry.category &&
-          purchase.rows.some((row) => quantityField in row),
-      );
-
-      if (!grid) {
-        continue;
-      }
-
-      const row = grid.rows.find(
-        (vehicle) =>
-          vehicle.vehicleId === entry.vehicle_id &&
-          vehicle.deliverySession === entry.delivery_session,
+      const row = this.findPurchaseRow(
+        result,
+        entry.distributor_id,
+        entry.category,
+        entry.vehicle_id,
+        entry.delivery_session,
+        quantityField,
       );
 
       if (!row) {
@@ -234,21 +220,13 @@ export class PurchaseBuilder {
       const rateField = `product_${rate.productId}_rate`;
       const amountField = `product_${rate.productId}_amount`;
 
-      const grid = result.purchases.find(
-        (purchase) =>
-          purchase.distributor.id === rate.distributorId &&
-          purchase.category === rate.category &&
-          purchase.rows.some((row) => quantityField in row),
-      );
-
-      if (!grid) {
-        continue;
-      }
-
-      const row = grid.rows.find(
-        (vehicle) =>
-          vehicle.vehicleId === rate.vehicleId &&
-          vehicle.deliverySession === rate.deliverySession,
+      const row = this.findPurchaseRow(
+        result,
+        rate.distributorId,
+        rate.category,
+        rate.vehicleId,
+        rate.deliverySession,
+        quantityField,
       );
 
       if (!row) {
@@ -268,6 +246,142 @@ export class PurchaseBuilder {
 
     return result;
   }
+
+  applyVarianceMetadata(
+    purchaseGrids: PurchaseGrid,
+    allocations: VehicleAllocation[],
+    purchaseEntries: PurchaseEntry[],
+    acknowledgements: PurchaseVarianceAcknowledgement[],
+  ) {
+    const result = structuredClone(purchaseGrids);
+
+    const allocationMap = new Map<string, VehicleAllocation>();
+
+    for (const allocation of allocations) {
+      allocationMap.set(
+        this.buildVarianceKey(
+          allocation.vehicle_id,
+          allocation.distributor_id,
+          allocation.category,
+          allocation.product_id,
+          allocation.vehicle_allocation_paper.delivery_session,
+        ),
+        allocation,
+      );
+    }
+
+    const acknowledgementMap = new Map<
+      number,
+      PurchaseVarianceAcknowledgement
+    >();
+
+    for (const acknowledgement of acknowledgements) {
+      acknowledgementMap.set(
+        acknowledgement.purchase_entry.id,
+        acknowledgement,
+      );
+    }
+
+    for (const entry of purchaseEntries) {
+      const key = this.buildVarianceKey(
+        entry.vehicle_id,
+        entry.distributor_id,
+        entry.category,
+        entry.product_id,
+        entry.delivery_session,
+      );
+
+      const allocation = allocationMap.get(key);
+
+      if (!allocation) {
+        continue;
+      }
+
+      const acknowledgement =
+        acknowledgementMap.get(entry.id) ?? null;
+
+      const quantityField = `product_${entry.product_id}`;
+
+      const row = this.findPurchaseRow(
+        result,
+        entry.distributor_id,
+        entry.category,
+        entry.vehicle_id,
+        entry.delivery_session,
+        quantityField,
+      );
+
+      if (!row) {
+        continue;
+      }
+
+      const variance =
+        this.purchaseVarianceCalculator.calculate(
+          Number(allocation.allocated_qty),
+          Number(entry.purchased_qty),
+        );
+
+      const varianceField = `product_${entry.product_id}_variance`;
+
+      row[varianceField] = {
+        allocatedQty: Number(allocation.allocated_qty),
+        purchasedQty: Number(entry.purchased_qty),
+
+        hasVariance: variance.hasVariance,
+        variance: variance.variance,
+        variancePercentage: variance.variancePercentage,
+        severity: variance.severity,
+        acknowledgement,
+      };
+
+    }
+
+    return result;
+  }
+
+  private findPurchaseRow(
+    purchaseGrids: PurchaseGrid,
+    distributorId: number,
+    category: SupplyCategory,
+    vehicleId: number,
+    deliverySession: DeliverySession,
+    productField: string,
+  ) {
+    const grid = purchaseGrids.purchases.find(
+      (purchase) =>
+        purchase.distributor.id === distributorId &&
+        purchase.category === category &&
+        purchase.rows.some((row) => productField in row),
+    );
+
+    if (!grid) {
+      return null;
+    }
+
+    const row = grid.rows.find(
+      (vehicle) =>
+        vehicle.vehicleId === vehicleId &&
+        vehicle.deliverySession === deliverySession,
+    );
+
+    if (!row) {
+      return null;
+    }
+
+    return row;
+  }
+
+  private buildVarianceKey(
+    vehicleId: number,
+    distributorId: number,
+    category: SupplyCategory,
+    productId: number,
+    deliverySession: DeliverySession,
+  ) {
+    return `${vehicleId}_${distributorId}_${category}_${productId}_${deliverySession}`;
+  }
+
+
 }
 
 const initializeProductFields = (

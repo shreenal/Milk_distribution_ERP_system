@@ -34,7 +34,7 @@ export class PurchaseService {
     private readonly workflowState: WorkflowStateService,
 
     private readonly workflowBuilder: WorkflowBuilder,
-  ) {}
+  ) { }
 
   async getPurchases(paperId: number) {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
@@ -175,19 +175,32 @@ export class PurchaseService {
       purchasePaper.id,
     );
 
+    const acknowledgements =
+      await this.purchaseRepository.findVarianceAcknowledgements(
+        purchasePaper.id,
+      );
+
     const purchases = this.purchaseBuilder.applyPurchaseEntries(
       rateResult,
       purchaseEntries,
     );
 
+    const purchasesWithVariance =
+      this.purchaseBuilder.applyVarianceMetadata(
+        purchases,
+        allocations,
+        purchaseEntries,
+        acknowledgements,
+      );
+
     return {
       paper,
       workflow,
-      ...purchases,
+      ...purchasesWithVariance,
     };
   }
 
-  async savePurchases(paperId: number, dto: SavePurchaseDto) {
+  async savePurchases(paperId: number, dto: SavePurchaseDto, userId: number,) {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
 
     if (!paper) {
@@ -310,6 +323,40 @@ export class PurchaseService {
       purchasePaper.id,
       purchaseRows,
     );
+
+    const savedEntries =
+      await this.purchaseRepository.findPurchaseEntries(
+        purchasePaper.id,
+      );
+
+    const purchaseEntryMap = new Map<
+      string,
+      (typeof savedEntries)[number]
+    >();
+
+    for (const entry of savedEntries) {
+      purchaseEntryMap.set(
+        `${entry.vehicle_id}_${entry.distributor_id}_${entry.category}_${entry.product_id}_${entry.delivery_session}`,
+        entry,
+      );
+    }
+
+    for (const acknowledgement of dto.acknowledgements ?? []) {
+      const purchaseEntry = purchaseEntryMap.get(
+        `${acknowledgement.vehicleId}_${acknowledgement.distributorId}_${acknowledgement.category}_${acknowledgement.productId}_${acknowledgement.deliverySession}`,
+      );
+
+      if (!purchaseEntry) {
+        continue;
+      }
+
+      await this.purchaseRepository.upsertVarianceAcknowledgement(
+        purchaseEntry.id,
+        userId,
+        acknowledgement.reason,
+        acknowledgement.remarks ?? null,
+      );
+    }
 
     return this.getPurchases(paperId);
   }

@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
+import { DeliverySession,PurchaseVarianceReason, Prisma } from '../../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findOrderPaperById(paperId: number) {
     return this.prisma.order_paper.findUnique({
@@ -241,5 +241,65 @@ export class PurchaseRepository {
     }
 
     return this.findProductLinkRateForDate(productLink.id, effectiveDate);
+  }
+
+  async findVarianceAcknowledgements(purchasePaperId: number) {
+    return this.prisma.purchase_variance_acknowledgement.findMany({
+      where: {
+        purchase_entry: {
+          purchase_paper_id: purchasePaperId,
+        },
+      },
+
+      include: {
+        purchase_entry: {
+          select: {
+            id: true,
+            distributor_id: true,
+            category: true,
+            vehicle_id: true,
+            product_id: true,
+            delivery_session: true,
+          },
+        },
+
+        user: {
+          select: {
+            id: true,
+            username: true,
+            first_name: true,
+            last_name: true,
+          },
+        },
+      },
+    });
+  }
+
+  async upsertVarianceAcknowledgement(
+    purchaseEntryId: number,
+    acknowledgedBy: number,
+    reason: PurchaseVarianceReason,
+    remarks: string | null,
+  ) {
+    return this.prisma.purchase_variance_acknowledgement.upsert({
+      where: {
+        purchase_entry_id: purchaseEntryId,
+      },
+
+      update: {
+        acknowledged_by: acknowledgedBy,
+        acknowledged_at: new Date(),
+        reason,
+        remarks,
+      },
+
+      create: {
+        purchase_entry_id: purchaseEntryId,
+        acknowledged_by: acknowledgedBy,
+        acknowledged_at: new Date(),
+        reason,
+        remarks,
+      },
+    });
   }
 }

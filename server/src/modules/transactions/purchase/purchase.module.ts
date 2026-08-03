@@ -13,6 +13,7 @@ import { PurchaseValidationService } from './purchase-validation.service.js';
 import { OrderItemsRepository } from '../../../common/repositories/order-items.repository.js';
 import { AllocationSummaryBuilder } from '../../../common/builders/allocation-summary.builder.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
+import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 
 @Module({
   imports: [WorkflowModule],
@@ -32,6 +33,7 @@ import { WorkflowModule } from '../workflow/workflow.module.js';
 
     OrderItemsRepository,
     AllocationSummaryBuilder,
+    PurchaseVarianceCalculator,
   ],
 
   exports: [PurchaseService, PurchaseValidationService],
