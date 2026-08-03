@@ -339,6 +339,8 @@ model master_product {
   updated_at        DateTime @default(now()) @updatedAt
   gst_percentage    Decimal  @default(0) @db.Decimal(5, 2)
   is_gst_inclusive  Boolean  @default(false)
+  show_by_default Boolean @default(false)
+  display_order   Int?
 
   master_brand          master_brand           @relation(fields: [brand_id], references: [id])
   master_packaging_type master_packaging_type? @relation(fields: [packaging_type_id], references: [id])
