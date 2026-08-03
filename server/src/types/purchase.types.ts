@@ -2,6 +2,7 @@ import {
   DeliverySession,
   Prisma,
   SupplyCategory,
+  PurchaseVarianceReason,
 } from '../generated/prisma/client.js';
 import { ProductColumnNode } from '../common/builders/product-columns.builder.js';
 
@@ -53,7 +54,11 @@ export type PurchaseRow = {
   vehicleId: number;
   vehicleName: string | null;
   deliverySession: DeliverySession;
-  [key: string]: string | number | null;
+  [key: string]:
+  | string
+  | number
+  | null
+  | PurchaseVarianceMetadata;
 };
 
 export type PurchaseGridItem = {
@@ -102,4 +107,48 @@ export type VehicleAssignment = {
   vehicle_allocation_paper: {
     delivery_session: DeliverySession;
   };
+};
+
+export type PurchaseVarianceAcknowledgement =
+  Prisma.purchase_variance_acknowledgementGetPayload<{
+    include: {
+      purchase_entry: {
+        select: {
+          id: true;
+          distributor_id: true;
+          category: true;
+          vehicle_id: true;
+          product_id: true;
+          delivery_session: true;
+        };
+      };
+      user: {
+        select: {
+          id: true;
+          username: true;
+          first_name: true;
+          last_name: true;
+        };
+      };
+    };
+  }>;
+
+export enum PurchaseVarianceSeverity {
+  NONE = 'NONE',
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  CRITICAL = 'CRITICAL',
+}
+
+export type PurchaseVarianceMetadata = {
+  allocatedQty: number;
+  purchasedQty: number;
+
+  hasVariance: boolean;
+  variance: number;
+  variancePercentage: number;
+  severity: PurchaseVarianceSeverity;
+
+  acknowledgement: PurchaseVarianceAcknowledgement | null;
 };

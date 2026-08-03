@@ -4,13 +4,16 @@ import { SavePurchaseDto } from './dto/purchase.dto.js';
 
 import { PurchaseRepository } from './purchase.repository.js';
 
-import { VehicleAssignment } from '../../../types/purchase.types.js';
+import {  VehicleAssignment } from '../../../types/purchase.types.js';
 
 import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
+import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 
 @Injectable()
 export class PurchaseValidationService {
-  constructor(private readonly purchaseRepository: PurchaseRepository) {}
+  constructor(
+    private readonly purchaseRepository: PurchaseRepository,
+    private readonly purchaseVarianceCalculator: PurchaseVarianceCalculator,) { }
 
   async validatePurchases(paperId: number, dto: SavePurchaseDto) {
     const products = await this.purchaseRepository.findProducts();
@@ -26,6 +29,21 @@ export class PurchaseValidationService {
 
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
+
+
+    const acknowledgementMap = new Map<
+  string,
+  NonNullable<typeof dto.acknowledgements>[number]
+>();
+
+
+
+    for (const acknowledgement of dto.acknowledgements ?? []) {
+  acknowledgementMap.set(
+    `${acknowledgement.vehicleId}_${acknowledgement.distributorId}_${acknowledgement.category}_${acknowledgement.productId}_${acknowledgement.deliverySession}`,
+    acknowledgement,
+  );
+}
 
     if (allocations.length === 0) {
       throw new BadRequestException(
@@ -107,6 +125,33 @@ export class PurchaseValidationService {
           PURCHASE_ERROR_MESSAGES.PURCHASE_EXCEEDS_ALLOCATION,
         );
       }
+
+      const variance =
+        this.purchaseVarianceCalculator.calculate(
+          allocatedQty,
+          entry.purchasedQty,
+        );
+
+
+      const acknowledgement =
+        acknowledgementMap.get(
+          `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}_${entry.deliverySession}`,
+        ) ?? null;
+
+
+      if (variance.hasVariance && !acknowledgement) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.VARIANCE_ACKNOWLEDGEMENT_REQUIRED,
+        );
+      }
+
+      if (!variance.hasVariance && acknowledgement) {
+        throw new BadRequestException(
+          PURCHASE_ERROR_MESSAGES.UNEXPECTED_VARIANCE_ACKNOWLEDGEMENT,
+        );
+      }
+
+      
     }
   }
 
