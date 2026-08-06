@@ -39,7 +39,7 @@ The codebase uses three categories of error:
 | **Duplicate unique key (masters)** | `throw new ConflictException(...)` in a master service | 409 | `"Username already exists"`, `"Tray type already exists for this brand and color"` |
 | **Auth failure** | `JwtAuthGuard` / `RolesGuard` | 401 / 403 | `"Unauthorized"` / `"Forbidden resource"` |
 
-> **Why the split?** Transaction services (`paper`, `orders`, `collections`, `trays`, `purchase`, `vehicle-allocation`, `cash-settlement`, `dairy-tray-tracking`, `delivery-summary`) throw `BadRequestException` for missing rows so the frontend can treat every non-success response uniformly. Master services (`src/modules/masters/*`) follow the CRUD idiom and use `NotFoundException` (404) for missing rows and `ConflictException` (409) for duplicate unique keys. `DistributorTransferService.generateTransfer` is the one transaction service that also uses `NotFoundException` for a missing paper.
+> **Why the split?** Transaction services (`paper`, `orders`, `collections`, `client-trays`, `purchase`, `vehicle-allocation`, `cash-settlement`, `dairy-trays`, `delivery-summary`) throw `BadRequestException` for missing rows so the frontend can treat every non-success response uniformly. Master services (`src/modules/masters/*`) follow the CRUD idiom and use `NotFoundException` (404) for missing rows and `ConflictException` (409) for duplicate unique keys. `DistributorTransferService.generateTransfer` is the one transaction service that also uses `NotFoundException` for a missing paper.
 
 ## Error Messages by Module
 

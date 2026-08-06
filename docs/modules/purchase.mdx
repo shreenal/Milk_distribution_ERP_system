@@ -13,12 +13,14 @@ The Purchase module records what each vehicle actually picked up from the dairy 
 - Create the `purchase_paper` on first save for a given paper.
 - Upsert `purchase_entry` rows keyed by `(purchase_paper, delivery_session, vehicle, product_link)`.
 - Apply the brand's `gatepass_date_policy` to default `gatepass_date` when not provided.
+- Upsert `purchase_variance_acknowledgement` rows submitted alongside purchase entries when the allocated vs purchased quantity variance requires operator sign-off.
 
 ## Business rules
 
 - Writes require `NIGHT_SUBMITTED` or `REOPENED`.
 - `gatepass_date_policy` = `SAME_DAY` sets default gatepass to sale date; `PREVIOUS_DAY` sets it to sale date minus one.
 - The distributor on a purchase entry must match the distributor on the product link.
+- A variance acknowledgement is stored per `purchase_entry` and records the reason, optional remarks, and the acknowledging user. Acknowledgements are preserved across REOPENED; the variance itself is always recomputed from the current allocations and purchases and must be re-reviewed if it has changed.
 
 ## Dependencies
 
@@ -43,11 +45,13 @@ POST /purchases/:paperId
        for each entry:
          default gatepass_date from brand policy if omitted
          upsert purchase_entry (purchased_qty, purchase_rate, purchase_amount)
+       for each acknowledgement in dto.acknowledgements:
+         upsert purchase_variance_acknowledgement (reason, remarks, acknowledged_by)
 ```
 
 ## Database tables
 
-- `purchase_paper`, `purchase_entry` — see [Vehicles](/data-model/vehicles).
+- `purchase_paper`, `purchase_entry`, `purchase_variance_acknowledgement` — see [Vehicles](/data-model/vehicles).
 
 ## Lifecycle
 
