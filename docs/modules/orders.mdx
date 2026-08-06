@@ -10,9 +10,10 @@ The Orders module records what each client asked for the night before and what t
 
 ## Responsibilities
 
-- Return the current sheet and its items for the frontend.
+- Return the current sheet, its items, and the list of products available on a sheet for the frontend.
 - Save night entries (`ordered_qty` and `night_selling_rate`) when the paper is in `DRAFT`.
 - Save morning entries (`delivered_qty`, `final_selling_rate`, and the `final_*` GST/amount columns) when the paper is in `NIGHT_SUBMITTED` or `REOPENED`.
+- Add a product to a sheet (`addProductToSheet`) by seeding zero-quantity `order_sheet_items` rows for every existing client on the sheet, and remove a product from a sheet (`removeProductFromSheet`) by deleting those rows. Products flagged `show_by_default` cannot be removed.
 
 ## Business rules
 
@@ -35,9 +36,12 @@ See [Business Rules — Order Entry](/domain/business-rules) for the enumerated 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
 | `GET` | `/orders/sheet/:sheetId` | EMPLOYEE | Return the sheet header |
+| `GET` | `/orders/products` | EMPLOYEE | Return the products available for a supply category |
 | `GET` | `/orders/sheet/:sheetId/items` | EMPLOYEE | Return the items (grid data) |
 | `POST` | `/orders/sheet/:sheetId/night-save` | EMPLOYEE | Save ordered quantities; requires `DRAFT` |
 | `POST` | `/orders/sheet/:sheetId/morning-save` | EMPLOYEE | Save delivered quantities and final amounts; requires `NIGHT_SUBMITTED` or `REOPENED` |
+| `POST` | `/orders/sheet/:sheetId/products` | EMPLOYEE | Add a product to the sheet |
+| `DELETE` | `/orders/sheet/:sheetId/products/:productId` | EMPLOYEE | Remove a product from the sheet |
 
 ## Request flow
 

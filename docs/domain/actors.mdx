@@ -47,7 +47,7 @@ Employees are the operations staff who carry out day-to-day data entry. They int
     | Submit night entries | ✅ | ✅ | `@Roles('EMPLOYEE')`; Admin allowed via hierarchy. |
     | Submit morning entries | ✅ | ✅ | `@Roles('EMPLOYEE')`; Admin allowed via hierarchy. |
     | Finalize paper | ✅ | ❌ | `@Roles('ADMIN')`. |
-    | Reopen paper | ✅ | ❌ | `@Roles('ADMIN')`; requires non-empty `reason`. |
+    | Reopen paper | ✅ | ❌ | `@Roles('ADMIN')`; `reason` is stored on `order_paper.reopen_reason`. The backend does not enforce non-empty. |
   </Accordion>
 
   <Accordion title="Data Entry Actions">

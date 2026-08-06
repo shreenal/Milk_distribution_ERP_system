@@ -12,7 +12,7 @@ Each backend module owns one slice of the domain. Boundaries are defined by whic
 | --- | --- | --- | --- |
 | `auth` | `users` | `AuthService.login`; `AuthController` also exposes `GET /auth/me` which returns `req.user` set by `JwtAuthGuard` | (no domain dependencies) |
 | `paper` | `order_paper`, `order_sheet` | `generatePaperService`, `getTodayPaperService`, `getPaperByIdService`, `getPapersService`, `submitNightEntryService`, `submitMorningEntryService`, `finalizePaperService`, `reopenPaperService` | `workflow`, `orders`, `vehicle-allocation`, `client-trays`, `purchase`, `collections`, `cash-settlement`, `dairy-trays`, `distributor-transfer` (via readiness validators and `DistributorTransferService.generateTransfer` auto-invoked on morning submit) |
-| `orders` | `order_sheet_items` | `getSheetService`, `getSheetItemsService`, `saveNightEntriesService`, `saveMorningEntriesService` | `workflow`, `products`, `clients` |
+| `orders` | `order_sheet_items` | `getSheetService`, `getAvailableProducts`, `getSheetItemsService`, `saveNightEntriesService`, `saveMorningEntriesService`, `addProductToSheet`, `removeProductFromSheet` | `workflow`, `products`, `clients` |
 | `collections` | `client_collection` | `getCollectionGrid`, `saveNightCollections`, `saveMorningCollections`, `saveAdminCollections` | `workflow` |
 | `purchase` | `purchase_paper`, `purchase_entry`, `purchase_variance_acknowledgement` | `getPurchases`, `savePurchases` | `workflow`, `products`, `vehicle-allocation` |
 | `vehicle-allocation` | `vehicle_allocation_paper`, `vehicle_allocation`, `vehicle_distribution_assignment` | `getVehicleAllocations`, `saveVehicleAllocations` | `workflow` |

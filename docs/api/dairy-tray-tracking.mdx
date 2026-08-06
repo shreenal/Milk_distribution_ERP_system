@@ -6,11 +6,11 @@ description: "Track crate and tray movement at the depot level, recording how ma
 
 The Dairy Tray Tracking API is the depot-side counterpart to the client-side [Trays API](/api/trays). Rows are stored in `dairy_tray_transaction` under a single `dairy_tray_paper` per `order_paper` (uniqueness on `order_paper_id`). One row exists per `(dairy_tray_paper_id, vehicle_id, tray_type_id)`.
 
-The controller is mounted at `@Controller('dairy-tray-tracking')` with `:paperId` as the leading path segment.
+The controller is mounted at `@Controller('dairy-trays')` with `:paperId` as the leading path segment.
 
 ---
 
-## GET /dairy-tray-tracking/:paperId
+## GET /dairy-trays/:paperId
 
 ### Purpose
 
@@ -26,7 +26,7 @@ Each transaction row includes `vehicle_id`, `tray_type_id`, `opening_balance`, `
 
 ---
 
-## POST /dairy-tray-tracking/:paperId/save
+## POST /dairy-trays/:paperId/save
 
 ### Purpose
 
@@ -47,7 +47,7 @@ Upserts depot tray rows for the paper. Operators enter only `returned` per `(veh
 #### Example request
 
 ```json
-POST /dairy-tray-tracking/128/save
+POST /dairy-trays/128/save
 Authorization: Bearer <token>
 Content-Type: application/json
 

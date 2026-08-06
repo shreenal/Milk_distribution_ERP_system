@@ -225,12 +225,12 @@ Transitions the paper from `MORNING_SUBMITTED` to `FINALIZED`. Once finalized, n
 
 ### Purpose
 
-Transitions a `FINALIZED` paper to `REOPENED` so an admin can correct data. Requires a documented reason that is stored on the paper for audit.
+Transitions a `FINALIZED` paper to `REOPENED` so an admin can correct data. The request body carries a `reason` string that is stored verbatim on the paper for audit.
 
 ### Request body
 
-<ParamField body="reason" type="string" required>
-  Free-text explanation. Persisted verbatim on the paper.
+<ParamField body="reason" type="string">
+  Free-text explanation. Persisted verbatim on the paper. Callers are expected to send a meaningful reason. `PaperService.reopenPaperService` does not enforce a non-empty check, so an empty or whitespace-only value is accepted and stored as-is.
 </ParamField>
 
 ### Access control
