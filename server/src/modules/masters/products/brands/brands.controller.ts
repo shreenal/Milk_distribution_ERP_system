@@ -23,9 +23,7 @@ import { UpdateBrandDto } from './dto/update-brand.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class BrandsController {
-  constructor(
-    private readonly brandsService: BrandsService,
-  ) {}
+  constructor(private readonly brandsService: BrandsService) {}
 
   @Get()
   async findAll() {
@@ -38,16 +36,12 @@ export class BrandsController {
   }
 
   @Get(':id')
-  async findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async findById(@Param('id', ParseIntPipe) id: number) {
     return this.brandsService.findById(id);
   }
 
   @Post()
-  async create(
-    @Body() dto: CreateBrandDto,
-  ) {
+  async create(@Body() dto: CreateBrandDto) {
     return this.brandsService.create(dto);
   }
 
@@ -60,9 +54,7 @@ export class BrandsController {
   }
 
   @Delete(':id')
-  async delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async delete(@Param('id', ParseIntPipe) id: number) {
     return this.brandsService.delete(id);
   }
 }

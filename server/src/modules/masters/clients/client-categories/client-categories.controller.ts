@@ -32,16 +32,12 @@ export class ClientCategoriesController {
   }
 
   @Get('client/:clientId')
-  findByClient(
-    @Param('clientId', ParseIntPipe) clientId: number,
-  ) {
+  findByClient(@Param('clientId', ParseIntPipe) clientId: number) {
     return this.clientCategoriesService.findByClient(clientId);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateClientCategoryDto,
-  ) {
+  create(@Body() dto: CreateClientCategoryDto) {
     return this.clientCategoriesService.create(dto);
   }
 
@@ -51,9 +47,6 @@ export class ClientCategoriesController {
     @Param('category', new ParseEnumPipe(SupplyCategory))
     category: SupplyCategory,
   ) {
-    return this.clientCategoriesService.delete(
-      clientId,
-      category,
-    );
+    return this.clientCategoriesService.delete(clientId, category);
   }
 }

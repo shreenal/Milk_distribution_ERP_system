@@ -10,19 +10,9 @@ import { ClientProductRatesRepository } from './client-product-rates.repository.
 import { ClientProductRatesService } from './client-product-rates.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    ClientsModule,
-    ProductLinksModule,
-  ],
+  imports: [PrismaModule, ClientsModule, ProductLinksModule],
   controllers: [ClientProductRatesController],
-  providers: [
-    ClientProductRatesService,
-    ClientProductRatesRepository,
-  ],
-  exports: [
-    ClientProductRatesService,
-    ClientProductRatesRepository,
-  ],
+  providers: [ClientProductRatesService, ClientProductRatesRepository],
+  exports: [ClientProductRatesService, ClientProductRatesRepository],
 })
 export class ClientProductRatesModule {}

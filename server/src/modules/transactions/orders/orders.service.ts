@@ -6,13 +6,11 @@ import { SaveMorningEntriesDto } from './dto/save-morning-entries.dto.js';
 
 import { SaveNightEntriesDto } from './dto/save-night-entries.dto.js';
 
-import { OrdersBillingBuilder } from './order.billing-builder.js';
-
-import { TraysService } from '../trays/trays.service.js';
+import { OrdersBuilder } from './order.builder.js';
 
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
-import { OrdersValidationService } from './orders-validation.service.js';
+import { OrdersValidationService } from './services/orders-validation.service.js';
 
 import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 
@@ -25,8 +23,10 @@ import {
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
-import { CollectionsService } from '../collections/collections.service.js';
 import { AddProductDto } from './dto/add-product.dto.js';
+import { OrderCommercialService } from './services/order-commercial.service.js';
+import { NightBillingService } from './services/night-billing.service.js';
+import { FinalBillingService } from './services/final-billing.service.js';
 
 /**
  * REFACTORING IN PROGRESS: Paper Module Extraction
@@ -60,20 +60,22 @@ export class OrdersService {
   constructor(
     private readonly ordersRepository: OrdersRepository,
 
-    private readonly ordersBillingBuilder: OrdersBillingBuilder,
+    private readonly ordersBuilder: OrdersBuilder,
 
     private readonly validationService: OrdersValidationService,
 
-    private readonly traysService: TraysService,
+    private readonly orderCommercialService: OrderCommercialService,
+
+    private readonly nightBillingService: NightBillingService,
+
+    private readonly finalBillingService: FinalBillingService,
 
     private readonly prisma: PrismaService,
-
-    private readonly collectionsService: CollectionsService,
 
     private readonly workflowState: WorkflowStateService,
 
     private readonly workflowBuilder: WorkflowBuilder,
-  ) { }
+  ) {}
 
   async getAvailableProducts(category: SupplyCategory) {
     return this.ordersRepository.findAvailableProducts(category);
@@ -119,7 +121,7 @@ export class OrdersService {
         sheet.order_paper.status,
       );
 
-      const orderBilling = this.ordersBillingBuilder.buildOrderBillingSection(
+      const orderBilling = this.ordersBuilder.buildOrderBillingSection(
         {
           milkProducts,
           nonMilkProducts,
@@ -167,10 +169,7 @@ export class OrdersService {
     }
   }
 
-  async addProductToSheet(
-    sheetId: number,
-    dto: AddProductDto,
-  ) {
+  async addProductToSheet(sheetId: number, dto: AddProductDto) {
     if (!sheetId || sheetId <= 0) {
       throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
     }
@@ -187,13 +186,12 @@ export class OrdersService {
 
     await this.prisma.$transaction(
       async (tx) => {
-        const commercialContext =
-          await this.resolveOrderLineCommercialContext(
-            sheet.group_id,
-            dto.productId,
-            supplyRules,
-            tx,
-          );
+        const commercialContext = await this.orderCommercialService.resolve(
+          sheet.group_id,
+          dto.productId,
+          supplyRules,
+          tx,
+        );
 
         const existingItems =
           await this.ordersRepository.getSheetItems(sheetId);
@@ -233,17 +231,13 @@ export class OrdersService {
           }));
 
         if (rows.length === 0) {
-          throw new BadRequestException(
-            'Product already exists in this sheet',
-          );
+          throw new BadRequestException('Product already exists in this sheet');
         }
 
         const result = await this.ordersRepository.createSheetItems(rows, tx);
 
         if (result.count === 0) {
-          throw new BadRequestException(
-            'Product already exists in this sheet',
-          );
+          throw new BadRequestException('Product already exists in this sheet');
         }
       },
       {
@@ -255,50 +249,43 @@ export class OrdersService {
     return this.getSheetService(sheetId);
   }
 
-  async removeProductFromSheet(
-  sheetId: number,
-  productId: number,
-) {
-  if (!sheetId || sheetId <= 0) {
-    throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
-  }
+  async removeProductFromSheet(sheetId: number, productId: number) {
+    if (!sheetId || sheetId <= 0) {
+      throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
+    }
 
-  const sheet = await this.ordersRepository.findSheetById(sheetId);
+    const sheet = await this.ordersRepository.findSheetById(sheetId);
 
-  if (!sheet) {
-    throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
-  }
+    if (!sheet) {
+      throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+    }
 
-  const product = await this.ordersRepository.getProductWithGroup(productId);
+    const product = await this.ordersRepository.getProductWithGroup(productId);
 
-  if (product.show_by_default) {
-    throw new BadRequestException(
-      'Default products cannot be removed',
-    );
-  }
+    if (product.show_by_default) {
+      throw new BadRequestException('Default products cannot be removed');
+    }
 
-  await this.prisma.$transaction(
-    async (tx) => {
-      const result = await this.ordersRepository.deleteSheetItems(
-        sheetId,
-        productId,
-        tx,
-      );
-
-      if (result.count === 0) {
-        throw new BadRequestException(
-          'Product not found in this sheet',
+    await this.prisma.$transaction(
+      async (tx) => {
+        const result = await this.ordersRepository.deleteSheetItems(
+          sheetId,
+          productId,
+          tx,
         );
-      }
-    },
-    {
-      timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-      isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-    },
-  );
 
-  return this.getSheetService(sheetId);
-}
+        if (result.count === 0) {
+          throw new BadRequestException('Product not found in this sheet');
+        }
+      },
+      {
+        timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+        isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+      },
+    );
+
+    return this.getSheetService(sheetId);
+  }
 
   async saveNightEntriesService(
     sheetId: number,
@@ -348,25 +335,12 @@ export class OrdersService {
 
             this.validationService.validateQuantity(Number(entry.orderedQty));
 
-            const commercialContext =
-              await this.resolveOrderLineCommercialContext(
-                sheet.group_id,
-                entry.productId,
-                supplyRules,
-                tx,
-              );
-
-            const productLink = await this.ordersRepository.getProductLink(
-              commercialContext.distributorId,
+            const commercialContext = await this.orderCommercialService.resolve(
+              sheet.group_id,
               entry.productId,
+              supplyRules,
               tx,
             );
-
-            if (!productLink) {
-              throw new BadRequestException(
-                `Distributor ${commercialContext.distributorId} does not source product ${entry.productId}`,
-              );
-            }
 
             const sellingRate =
               await this.ordersRepository.getSellingRateForDistributor(
@@ -385,20 +359,20 @@ export class OrdersService {
                 ),
               );
             }
-            const litres =
-              Number(entry.orderedQty) *
-              QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
-
-            const nightBillAmount = litres * Number(sellingRate);
+            const billing = this.nightBillingService.calculate(
+              Number(entry.orderedQty),
+              Number(sellingRate),
+            );
 
             await this.ordersRepository.upsertSheetEntryTx(tx, {
               order_sheet_id: sheetId,
               client_id: entry.clientId,
               product_id: entry.productId,
               product_link_id: commercialContext.productLinkId,
+
               ordered_qty: entry.orderedQty,
               night_selling_rate: Number(sellingRate),
-              night_bill_amount: Number(nightBillAmount.toFixed(2)),
+              night_bill_amount: billing.nightBillAmount,
             });
           }
         },
@@ -478,13 +452,12 @@ export class OrdersService {
 
             await this.validationService.validateProduct(entry.productId, tx);
 
-            const commercialContext =
-              await this.resolveOrderLineCommercialContext(
-                sheet.group_id,
-                entry.productId,
-                supplyRules,
-                tx,
-              );
+            const commercialContext = await this.orderCommercialService.resolve(
+              sheet.group_id,
+              entry.productId,
+              supplyRules,
+              tx,
+            );
 
             const existingItem = await this.ordersRepository.findSheetItem(
               sheetId,
@@ -518,38 +491,62 @@ export class OrdersService {
               );
             }
 
-            const litres =
-              deliveredQty * QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
+            //   const litres =
+            //     deliveredQty * QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
 
             const gstPercentage = Number(product.gst_percentage ?? 0);
 
             const isGstInclusive = product.is_gst_inclusive;
 
-            let taxableAmount = 0;
+            //   let taxableAmount = 0;
 
-            let gstAmount = 0;
+            //   let gstAmount = 0;
 
-            let finalBillAmount = 0;
+            //   let finalBillAmount = 0;
 
-            if (!isGstInclusive) {
-              taxableAmount = litres * Number(sellingRate);
+            // if (!isGstInclusive) {
+            //   taxableAmount = litres * Number(sellingRate);
 
-              gstAmount = taxableAmount * (gstPercentage / 100);
+            //     gstAmount = taxableAmount * (gstPercentage / 100);
 
-              finalBillAmount = taxableAmount + gstAmount;
-            } else {
-              finalBillAmount = litres * Number(sellingRate);
+            //     finalBillAmount = taxableAmount + gstAmount;
+            //   } else {
+            //     finalBillAmount = litres * Number(sellingRate);
 
-              taxableAmount = finalBillAmount / (1 + gstPercentage / 100);
+            //     taxableAmount = finalBillAmount / (1 + gstPercentage / 100);
 
-              gstAmount = finalBillAmount - taxableAmount;
-            }
+            //     gstAmount = finalBillAmount - taxableAmount;
+            //   }
 
-            taxableAmount = Number(taxableAmount.toFixed(2));
+            //   taxableAmount = Number(taxableAmount.toFixed(2));
 
-            gstAmount = Number(gstAmount.toFixed(2));
+            //   gstAmount = Number(gstAmount.toFixed(2));
 
-            finalBillAmount = Number(finalBillAmount.toFixed(2));
+            //   finalBillAmount = Number(finalBillAmount.toFixed(2));
+
+            //   await tx.order_sheet_items.update({
+            //     where: {
+            //       order_sheet_id_client_id_product_link_id: {
+            //         order_sheet_id: sheetId,
+            //         client_id: entry.clientId,
+            //         product_link_id: commercialContext.productLinkId,
+            //       },
+            //     },
+            //     data: {
+            //       delivered_qty: deliveredQty,
+            //       final_selling_rate: Number(sellingRate),
+            //       final_gst_percentage: gstPercentage,
+            //       final_gst_amount: gstAmount,
+            //       final_taxable_amount: taxableAmount,
+            //       final_bill_amount: finalBillAmount,
+            //     },
+            //   });
+            const billing = this.finalBillingService.calculate(
+              deliveredQty,
+              Number(sellingRate),
+              gstPercentage,
+              isGstInclusive,
+            );
 
             await tx.order_sheet_items.update({
               where: {
@@ -561,11 +558,12 @@ export class OrdersService {
               },
               data: {
                 delivered_qty: deliveredQty,
+
                 final_selling_rate: Number(sellingRate),
                 final_gst_percentage: gstPercentage,
-                final_gst_amount: gstAmount,
-                final_taxable_amount: taxableAmount,
-                final_bill_amount: finalBillAmount,
+                final_gst_amount: billing.gstAmount,
+                final_taxable_amount: billing.taxableAmount,
+                final_bill_amount: billing.finalBillAmount,
               },
             });
           }
@@ -589,70 +587,5 @@ export class OrdersService {
 
       throw error;
     }
-  }
-
-  private async resolveOrderLineCommercialContext(
-    sheetGroupId: number,
-    productId: number,
-    supplyRules: {
-      milkDistributorId: number | null;
-      nonMilkDistributorId: number | null;
-    },
-    tx: Prisma.TransactionClient,
-  ) {
-    const product = await this.ordersRepository.getProductWithGroup(
-      productId,
-      tx,
-    );
-    const category = product.master_product_group.category;
-
-    let distributorId: number | null = null;
-
-    if (category === SupplyCategory.MILK) {
-      distributorId = supplyRules.milkDistributorId;
-    }
-
-    if (category === SupplyCategory.NON_MILK) {
-      distributorId = supplyRules.nonMilkDistributorId;
-    }
-
-    if (!distributorId) {
-      throw new BadRequestException(
-        `Missing ${category} distributor supply rule for group ${sheetGroupId}`,
-      );
-    }
-
-    const canProcure = await this.ordersRepository.canDistributorProcureProduct(
-      distributorId,
-      product.brand_id,
-      product.product_group_id,
-      category,
-      tx,
-    );
-
-    if (!canProcure) {
-      throw new BadRequestException(
-        `Distributor ${distributorId} cannot procure product ${productId}`,
-      );
-    }
-
-    const productLink = await this.ordersRepository.getProductLink(
-      distributorId,
-      productId,
-      tx,
-    );
-
-    if (!productLink) {
-      throw new BadRequestException(
-        `No product link found for distributor ${distributorId} and product ${productId}`,
-      );
-    }
-
-    return {
-      product,
-      category,
-      distributorId,
-      productLinkId: productLink.id,
-    };
   }
 }

@@ -23,17 +23,16 @@ export class ProductGroupService {
     const productGroup = await this.productGroupRepository.findById(id);
 
     if (!productGroup) {
-      throw new NotFoundException(
-        `Product Group with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Product Group with ID ${id} not found.`);
     }
 
     return productGroup;
   }
 
   async create(dto: CreateProductGroupDto) {
-    const existingProductGroup =
-      await this.productGroupRepository.findByName(dto.name);
+    const existingProductGroup = await this.productGroupRepository.findByName(
+      dto.name,
+    );
 
     if (existingProductGroup) {
       throw new ConflictException(
@@ -44,18 +43,13 @@ export class ProductGroupService {
     return this.productGroupRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateProductGroupDto,
-  ) {
+  async update(id: number, dto: UpdateProductGroupDto) {
     const productGroup = await this.findById(id);
 
-    if (
-      dto.name &&
-      dto.name !== productGroup.name
-    ) {
-      const existingProductGroup =
-        await this.productGroupRepository.findByName(dto.name);
+    if (dto.name && dto.name !== productGroup.name) {
+      const existingProductGroup = await this.productGroupRepository.findByName(
+        dto.name,
+      );
 
       if (existingProductGroup) {
         throw new ConflictException(

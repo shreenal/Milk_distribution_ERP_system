@@ -9,18 +9,9 @@ import { TransferRulesRepository } from './transfer-rules.repository.js';
 import { TransferRulesService } from './transfer-rules.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    DistributorModule,
-  ],
+  imports: [PrismaModule, DistributorModule],
   controllers: [TransferRulesController],
-  providers: [
-    TransferRulesService,
-    TransferRulesRepository,
-  ],
-  exports: [
-    TransferRulesService,
-    TransferRulesRepository,
-  ],
+  providers: [TransferRulesService, TransferRulesRepository],
+  exports: [TransferRulesService, TransferRulesRepository],
 })
 export class TransferRulesModule {}

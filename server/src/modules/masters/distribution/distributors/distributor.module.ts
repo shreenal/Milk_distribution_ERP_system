@@ -9,13 +9,7 @@ import { DistributorService } from './distributor.service.js';
 @Module({
   imports: [PrismaModule],
   controllers: [DistributorController],
-  providers: [
-    DistributorService,
-    DistributorRepository,
-  ],
-  exports: [
-    DistributorService,
-    DistributorRepository,
-  ],
+  providers: [DistributorService, DistributorRepository],
+  exports: [DistributorService, DistributorRepository],
 })
 export class DistributorModule {}

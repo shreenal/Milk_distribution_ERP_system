@@ -19,9 +19,7 @@ const userSelect = {
 
 @Injectable()
 export class UsersRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.users.findMany({
@@ -40,20 +38,20 @@ export class UsersRepository {
   }
 
   findByIdWithPassword(id: number) {
-  return this.prisma.users.findUnique({
-    where: { id },
-    include: {
-      role: true,
-    },
-  });
-}
+    return this.prisma.users.findUnique({
+      where: { id },
+      include: {
+        role: true,
+      },
+    });
+  }
 
   findByUsername(username: string) {
     return this.prisma.users.findUnique({
       where: { username },
       include: {
-        role:true,
-      }
+        role: true,
+      },
     });
   }
 
@@ -70,10 +68,7 @@ export class UsersRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateUserDto,
-  ) {
+  update(id: number, dto: UpdateUserDto) {
     return this.prisma.users.update({
       where: { id },
       data: dto,

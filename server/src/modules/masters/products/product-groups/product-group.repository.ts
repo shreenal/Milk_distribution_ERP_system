@@ -34,10 +34,7 @@ export class ProductGroupRepository {
     });
   }
 
-  async update(
-    id: number,
-    dto: UpdateProductGroupDto,
-  ) {
+  async update(id: number, dto: UpdateProductGroupDto) {
     return this.prisma.master_product_group.update({
       where: { id },
       data: dto,

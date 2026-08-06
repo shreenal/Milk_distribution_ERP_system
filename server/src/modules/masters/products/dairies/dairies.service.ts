@@ -11,9 +11,7 @@ import { UpdateDairyDto } from './dto/update-dairy.dto.js';
 
 @Injectable()
 export class DairiesService {
-  constructor(
-    private readonly dairiesRepository: DairiesRepository,
-  ) {}
+  constructor(private readonly dairiesRepository: DairiesRepository) {}
 
   async findAll() {
     return this.dairiesRepository.findAll();
@@ -27,9 +25,7 @@ export class DairiesService {
     const dairy = await this.dairiesRepository.findById(id);
 
     if (!dairy) {
-      throw new NotFoundException(
-        `Dairy with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Dairy with ID ${id} not found.`);
     }
 
     return dairy;
@@ -39,9 +35,7 @@ export class DairiesService {
     const existingDairy = await this.dairiesRepository.findByName(dto.name);
 
     if (existingDairy) {
-      throw new ConflictException(
-        `Dairy '${dto.name}' already exists.`,
-      );
+      throw new ConflictException(`Dairy '${dto.name}' already exists.`);
     }
 
     return this.dairiesRepository.create(dto);
@@ -54,9 +48,7 @@ export class DairiesService {
       const existingDairy = await this.dairiesRepository.findByName(dto.name);
 
       if (existingDairy && existingDairy.id !== id) {
-        throw new ConflictException(
-          `Dairy '${dto.name}' already exists.`,
-        );
+        throw new ConflictException(`Dairy '${dto.name}' already exists.`);
       }
     }
 

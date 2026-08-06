@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { DeliverySession,PurchaseVarianceReason, Prisma } from '../../../generated/prisma/client.js';
+import {
+  PurchaseVarianceReason,
+  Prisma,
+} from '../../../generated/prisma/client.js';
 
 @Injectable()
 export class PurchaseRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findOrderPaperById(paperId: number) {
     return this.prisma.order_paper.findUnique({

@@ -10,9 +10,13 @@ import {
 } from './dto/cash-settlement-response.dto.js';
 
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
+import { CashSettlementCalculationService } from '../../../common/calculators/cash-settlement.calculator.js';
 
 @Injectable()
 export class CashSettlementBuilder {
+  constructor(
+    private readonly cashSettlementCalculationService: CashSettlementCalculationService,
+  ) {}
   buildCashSettlement(
     paper: NonNullable<
       Awaited<ReturnType<CashSettlementRepository['getCashSettlementData']>>
@@ -20,24 +24,18 @@ export class CashSettlementBuilder {
   ): CashSettlementResponseDto {
     const routeSettlements: RouteSettlementRowDto[] = paper.order_sheet.map(
       (sheet) => {
-        const routeCash = sheet.client_collection.reduce(
-          (sum, collection) =>
-            sum +
-            Number(collection.office_amount_given) +
-            Number(collection.cash_collection),
-          0,
-        );
+        const routeCash =
+          this.cashSettlementCalculationService.getRouteCash(sheet);
 
         const expenseTotal =
-          sheet.cash_route_settlement?.expenses.reduce(
-            (sum, expense) => sum + Number(expense.amount),
-            0,
-          ) ?? 0;
+          this.cashSettlementCalculationService.getRouteExpenseTotal(sheet);
 
-        const routeNetCash = routeCash - expenseTotal;
-
+        const routeNetCash =
+          this.cashSettlementCalculationService.getRouteNetCash(sheet);
         const denominationTotal = sheet.cash_route_settlement
-          ? this.getDenominationAmount(sheet.cash_route_settlement)
+          ? this.cashSettlementCalculationService.getDenominationAmountFromRow(
+              sheet.cash_route_settlement,
+            )
           : 0;
 
         return {
@@ -89,7 +87,10 @@ export class CashSettlementBuilder {
         continue;
       }
 
-      const denominationTotal = this.getDenominationAmount(settlement);
+      const denominationTotal =
+        this.cashSettlementCalculationService.getDenominationAmountFromRow(
+          settlement,
+        );
 
       routeDenominations.push({
         sheetId: sheet.id,
@@ -119,7 +120,10 @@ export class CashSettlementBuilder {
     const directCollections: DirectCollectionRowDto[] = [];
 
     for (const collection of paper.cash_direct_collections) {
-      const collectionAmount = this.getDenominationAmount(collection);
+      const collectionAmount =
+        this.cashSettlementCalculationService.getDenominationAmountFromRow(
+          collection,
+        );
 
       directCollections.push({
         id: collection.id,
@@ -151,7 +155,10 @@ export class CashSettlementBuilder {
     const bankDeposits: BankDepositRowDto[] = [];
 
     for (const deposit of paper.cash_bank_deposits) {
-      const depositAmount = this.getDenominationAmount(deposit);
+      const depositAmount =
+        this.cashSettlementCalculationService.getDenominationAmountFromRow(
+          deposit,
+        );
 
       bankDeposits.push({
         id: deposit.id,
@@ -179,35 +186,31 @@ export class CashSettlementBuilder {
         depositAmount,
       });
     }
-    const totalRouteCash = routeSettlements.reduce(
-      (sum, row) => sum + row.routeCash,
-      0,
-    );
+    const totalRouteCash =
+      this.cashSettlementCalculationService.getTotalRouteCash(routeSettlements);
 
-    const totalRouteExpenses = routeSettlements.reduce(
-      (sum, row) => sum + row.expenseTotal,
-      0,
-    );
+    const totalRouteExpenses =
+      this.cashSettlementCalculationService.getTotalRouteExpenses(
+        routeSettlements,
+      );
 
-    const totalRouteNetCash = routeSettlements.reduce(
-      (sum, row) => sum + row.routeNetCash,
-      0,
-    );
+    const totalRouteNetCash =
+      this.cashSettlementCalculationService.getTotalRouteNetCashFromSettlements(
+        routeSettlements,
+      );
 
-    const totalRouteDenominationCash = routeSettlements.reduce(
-      (sum, row) => sum + row.denominationTotal,
-      0,
-    );
+    const totalRouteDenominationCash =
+      this.cashSettlementCalculationService.getTotalRouteDenominationCash(
+        routeSettlements,
+      );
 
-    const directCollectionCash = directCollections.reduce(
-      (sum, row) => sum + row.collectionAmount,
-      0,
-    );
+    const directCollectionCash =
+      this.cashSettlementCalculationService.getTotalDirectCollectionCash(
+        directCollections,
+      );
 
-    const totalDeposits = bankDeposits.reduce(
-      (sum, row) => sum + row.depositAmount,
-      0,
-    );
+    const totalDeposits =
+      this.cashSettlementCalculationService.getTotalDeposits(bankDeposits);
 
     if (paper.status === OrderPaperStatus.REOPENED) {
       const historicalRouteDenominationCash = totalRouteDenominationCash;
@@ -215,15 +218,23 @@ export class CashSettlementBuilder {
       const historicalDirectCollectionCash = directCollectionCash;
 
       const revisedOfficeCash =
-        totalRouteNetCash + historicalDirectCollectionCash;
+        this.cashSettlementCalculationService.getRevisedOfficeCash(
+          totalRouteNetCash,
+          historicalDirectCollectionCash,
+        );
 
       const historicalCashOnHand =
-        historicalRouteDenominationCash +
-        historicalDirectCollectionCash -
-        totalDeposits;
+        this.cashSettlementCalculationService.getHistoricalCashOnHand(
+          historicalRouteDenominationCash,
+          historicalDirectCollectionCash,
+          totalDeposits,
+        );
 
-      const reconciliationDifference = revisedOfficeCash - historicalCashOnHand;
-
+      const reconciliationDifference =
+        this.cashSettlementCalculationService.getReconciliationDifference(
+          revisedOfficeCash,
+          historicalCashOnHand,
+        );
       return {
         routeSettlements,
         routeExpenses,
@@ -244,9 +255,16 @@ export class CashSettlementBuilder {
       };
     }
 
-    const officeCash = totalRouteNetCash + directCollectionCash;
+    const officeCash = this.cashSettlementCalculationService.getOfficeCash(
+      totalRouteNetCash,
+      directCollectionCash,
+    );
 
-    const cashInHandAfterDeposits = officeCash - totalDeposits;
+    const cashInHandAfterDeposits =
+      this.cashSettlementCalculationService.getCashInHandAfterDeposits(
+        officeCash,
+        totalDeposits,
+      );
 
     return {
       routeSettlements,
@@ -264,27 +282,5 @@ export class CashSettlementBuilder {
         cashInHandAfterDeposits,
       },
     };
-  }
-
-  private getDenominationAmount(row: {
-    note_2000?: number | string | { toString(): string } | null;
-    note_500?: number | string | { toString(): string } | null;
-    note_200?: number | string | { toString(): string } | null;
-    note_100?: number | string | { toString(): string } | null;
-    note_50?: number | string | { toString(): string } | null;
-    note_20?: number | string | { toString(): string } | null;
-    note_10?: number | string | { toString(): string } | null;
-    coins?: number | string | { toString(): string } | null;
-  }): number {
-    return (
-      Number(row.note_2000 ?? 0) * 2000 +
-      Number(row.note_500 ?? 0) * 500 +
-      Number(row.note_200 ?? 0) * 200 +
-      Number(row.note_100 ?? 0) * 100 +
-      Number(row.note_50 ?? 0) * 50 +
-      Number(row.note_20 ?? 0) * 20 +
-      Number(row.note_10 ?? 0) * 10 +
-      Number(row.coins ?? 0)
-    );
   }
 }

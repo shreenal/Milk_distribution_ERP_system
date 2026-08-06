@@ -22,9 +22,7 @@ import { ProductLinksService } from './product-links.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ProductLinksController {
-  constructor(
-    private readonly productLinksService: ProductLinksService,
-  ) {}
+  constructor(private readonly productLinksService: ProductLinksService) {}
 
   @Get()
   findAll() {
@@ -37,16 +35,12 @@ export class ProductLinksController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.productLinksService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateProductLinksDto,
-  ) {
+  create(@Body() dto: CreateProductLinksDto) {
     return this.productLinksService.create(dto);
   }
 
@@ -59,9 +53,7 @@ export class ProductLinksController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.productLinksService.delete(id);
   }
 }

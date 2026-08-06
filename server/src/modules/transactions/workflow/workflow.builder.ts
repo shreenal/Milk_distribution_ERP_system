@@ -39,7 +39,7 @@ export class WorkflowBuilder {
   buildTraysWorkflow(status: OrderPaperStatus) {
     return {
       status,
-      editable: this.workflowState.canEditTrays(status),
+      editable: this.workflowState.canEditClientTrays(status),
     };
   }
 
@@ -53,7 +53,7 @@ export class WorkflowBuilder {
   buildDairyTrayTrackingWorkflow(status: OrderPaperStatus) {
     return {
       status,
-      editable: this.workflowState.canEditDairyTrayTracking(status),
+      editable: this.workflowState.canEditDairyTrays(status),
     };
   }
 

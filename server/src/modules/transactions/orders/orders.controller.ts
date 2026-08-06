@@ -26,7 +26,7 @@ import { AddProductDto } from './dto/add-product.dto.js';
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) { }
+  constructor(private readonly ordersService: OrdersService) {}
 
   @Get('sheet/:sheetId')
   @Roles('EMPLOYEE')
@@ -92,21 +92,15 @@ export class OrdersController {
     @Param('sheetId', ParseIntPipe) sheetId: number,
     @Body() dto: AddProductDto,
   ) {
-    return this.ordersService.addProductToSheet(
-      sheetId,
-      dto,
-    );
+    return this.ordersService.addProductToSheet(sheetId, dto);
   }
 
   @Delete('sheet/:sheetId/products/:productId')
-@Roles('EMPLOYEE')
-async removeProduct(
-  @Param('sheetId', ParseIntPipe) sheetId: number,
-  @Param('productId', ParseIntPipe) productId: number,
-) {
-  return this.ordersService.removeProductFromSheet(
-    sheetId,
-    productId,
-  );
-}
+  @Roles('EMPLOYEE')
+  async removeProduct(
+    @Param('sheetId', ParseIntPipe) sheetId: number,
+    @Param('productId', ParseIntPipe) productId: number,
+  ) {
+    return this.ordersService.removeProductFromSheet(sheetId, productId);
+  }
 }

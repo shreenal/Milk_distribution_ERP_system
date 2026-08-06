@@ -22,13 +22,7 @@ import { TrayRulesService } from './tray-rules.service.js';
     TrayTypesModule,
   ],
   controllers: [TrayRulesController],
-  providers: [
-    TrayRulesService,
-    TrayRulesRepository,
-  ],
-  exports: [
-    TrayRulesService,
-    TrayRulesRepository,
-  ],
+  providers: [TrayRulesService, TrayRulesRepository],
+  exports: [TrayRulesService, TrayRulesRepository],
 })
 export class TrayRulesModule {}

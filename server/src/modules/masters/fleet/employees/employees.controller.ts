@@ -22,9 +22,7 @@ import { EmployeesService } from './employees.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class EmployeesController {
-  constructor(
-    private readonly employeesService: EmployeesService,
-  ) {}
+  constructor(private readonly employeesService: EmployeesService) {}
 
   @Get()
   findAll() {
@@ -37,16 +35,12 @@ export class EmployeesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.employeesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateEmployeeDto,
-  ) {
+  create(@Body() dto: CreateEmployeeDto) {
     return this.employeesService.create(dto);
   }
 
@@ -59,9 +53,7 @@ export class EmployeesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.employeesService.delete(id);
   }
 }

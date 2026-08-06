@@ -10,7 +10,9 @@ import { CashSettlementRepository } from './cash-settlement.repository.js';
 
 import { CashSettlementBuilder } from './cash-settlement.builder.js';
 
-import { CashSettlementValidationService } from './cash-settlement-validation.service.js';
+import { CashSettlementValidationService } from './services/cash-settlement-validation.service.js';
+
+import { CashSettlementCalculationService } from '../../../common/calculators/cash-settlement.calculator.js';
 
 import { WorkflowModule } from '../workflow/workflow.module.js';
 
@@ -22,6 +24,7 @@ import { WorkflowModule } from '../workflow/workflow.module.js';
     CashSettlementRepository,
     CashSettlementBuilder,
     CashSettlementValidationService,
+    CashSettlementCalculationService,
   ],
   exports: [CashSettlementService, CashSettlementValidationService],
 })

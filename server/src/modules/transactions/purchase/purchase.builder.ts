@@ -14,21 +14,25 @@ import {
   VehicleAllocation,
   PurchaseVarianceAcknowledgement,
 } from '../../../types/purchase.types.js';
-import { DeliverySession, SupplyCategory } from '../../../generated/prisma/client.js';
-import { QUANTITY_PRECISION } from './purchase.constants.js';
+import {
+  DeliverySession,
+  SupplyCategory,
+} from '../../../generated/prisma/client.js';
 
 import {
   Product,
   AllocationSummary,
 } from '../../../common/builders/allocation-summary.builder.js';
 import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
+import { PurchaseBillingService } from './services/purchase-billing.service.js';
 
 @Injectable()
 export class PurchaseBuilder {
   constructor(
     private readonly productColumnsBuilder: ProductColumnsBuilder,
     private readonly purchaseVarianceCalculator: PurchaseVarianceCalculator,
-  ) { }
+    private readonly purchaseBillingService: PurchaseBillingService,
+  ) {}
 
   buildPurchaseGrids(
     summaries: AllocationSummary[],
@@ -235,13 +239,12 @@ export class PurchaseBuilder {
 
       row[rateField] = Number(rate.purchaseRate);
 
-      const litres =
-        Number(row[quantityField] ?? 0) *
-        QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
+      const { purchaseAmount } = this.purchaseBillingService.calculate(
+        Number(row[quantityField] ?? 0),
+        Number(rate.purchaseRate),
+      );
 
-      const amount = litres * Number(rate.purchaseRate);
-
-      row[amountField] = Number(amount.toFixed(2));
+      row[amountField] = purchaseAmount;
     }
 
     return result;
@@ -297,8 +300,7 @@ export class PurchaseBuilder {
         continue;
       }
 
-      const acknowledgement =
-        acknowledgementMap.get(entry.id) ?? null;
+      const acknowledgement = acknowledgementMap.get(entry.id) ?? null;
 
       const quantityField = `product_${entry.product_id}`;
 
@@ -315,11 +317,10 @@ export class PurchaseBuilder {
         continue;
       }
 
-      const variance =
-        this.purchaseVarianceCalculator.calculate(
-          Number(allocation.allocated_qty),
-          Number(entry.purchased_qty),
-        );
+      const variance = this.purchaseVarianceCalculator.calculate(
+        Number(allocation.allocated_qty),
+        Number(entry.purchased_qty),
+      );
 
       const varianceField = `product_${entry.product_id}_variance`;
 
@@ -333,7 +334,6 @@ export class PurchaseBuilder {
         severity: variance.severity,
         acknowledgement,
       };
-
     }
 
     return result;
@@ -380,8 +380,6 @@ export class PurchaseBuilder {
   ) {
     return `${vehicleId}_${distributorId}_${category}_${productId}_${deliverySession}`;
   }
-
-
 }
 
 const initializeProductFields = (

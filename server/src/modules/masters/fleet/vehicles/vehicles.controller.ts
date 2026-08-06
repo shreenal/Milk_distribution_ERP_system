@@ -22,9 +22,7 @@ import { VehiclesService } from './vehicles.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class VehiclesController {
-  constructor(
-    private readonly vehiclesService: VehiclesService,
-  ) {}
+  constructor(private readonly vehiclesService: VehiclesService) {}
 
   @Get()
   findAll() {
@@ -37,31 +35,22 @@ export class VehiclesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.vehiclesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateVehicleDto,
-  ) {
+  create(@Body() dto: CreateVehicleDto) {
     return this.vehiclesService.create(dto);
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateVehicleDto,
-  ) {
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateVehicleDto) {
     return this.vehiclesService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.vehiclesService.delete(id);
   }
 }

@@ -10,6 +10,6 @@ import { ProductGroupService } from './product-group.service.js';
   imports: [PrismaModule],
   controllers: [ProductGroupController],
   providers: [ProductGroupService, ProductGroupRepository],
-  exports: [ProductGroupService,ProductGroupRepository],
+  exports: [ProductGroupService, ProductGroupRepository],
 })
 export class ProductGroupModule {}

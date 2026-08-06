@@ -11,20 +11,9 @@ import { ProcurementRulesRepository } from './procurement-rules.repository.js';
 import { ProcurementRulesService } from './procurement-rules.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    DistributorModule,
-    BrandsModule,
-    ProductGroupModule,
-  ],
+  imports: [PrismaModule, DistributorModule, BrandsModule, ProductGroupModule],
   controllers: [ProcurementRulesController],
-  providers: [
-    ProcurementRulesService,
-    ProcurementRulesRepository,
-  ],
-  exports: [
-    ProcurementRulesService,
-    ProcurementRulesRepository,
-  ],
+  providers: [ProcurementRulesService, ProcurementRulesRepository],
+  exports: [ProcurementRulesService, ProcurementRulesRepository],
 })
 export class ProcurementRulesModule {}

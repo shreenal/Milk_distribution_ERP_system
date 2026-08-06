@@ -13,9 +13,7 @@ const productLinkInclude = {
 
 @Injectable()
 export class ProductLinksRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_product_link.findMany({
@@ -45,10 +43,7 @@ export class ProductLinksRepository {
     });
   }
 
-  findDuplicate(
-    distributorId: number,
-    productId: number,
-  ) {
+  findDuplicate(distributorId: number, productId: number) {
     return this.prisma.master_product_link.findUnique({
       where: {
         distributor_id_product_id: {
@@ -66,10 +61,7 @@ export class ProductLinksRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateProductLinksDto,
-  ) {
+  update(id: number, dto: UpdateProductLinksDto) {
     return this.prisma.master_product_link.update({
       where: { id },
       data: dto,

@@ -33,9 +33,7 @@ export class BanksService {
     const existingBank = await this.banksRepository.findByName(dto.name);
 
     if (existingBank) {
-      throw new ConflictException(
-        `Bank '${dto.name}' already exists.`,
-      );
+      throw new ConflictException(`Bank '${dto.name}' already exists.`);
     }
 
     return this.banksRepository.create(dto);
@@ -48,9 +46,7 @@ export class BanksService {
       const existingBank = await this.banksRepository.findByName(dto.name);
 
       if (existingBank && existingBank.id !== id) {
-        throw new ConflictException(
-          `Bank '${dto.name}' already exists.`,
-        );
+        throw new ConflictException(`Bank '${dto.name}' already exists.`);
       }
     }
 

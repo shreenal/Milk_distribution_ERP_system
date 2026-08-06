@@ -22,9 +22,7 @@ import { UpdateClientDto } from './dto/update-client.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ClientsController {
-  constructor(
-    private readonly clientsService: ClientsService,
-  ) {}
+  constructor(private readonly clientsService: ClientsService) {}
 
   @Get()
   findAll() {
@@ -37,31 +35,22 @@ export class ClientsController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.clientsService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateClientDto,
-  ) {
+  create(@Body() dto: CreateClientDto) {
     return this.clientsService.create(dto);
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateClientDto,
-  ) {
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateClientDto) {
     return this.clientsService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.clientsService.delete(id);
   }
 }

@@ -47,9 +47,7 @@ export class UsersService {
       throw new ConflictException('Username already exists');
     }
 
-    const existingEmail = await this.usersRepository.findByEmail(
-      dto.email,
-    );
+    const existingEmail = await this.usersRepository.findByEmail(dto.email);
 
     if (existingEmail) {
       throw new ConflictException('Email already exists');
@@ -63,16 +61,11 @@ export class UsersService {
     });
   }
 
-  async update(
-    id: number,
-    dto: UpdateUserDto,
-  ) {
+  async update(id: number, dto: UpdateUserDto) {
     await this.findById(id);
 
     if (dto.role_id !== undefined) {
-      const role = await this.rolesRepository.findById(
-        dto.role_id,
-      );
+      const role = await this.rolesRepository.findById(dto.role_id);
 
       if (!role) {
         throw new NotFoundException('Role not found');
@@ -80,50 +73,30 @@ export class UsersService {
     }
 
     if (dto.username) {
-      const existingUsername =
-        await this.usersRepository.findByUsername(
-          dto.username,
-        );
+      const existingUsername = await this.usersRepository.findByUsername(
+        dto.username,
+      );
 
-      if (
-        existingUsername &&
-        existingUsername.id !== id
-      ) {
-        throw new ConflictException(
-          'Username already exists',
-        );
+      if (existingUsername && existingUsername.id !== id) {
+        throw new ConflictException('Username already exists');
       }
     }
 
     if (dto.email) {
-      const existingEmail =
-        await this.usersRepository.findByEmail(
-          dto.email,
-        );
+      const existingEmail = await this.usersRepository.findByEmail(dto.email);
 
-      if (
-        existingEmail &&
-        existingEmail.id !== id
-      ) {
-        throw new ConflictException(
-          'Email already exists',
-        );
+      if (existingEmail && existingEmail.id !== id) {
+        throw new ConflictException('Email already exists');
       }
     }
 
     const updateData: UpdateUserDto = { ...dto };
 
     if (dto.password) {
-      updateData.password = await bcrypt.hash(
-        dto.password,
-        10,
-      );
+      updateData.password = await bcrypt.hash(dto.password, 10);
     }
 
-    return this.usersRepository.update(
-      id,
-      updateData,
-    );
+    return this.usersRepository.update(id, updateData);
   }
 
   async delete(id: number) {

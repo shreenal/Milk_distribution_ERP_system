@@ -10,19 +10,9 @@ import { ClientsRepository } from './clients.repository.js';
 import { ClientsService } from './clients.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    GroupsModule,
-    DistributorModule,
-  ],
+  imports: [PrismaModule, GroupsModule, DistributorModule],
   controllers: [ClientsController],
-  providers: [
-    ClientsService,
-    ClientsRepository,
-  ],
-  exports: [
-    ClientsService,
-    ClientsRepository,
-  ],
+  providers: [ClientsService, ClientsRepository],
+  exports: [ClientsService, ClientsRepository],
 })
 export class ClientsModule {}

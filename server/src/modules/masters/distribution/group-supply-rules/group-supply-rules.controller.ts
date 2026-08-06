@@ -37,16 +37,12 @@ export class GroupSupplyRulesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.groupSupplyRulesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateGroupSupplyRuleDto,
-  ) {
+  create(@Body() dto: CreateGroupSupplyRuleDto) {
     return this.groupSupplyRulesService.create(dto);
   }
 
@@ -59,9 +55,7 @@ export class GroupSupplyRulesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.groupSupplyRulesService.delete(id);
   }
 }

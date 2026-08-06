@@ -13,9 +13,7 @@ const clientProductRateInclude = {
 
 @Injectable()
 export class ClientProductRatesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_client_rate_product.findMany({
@@ -45,11 +43,7 @@ export class ClientProductRatesRepository {
     });
   }
 
-  findDuplicate(
-    clientId: number,
-    productLinkId: number,
-    effectiveFrom: Date,
-  ) {
+  findDuplicate(clientId: number, productLinkId: number, effectiveFrom: Date) {
     return this.prisma.master_client_rate_product.findUnique({
       where: {
         client_id_product_link_id_effective_from: {
@@ -68,10 +62,7 @@ export class ClientProductRatesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateClientProductRateDto,
-  ) {
+  update(id: number, dto: UpdateClientProductRateDto) {
     return this.prisma.master_client_rate_product.update({
       where: { id },
       data: dto,

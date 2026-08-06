@@ -8,12 +8,9 @@ import { ProductTypesService } from './product-types.service.js';
 import { ProductTypesRepository } from './product-types.repository.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    BrandsModule,
-  ],
+  imports: [PrismaModule, BrandsModule],
   controllers: [ProductTypesController],
   providers: [ProductTypesService, ProductTypesRepository],
-  exports: [ProductTypesService,ProductTypesRepository],
+  exports: [ProductTypesService, ProductTypesRepository],
 })
 export class ProductTypesModule {}

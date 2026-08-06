@@ -10,7 +10,7 @@ import { CollectionsRepository } from './collections.repository.js';
 
 import { CollectionBuilder } from './collections.builder.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
-import { CollectionsValidationService } from './collections-validation.service.js';
+import { CollectionsValidationService } from './services/collections-validation.service.js';
 
 @Module({
   imports: [PrismaModule, WorkflowModule],

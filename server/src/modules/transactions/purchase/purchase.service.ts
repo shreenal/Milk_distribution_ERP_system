@@ -4,7 +4,7 @@ import { PurchaseRepository } from './purchase.repository.js';
 
 import { PurchaseBuilder } from './purchase.builder.js';
 import { SavePurchaseDto } from './dto/purchase.dto.js';
-import { PurchaseValidationService } from './purchase-validation.service.js';
+import { PurchaseValidationService } from './services/purchase-validation.service.js';
 import { AllocationSummaryBuilder } from '../../../common/builders/allocation-summary.builder.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
@@ -15,8 +15,9 @@ import {
   QUANTITY_PRECISION,
 } from './purchase.constants.js';
 
-import { GatepassDatePolicy } from '../../../generated/prisma/client.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
+import { PurchaseCommercialService } from './services/purchase-commercial.service.js';
+import { PurchaseBillingService } from './services/purchase-billing.service.js';
 
 @Injectable()
 export class PurchaseService {
@@ -31,10 +32,14 @@ export class PurchaseService {
 
     private readonly purchaseValidationService: PurchaseValidationService,
 
+    private readonly purchaseBillingService: PurchaseBillingService,
+
+    private readonly purchaseCommercialService: PurchaseCommercialService,
+
     private readonly workflowState: WorkflowStateService,
 
     private readonly workflowBuilder: WorkflowBuilder,
-  ) { }
+  ) {}
 
   async getPurchases(paperId: number) {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
@@ -57,17 +62,6 @@ export class PurchaseService {
     const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
 
     const workflow = this.workflowBuilder.buildPurchasesWorkflow(paper.status);
-
-    // const products = await this.purchaseRepository.findProducts();
-
-    // const procurementRules: ProcurementRule[] =
-    //   await this.purchaseRepository.findDistributorProcurementRules();
-
-    // const grids = this.purchaseBuilder.buildPurchaseGrids(
-    //   procurementRules,
-    //   products,
-    //   vehicleAssignments,
-    // );
 
     const orderItems =
       await this.orderItemsRepository.findOrderItemsWithSupplyContextByPaperId(
@@ -103,16 +97,16 @@ export class PurchaseService {
           );
         }
 
-        const productLink = await this.purchaseRepository.getProductLink(
-          allocation.distributor_id,
-          allocation.product_id,
-        );
+        // const productLink = await this.purchaseRepository.getProductLink(
+        //   allocation.distributor_id,
+        //   allocation.product_id,
+        // );
 
-        if (!productLink) {
-          throw new BadRequestException(
-            `No product link found for distributor ${allocation.distributor_id} and product ${allocation.product_id}`,
-          );
-        }
+        // if (!productLink) {
+        //   throw new BadRequestException(
+        //     `No product link found for distributor ${allocation.distributor_id} and product ${allocation.product_id}`,
+        //   );
+        // }
         const key = `${allocation.vehicle_id}_${allocation.category}_${allocation.vehicle_allocation_paper.delivery_session}`;
 
         const assignment = assignmentMap.get(key);
@@ -128,21 +122,28 @@ export class PurchaseService {
           );
         }
 
-        const gatepassDate = resolveGatepassDate(
+        // const gatepassDate = resolveGatepassDate(
+        //   paper.sale_date,
+        //   allocation.master_product.master_brand.gatepass_date_policy,
+        // );
+
+        // const rate = await this.purchaseRepository.findProductLinkRateForDate(
+        //   productLink.id,
+        //   gatepassDate,
+        // );
+
+        // if (!rate) {
+        //   throw new BadRequestException(
+        //     `Rate not found for distributor ${allocation.distributor_id} product ${allocation.product_id} on ${gatepassDate.toISOString().slice(0, 10)}`,
+        //   );
+        // }
+
+        const commercial = await this.purchaseCommercialService.resolve(
           paper.sale_date,
+          allocation.distributor_id,
+          allocation.product_id,
           allocation.master_product.master_brand.gatepass_date_policy,
         );
-
-        const rate = await this.purchaseRepository.findProductLinkRateForDate(
-          productLink.id,
-          gatepassDate,
-        );
-
-        if (!rate) {
-          throw new BadRequestException(
-            `Rate not found for distributor ${allocation.distributor_id} product ${allocation.product_id} on ${gatepassDate.toISOString().slice(0, 10)}`,
-          );
-        }
 
         return {
           distributorId: allocation.distributor_id,
@@ -150,7 +151,7 @@ export class PurchaseService {
           vehicleId: allocation.vehicle_id,
           deliverySession: allocation.vehicle_allocation_paper.delivery_session,
           productId: allocation.product_id,
-          purchaseRate: Number(rate.purchase_rate),
+          purchaseRate: commercial.purchaseRate,
         };
       }),
     );
@@ -185,13 +186,12 @@ export class PurchaseService {
       purchaseEntries,
     );
 
-    const purchasesWithVariance =
-      this.purchaseBuilder.applyVarianceMetadata(
-        purchases,
-        allocations,
-        purchaseEntries,
-        acknowledgements,
-      );
+    const purchasesWithVariance = this.purchaseBuilder.applyVarianceMetadata(
+      purchases,
+      allocations,
+      purchaseEntries,
+      acknowledgements,
+    );
 
     return {
       paper,
@@ -200,7 +200,7 @@ export class PurchaseService {
     };
   }
 
-  async savePurchases(paperId: number, dto: SavePurchaseDto, userId: number,) {
+  async savePurchases(paperId: number, dto: SavePurchaseDto, userId: number) {
     const paper = await this.purchaseRepository.findOrderPaperById(paperId);
 
     if (!paper) {
@@ -258,16 +258,16 @@ export class PurchaseService {
           );
         }
 
-        const productLink = await this.purchaseRepository.getProductLink(
-          entry.distributorId,
-          entry.productId,
-        );
+        // const productLink = await this.purchaseRepository.getProductLink(
+        //   entry.distributorId,
+        //   entry.productId,
+        // );
 
-        if (!productLink) {
-          throw new BadRequestException(
-            `No product link found for distributor ${entry.distributorId} and product ${entry.productId}`,
-          );
-        }
+        // if (!productLink) {
+        //   throw new BadRequestException(
+        //     `No product link found for distributor ${entry.distributorId} and product ${entry.productId}`,
+        //   );
+        // }
 
         const assignment = assignmentMap.get(
           `${entry.vehicleId}_${entry.category}_${entry.deliverySession}`,
@@ -281,27 +281,33 @@ export class PurchaseService {
           );
         }
 
-        const gatepassDate = resolveGatepassDate(
+        // const gatepassDate = resolveGatepassDate(
+        //   paper.sale_date,
+        //   allocation.master_product.master_brand.gatepass_date_policy,
+        // );
+
+        // const rate = await this.purchaseRepository.findProductLinkRateForDate(
+        //   productLink.id,
+        //   gatepassDate,
+        // );
+
+        // if (!rate) {
+        //   throw new BadRequestException(
+        //     `Rate not found for distributor ${entry.distributorId} product ${entry.productId} on ${gatepassDate.toISOString().slice(0, 10)}`,
+        //   );
+        // }
+
+        const commercial = await this.purchaseCommercialService.resolve(
           paper.sale_date,
+          entry.distributorId,
+          entry.productId,
           allocation.master_product.master_brand.gatepass_date_policy,
         );
 
-        const rate = await this.purchaseRepository.findProductLinkRateForDate(
-          productLink.id,
-          gatepassDate,
+        const { purchaseAmount } = this.purchaseBillingService.calculate(
+          Number(entry.purchasedQty),
+          Number(commercial.purchaseRate),
         );
-
-        if (!rate) {
-          throw new BadRequestException(
-            `Rate not found for distributor ${entry.distributorId} product ${entry.productId} on ${gatepassDate.toISOString().slice(0, 10)}`,
-          );
-        }
-
-        const litres =
-          Number(entry.purchasedQty) *
-          QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
-
-        const purchaseAmount = litres * Number(rate.purchase_rate);
 
         return {
           purchase_paper_id: purchasePaper.id,
@@ -310,11 +316,16 @@ export class PurchaseService {
           category: entry.category,
           vehicle_id: entry.vehicleId,
           product_id: entry.productId,
-          product_link_id: productLink.id,
+
+          product_link_id: commercial.productLinkId,
+
           purchased_qty: entry.purchasedQty,
-          purchase_rate: rate.purchase_rate,
-          purchase_amount: Number(purchaseAmount.toFixed(2)),
-          gatepass_date: gatepassDate,
+
+          purchase_rate: commercial.purchaseRate,
+
+          purchase_amount: purchaseAmount,
+
+          gatepass_date: commercial.gatepassDate,
         };
       }),
     );
@@ -324,15 +335,11 @@ export class PurchaseService {
       purchaseRows,
     );
 
-    const savedEntries =
-      await this.purchaseRepository.findPurchaseEntries(
-        purchasePaper.id,
-      );
+    const savedEntries = await this.purchaseRepository.findPurchaseEntries(
+      purchasePaper.id,
+    );
 
-    const purchaseEntryMap = new Map<
-      string,
-      (typeof savedEntries)[number]
-    >();
+    const purchaseEntryMap = new Map<string, (typeof savedEntries)[number]>();
 
     for (const entry of savedEntries) {
       purchaseEntryMap.set(
@@ -360,16 +367,6 @@ export class PurchaseService {
 
     return this.getPurchases(paperId);
   }
-}
-
-function resolveGatepassDate(saleDate: Date, policy: GatepassDatePolicy): Date {
-  const gatepassDate = new Date(saleDate);
-
-  if (policy === GatepassDatePolicy.PREVIOUS_DAY) {
-    gatepassDate.setDate(gatepassDate.getDate() - 1);
-  }
-
-  return gatepassDate;
 }
 
 function buildVehicleAssignmentMap(

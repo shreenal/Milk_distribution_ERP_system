@@ -61,23 +61,15 @@ export class TrayRulesService {
     return this.trayRulesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateTrayRuleDto,
-  ) {
+  async update(id: number, dto: UpdateTrayRuleDto) {
     const existing = await this.findById(id);
 
     const data = {
-      product_group_id:
-        dto.product_group_id ?? existing.product_group_id,
-      brand_id:
-        dto.brand_id ?? existing.brand_id,
-      product_type_id:
-        dto.product_type_id ?? existing.product_type_id,
-      packaging_type_id:
-        dto.packaging_type_id ?? existing.packaging_type_id,
-      tray_type_id:
-        dto.tray_type_id ?? existing.tray_type_id,
+      product_group_id: dto.product_group_id ?? existing.product_group_id,
+      brand_id: dto.brand_id ?? existing.brand_id,
+      product_type_id: dto.product_type_id ?? existing.product_type_id,
+      packaging_type_id: dto.packaging_type_id ?? existing.packaging_type_id,
+      tray_type_id: dto.tray_type_id ?? existing.tray_type_id,
     };
 
     await this.validateReferences(data);
@@ -111,10 +103,9 @@ export class TrayRulesService {
     tray_type_id: number;
   }) {
     if (data.product_group_id != null) {
-      const productGroup =
-        await this.productGroupRepository.findById(
-          data.product_group_id,
-        );
+      const productGroup = await this.productGroupRepository.findById(
+        data.product_group_id,
+      );
 
       if (!productGroup) {
         throw new NotFoundException('Product group not found.');
@@ -122,10 +113,7 @@ export class TrayRulesService {
     }
 
     if (data.brand_id != null) {
-      const brand =
-        await this.brandsRepository.findById(
-          data.brand_id,
-        );
+      const brand = await this.brandsRepository.findById(data.brand_id);
 
       if (!brand) {
         throw new NotFoundException('Brand not found.');
@@ -133,10 +121,9 @@ export class TrayRulesService {
     }
 
     if (data.product_type_id != null) {
-      const productType =
-        await this.productTypesRepository.findById(
-          data.product_type_id,
-        );
+      const productType = await this.productTypesRepository.findById(
+        data.product_type_id,
+      );
 
       if (!productType) {
         throw new NotFoundException('Product type not found.');
@@ -144,20 +131,16 @@ export class TrayRulesService {
     }
 
     if (data.packaging_type_id != null) {
-      const packagingType =
-        await this.packagingTypesRepository.findById(
-          data.packaging_type_id,
-        );
+      const packagingType = await this.packagingTypesRepository.findById(
+        data.packaging_type_id,
+      );
 
       if (!packagingType) {
         throw new NotFoundException('Packaging type not found.');
       }
     }
 
-    const trayType =
-      await this.trayTypesRepository.findById(
-        data.tray_type_id,
-      );
+    const trayType = await this.trayTypesRepository.findById(data.tray_type_id);
 
     if (!trayType) {
       throw new NotFoundException('Tray type not found.');

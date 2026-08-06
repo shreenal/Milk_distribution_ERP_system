@@ -10,6 +10,6 @@ import { PackagingTypesService } from './packaging-types.service.js';
   imports: [PrismaModule],
   controllers: [PackagingTypesController],
   providers: [PackagingTypesService, PackagingTypesRepository],
-  exports: [PackagingTypesService,PackagingTypesRepository],
+  exports: [PackagingTypesService, PackagingTypesRepository],
 })
 export class PackagingTypeModule {}

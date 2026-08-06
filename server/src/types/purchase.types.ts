@@ -54,11 +54,7 @@ export type PurchaseRow = {
   vehicleId: number;
   vehicleName: string | null;
   deliverySession: DeliverySession;
-  [key: string]:
-  | string
-  | number
-  | null
-  | PurchaseVarianceMetadata;
+  [key: string]: string | number | null | PurchaseVarianceMetadata;
 };
 
 export type PurchaseGridItem = {

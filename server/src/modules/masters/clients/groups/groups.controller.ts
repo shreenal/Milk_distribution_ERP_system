@@ -22,9 +22,7 @@ import { GroupsService } from './groups.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class GroupsController {
-  constructor(
-    private readonly groupsService: GroupsService,
-  ) {}
+  constructor(private readonly groupsService: GroupsService) {}
 
   @Get()
   findAll() {
@@ -37,31 +35,22 @@ export class GroupsController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.groupsService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateGroupDto,
-  ) {
+  create(@Body() dto: CreateGroupDto) {
     return this.groupsService.create(dto);
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateGroupDto,
-  ) {
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateGroupDto) {
     return this.groupsService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.groupsService.delete(id);
   }
 }

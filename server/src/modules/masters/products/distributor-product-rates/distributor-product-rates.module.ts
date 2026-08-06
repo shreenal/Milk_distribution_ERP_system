@@ -9,18 +9,12 @@ import { DistributorProductRatesRepository } from './distributor-product-rates.r
 import { DistributorProductRatesService } from './distributor-product-rates.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    ProductLinksModule,
-  ],
+  imports: [PrismaModule, ProductLinksModule],
   controllers: [DistributorProductRatesController],
   providers: [
     DistributorProductRatesService,
     DistributorProductRatesRepository,
   ],
-  exports: [
-    DistributorProductRatesService,
-    DistributorProductRatesRepository,
-  ],
+  exports: [DistributorProductRatesService, DistributorProductRatesRepository],
 })
 export class DistributorProductRatesModule {}

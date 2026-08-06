@@ -68,7 +68,7 @@ export class WorkflowStateService {
   //   );
   // }
 
-  canEditTrays(status: OrderPaperStatus): boolean {
+  canEditClientTrays(status: OrderPaperStatus): boolean {
     return this.canEditCompletionModule(status);
   }
 
@@ -131,7 +131,7 @@ export class WorkflowStateService {
   //   );
   // }
 
-  canEditDairyTrayTracking(status: OrderPaperStatus): boolean {
+  canEditDairyTrays(status: OrderPaperStatus): boolean {
     return this.canEditCompletionModule(status);
   }
 
@@ -170,8 +170,8 @@ export class WorkflowStateService {
     return this.canEditMorningEntries(status);
   }
 
-  shouldValidateTrays(status: OrderPaperStatus): boolean {
-    return this.canEditTrays(status);
+  shouldValidateClientTrays(status: OrderPaperStatus): boolean {
+    return this.canEditClientTrays(status);
   }
 
   shouldValidateEmployeeCollections(status: OrderPaperStatus): boolean {
@@ -179,7 +179,7 @@ export class WorkflowStateService {
   }
 
   shouldValidateDairyTrayTracking(status: OrderPaperStatus): boolean {
-    return this.canEditDairyTrayTracking(status);
+    return this.canEditDairyTrays(status);
   }
 
   canFinalize(status: OrderPaperStatus): boolean {

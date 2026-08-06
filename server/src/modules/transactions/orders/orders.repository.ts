@@ -6,7 +6,7 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async getActiveGroups() {
     return this.prisma.master_group.findMany({
@@ -106,15 +106,15 @@ export class OrdersRepository {
 
       orderBy: [
         {
-          display_order: "asc",
+          display_order: 'asc',
         },
         {
           master_brand: {
-            name: "asc",
+            name: 'asc',
           },
         },
         {
-          packaging_size: "asc",
+          packaging_size: 'asc',
         },
       ],
     });
@@ -145,7 +145,6 @@ export class OrdersRepository {
     });
   }
 
-
   async findAvailableProducts(category?: SupplyCategory) {
     return this.prisma.master_product.findMany({
       where: {
@@ -167,20 +166,17 @@ export class OrdersRepository {
       orderBy: [
         {
           master_brand: {
-            name: "asc",
+            name: 'asc',
           },
         },
         {
-          packaging_size: "asc",
+          packaging_size: 'asc',
         },
       ],
     });
   }
 
-  async getProductsForSheet(
-    sheetId: number,
-    category: SupplyCategory,
-  ) {
+  async getProductsForSheet(sheetId: number, category: SupplyCategory) {
     return this.prisma.master_product.findMany({
       where: {
         is_active: true,
@@ -211,15 +207,15 @@ export class OrdersRepository {
 
       orderBy: [
         {
-          display_order: "asc",
+          display_order: 'asc',
         },
         {
           master_brand: {
-            name: "asc",
+            name: 'asc',
           },
         },
         {
-          packaging_size: "asc",
+          packaging_size: 'asc',
         },
       ],
     });

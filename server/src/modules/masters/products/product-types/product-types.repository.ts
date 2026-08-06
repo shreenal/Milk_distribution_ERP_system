@@ -34,10 +34,7 @@ export class ProductTypesRepository {
     });
   }
 
-  async findByBrandAndName(
-    brandId: number,
-    name: string,
-  ) {
+  async findByBrandAndName(brandId: number, name: string) {
     return this.prisma.master_product_type.findFirst({
       where: {
         brand_id: brandId,
@@ -52,10 +49,7 @@ export class ProductTypesRepository {
     });
   }
 
-  async update(
-    id: number,
-    dto: UpdateProductTypeDto,
-  ) {
+  async update(id: number, dto: UpdateProductTypeDto) {
     return this.prisma.master_product_type.update({
       where: { id },
       data: dto,

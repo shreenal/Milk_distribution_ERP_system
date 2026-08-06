@@ -10,9 +10,7 @@ import { DistributorRepository } from './distributor.repository.js';
 
 @Injectable()
 export class DistributorService {
-  constructor(
-    private readonly distributorRepository: DistributorRepository,
-  ) {}
+  constructor(private readonly distributorRepository: DistributorRepository) {}
 
   findAll() {
     return this.distributorRepository.findAll();
@@ -33,22 +31,18 @@ export class DistributorService {
   }
 
   async create(dto: CreateDistributorDto) {
-    const existingDistributor =
-      await this.distributorRepository.findByName(dto.name);
+    const existingDistributor = await this.distributorRepository.findByName(
+      dto.name,
+    );
 
     if (existingDistributor) {
-      throw new ConflictException(
-        'Distributor with this name already exists.',
-      );
+      throw new ConflictException('Distributor with this name already exists.');
     }
 
     return this.distributorRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateDistributorDto,
-  ) {
+  async update(id: number, dto: UpdateDistributorDto) {
     const distributor = await this.findById(id);
 
     const name = dto.name ?? distributor.name;
@@ -56,13 +50,8 @@ export class DistributorService {
     const existingDistributor =
       await this.distributorRepository.findByName(name);
 
-    if (
-      existingDistributor &&
-      existingDistributor.id !== id
-    ) {
-      throw new ConflictException(
-        'Distributor with this name already exists.',
-      );
+    if (existingDistributor && existingDistributor.id !== id) {
+      throw new ConflictException('Distributor with this name already exists.');
     }
 
     return this.distributorRepository.update(id, dto);

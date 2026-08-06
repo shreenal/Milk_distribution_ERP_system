@@ -22,9 +22,7 @@ import { TrayRulesService } from './tray-rules.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class TrayRulesController {
-  constructor(
-    private readonly trayRulesService: TrayRulesService,
-  ) {}
+  constructor(private readonly trayRulesService: TrayRulesService) {}
 
   @Get()
   findAll() {
@@ -37,16 +35,12 @@ export class TrayRulesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.trayRulesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateTrayRuleDto,
-  ) {
+  create(@Body() dto: CreateTrayRuleDto) {
     return this.trayRulesService.create(dto);
   }
 
@@ -59,9 +53,7 @@ export class TrayRulesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.trayRulesService.delete(id);
   }
 }

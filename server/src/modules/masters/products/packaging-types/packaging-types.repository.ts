@@ -34,10 +34,7 @@ export class PackagingTypesRepository {
     });
   }
 
-  async update(
-    id: number,
-    dto: UpdatePackagingTypeDto,
-  ) {
+  async update(id: number, dto: UpdatePackagingTypeDto) {
     return this.prisma.master_packaging_type.update({
       where: { id },
       data: dto,

@@ -48,17 +48,15 @@ export const PURCHASE_ERROR_MESSAGES = {
   UNEXPECTED_VARIANCE_ACKNOWLEDGEMENT:
     'Variance acknowledgement is not allowed when there is no variance',
 
-  INVALID_VARIANCE_REASON:
-  'Invalid variance reason',
+  INVALID_VARIANCE_REASON: 'Invalid variance reason',
 
-VARIANCE_REMARKS_REQUIRED:
-  'Remarks are required for the selected variance reason',
+  VARIANCE_REMARKS_REQUIRED:
+    'Remarks are required for the selected variance reason',
 
-VARIANCE_ACKNOWLEDGEMENT_NOT_FOUND:
-  'Variance acknowledgement not found',
+  VARIANCE_ACKNOWLEDGEMENT_NOT_FOUND: 'Variance acknowledgement not found',
 
-DUPLICATE_VARIANCE_ACKNOWLEDGEMENT:
-  'Duplicate variance acknowledgement detected',
+  DUPLICATE_VARIANCE_ACKNOWLEDGEMENT:
+    'Duplicate variance acknowledgement detected',
 } as const;
 
 export const QUANTITY_PRECISION = {

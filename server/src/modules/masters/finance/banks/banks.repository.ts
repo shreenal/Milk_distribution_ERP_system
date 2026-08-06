@@ -47,13 +47,13 @@ export class BanksRepository {
   }
 
   async findActive() {
-  return this.prisma.master_bank.findMany({
-    where: {
-      is_active: true,
-    },
-    orderBy: {
-      name: 'asc',
-    },
-  });
-}
+    return this.prisma.master_bank.findMany({
+      where: {
+        is_active: true,
+      },
+      orderBy: {
+        name: 'asc',
+      },
+    });
+  }
 }

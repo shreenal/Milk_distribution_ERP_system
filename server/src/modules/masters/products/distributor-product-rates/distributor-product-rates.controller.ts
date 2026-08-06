@@ -14,7 +14,6 @@ import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
 
-
 import { CreateDistributorProductRatesDto } from './dto/create-distributor-product-rates.dto.js';
 import { UpdateDistributorProductRatesDto } from './dto/update-distributor-product-rates.dto.js';
 import { DistributorProductRatesService } from './distributor-product-rates.service.js';
@@ -38,16 +37,12 @@ export class DistributorProductRatesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.distributorProductRatesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateDistributorProductRatesDto,
-  ) {
+  create(@Body() dto: CreateDistributorProductRatesDto) {
     return this.distributorProductRatesService.create(dto);
   }
 
@@ -60,9 +55,7 @@ export class DistributorProductRatesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.distributorProductRatesService.delete(id);
   }
 }

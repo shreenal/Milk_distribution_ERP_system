@@ -22,9 +22,7 @@ import { TransferRulesService } from './transfer-rules.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class TransferRulesController {
-  constructor(
-    private readonly transferRulesService: TransferRulesService,
-  ) {}
+  constructor(private readonly transferRulesService: TransferRulesService) {}
 
   @Get()
   findAll() {
@@ -37,16 +35,12 @@ export class TransferRulesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.transferRulesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateTransferRuleDto,
-  ) {
+  create(@Body() dto: CreateTransferRuleDto) {
     return this.transferRulesService.create(dto);
   }
 
@@ -59,9 +53,7 @@ export class TransferRulesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.transferRulesService.delete(id);
   }
 }

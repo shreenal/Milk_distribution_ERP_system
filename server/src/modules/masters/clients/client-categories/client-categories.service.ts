@@ -38,40 +38,28 @@ export class ClientCategoriesService {
       throw new NotFoundException('Client not found');
     }
 
-    const existingCategory =
-      await this.clientCategoriesRepository.findOne(
-        dto.client_id,
-        dto.category,
-      );
+    const existingCategory = await this.clientCategoriesRepository.findOne(
+      dto.client_id,
+      dto.category,
+    );
 
     if (existingCategory) {
-      throw new ConflictException(
-        'Client category already exists',
-      );
+      throw new ConflictException('Client category already exists');
     }
 
     return this.clientCategoriesRepository.create(dto);
   }
 
-  async delete(
-    clientId: number,
-    category: SupplyCategory,
-  ) {
-    const existingCategory =
-      await this.clientCategoriesRepository.findOne(
-        clientId,
-        category,
-      );
-
-    if (!existingCategory) {
-      throw new NotFoundException(
-        'Client category not found',
-      );
-    }
-
-    return this.clientCategoriesRepository.delete(
+  async delete(clientId: number, category: SupplyCategory) {
+    const existingCategory = await this.clientCategoriesRepository.findOne(
       clientId,
       category,
     );
+
+    if (!existingCategory) {
+      throw new NotFoundException('Client category not found');
+    }
+
+    return this.clientCategoriesRepository.delete(clientId, category);
   }
 }

@@ -22,9 +22,7 @@ import { UpdateProductGroupDto } from './dto/update-product-group.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ProductGroupController {
-  constructor(
-    private readonly productGroupService: ProductGroupService,
-  ) {}
+  constructor(private readonly productGroupService: ProductGroupService) {}
 
   @Get()
   findAll() {
@@ -32,16 +30,12 @@ export class ProductGroupController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.productGroupService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateProductGroupDto,
-  ) {
+  create(@Body() dto: CreateProductGroupDto) {
     return this.productGroupService.create(dto);
   }
 
@@ -54,9 +48,7 @@ export class ProductGroupController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.productGroupService.delete(id);
   }
 }

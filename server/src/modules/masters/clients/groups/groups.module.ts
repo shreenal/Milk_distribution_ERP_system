@@ -9,18 +9,9 @@ import { GroupsRepository } from './groups.repository.js';
 import { GroupsService } from './groups.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    VehiclesModule,
-  ],
+  imports: [PrismaModule, VehiclesModule],
   controllers: [GroupsController],
-  providers: [
-    GroupsService,
-    GroupsRepository,
-  ],
-  exports: [
-    GroupsService,
-    GroupsRepository,
-  ],
+  providers: [GroupsService, GroupsRepository],
+  exports: [GroupsService, GroupsRepository],
 })
 export class GroupsModule {}

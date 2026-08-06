@@ -7,9 +7,7 @@ import { UpdateRolesDto } from './dto/update-roles.dto.js';
 
 @Injectable()
 export class RolesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.roles.findMany({
@@ -37,10 +35,7 @@ export class RolesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateRolesDto,
-  ) {
+  update(id: number, dto: UpdateRolesDto) {
     return this.prisma.roles.update({
       where: { id },
       data: dto,

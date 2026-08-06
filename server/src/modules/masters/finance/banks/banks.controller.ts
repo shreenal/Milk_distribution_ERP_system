@@ -36,16 +36,12 @@ export class BanksController {
   }
 
   @Get(':id')
-  async findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async findById(@Param('id', ParseIntPipe) id: number) {
     return this.banksService.findById(id);
   }
 
   @Post()
-  async create(
-    @Body() dto: CreateBankDto,
-  ) {
+  async create(@Body() dto: CreateBankDto) {
     return this.banksService.create(dto);
   }
 
@@ -58,9 +54,7 @@ export class BanksController {
   }
 
   @Delete(':id')
-  async delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async delete(@Param('id', ParseIntPipe) id: number) {
     return this.banksService.delete(id);
   }
 }

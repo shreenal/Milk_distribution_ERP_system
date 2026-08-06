@@ -3,7 +3,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { OrdersModule } from './modules/transactions/orders/orders.module.js';
-import { TraysModule } from './modules/transactions/trays/trays.module.js';
+import { ClientTraysModule } from './modules/transactions/client-trays/client-trays.module.js';
 import { CollectionsModule } from './modules/transactions/collections/collections.module.js';
 import { WorkflowModule } from './modules/transactions/workflow/workflow.module.js';
 import { AuthModule } from './modules/transactions/auth/auth.module.js';
@@ -13,7 +13,7 @@ import { PurchaseModule } from './modules/transactions/purchase/purchase.module.
 import { DeliverySummaryModule } from './modules/transactions/delivery-summary/delivery-summary.module.js';
 import { CashSettlementModule } from './modules/transactions/cash-settlement/cash-settlement.module.js';
 import { DistributorTransferModule } from './modules/transactions/distributor-transfer/distributor-transfer.module.js';
-import { DairyTrayTrackingModule } from './modules/transactions/dairy-tray-tracking/dairy-tray-tracking.module.js';
+import { DairyTraysModule } from './modules/transactions/dairy-trays/dairy-trays.module.js';
 import { BanksModule } from './modules/masters/finance/banks/banks.module.js';
 import { ExpenseTypesModule } from './modules/masters/finance/expense-types/expense-types.module.js';
 import { BrandsModule } from './modules/masters/products/brands/brands.module.js';
@@ -49,7 +49,7 @@ import { GroupSupplyRulesModule } from './modules/masters/distribution/group-sup
     PrismaModule,
     WorkflowModule,
     OrdersModule,
-    TraysModule,
+    ClientTraysModule,
     CollectionsModule,
     VehicleAllocationModule,
     AuthModule,
@@ -58,7 +58,7 @@ import { GroupSupplyRulesModule } from './modules/masters/distribution/group-sup
     DeliverySummaryModule,
     CashSettlementModule,
     DistributorTransferModule,
-    DairyTrayTrackingModule,
+    DairyTraysModule,
     BanksModule,
     ExpenseTypesModule,
     BrandsModule,
@@ -83,7 +83,7 @@ import { GroupSupplyRulesModule } from './modules/masters/distribution/group-sup
     TrayRulesModule,
     ProcurementRulesModule,
     TransferRulesModule,
-    GroupSupplyRulesModule
+    GroupSupplyRulesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -37,16 +37,12 @@ export class ProcurementRulesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.procurementRulesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateProcurementRuleDto,
-  ) {
+  create(@Body() dto: CreateProcurementRuleDto) {
     return this.procurementRulesService.create(dto);
   }
 
@@ -59,9 +55,7 @@ export class ProcurementRulesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.procurementRulesService.delete(id);
   }
 }

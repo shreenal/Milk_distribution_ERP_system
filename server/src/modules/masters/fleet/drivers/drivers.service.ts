@@ -36,19 +36,14 @@ export class DriversService {
   }
 
   async create(dto: CreateDriverDto) {
-    const existingDriver =
-      await this.driversRepository.findByName(dto.name);
+    const existingDriver = await this.driversRepository.findByName(dto.name);
 
     if (existingDriver) {
-      throw new ConflictException(
-        'Driver with this name already exists.',
-      );
+      throw new ConflictException('Driver with this name already exists.');
     }
 
     if (dto.vehicle_id) {
-      const vehicle = await this.vehiclesRepository.findById(
-        dto.vehicle_id,
-      );
+      const vehicle = await this.vehiclesRepository.findById(dto.vehicle_id);
 
       if (!vehicle) {
         throw new NotFoundException('Vehicle not found.');
@@ -58,34 +53,21 @@ export class DriversService {
     return this.driversRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateDriverDto,
-  ) {
+  async update(id: number, dto: UpdateDriverDto) {
     const driver = await this.findById(id);
 
     const name = dto.name ?? driver.name;
     const vehicleId =
-      dto.vehicle_id !== undefined
-        ? dto.vehicle_id
-        : driver.vehicle_id;
+      dto.vehicle_id !== undefined ? dto.vehicle_id : driver.vehicle_id;
 
-    const existingDriver =
-      await this.driversRepository.findByName(name);
+    const existingDriver = await this.driversRepository.findByName(name);
 
-    if (
-      existingDriver &&
-      existingDriver.id !== id
-    ) {
-      throw new ConflictException(
-        'Driver with this name already exists.',
-      );
+    if (existingDriver && existingDriver.id !== id) {
+      throw new ConflictException('Driver with this name already exists.');
     }
 
     if (vehicleId) {
-      const vehicle = await this.vehiclesRepository.findById(
-        vehicleId,
-      );
+      const vehicle = await this.vehiclesRepository.findById(vehicleId);
 
       if (!vehicle) {
         throw new NotFoundException('Vehicle not found.');

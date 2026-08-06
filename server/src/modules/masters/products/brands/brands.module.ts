@@ -7,9 +7,9 @@ import { BrandsRepository } from './brands.repository.js';
 import { DairiesModule } from '../dairies/dairies.module.js';
 
 @Module({
-  imports: [PrismaModule,DairiesModule],
+  imports: [PrismaModule, DairiesModule],
   controllers: [BrandsController],
   providers: [BrandsService, BrandsRepository],
-  exports: [BrandsService,BrandsRepository],
+  exports: [BrandsService, BrandsRepository],
 })
 export class BrandsModule {}

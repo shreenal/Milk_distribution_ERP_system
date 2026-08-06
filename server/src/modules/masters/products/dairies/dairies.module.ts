@@ -9,6 +9,6 @@ import { DairiesRepository } from './dairies.repository.js';
   imports: [PrismaModule],
   controllers: [DairiesController],
   providers: [DairiesService, DairiesRepository],
-  exports: [DairiesService,DairiesRepository],
+  exports: [DairiesService, DairiesRepository],
 })
 export class DairiesModule {}

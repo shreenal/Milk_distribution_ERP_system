@@ -23,9 +23,7 @@ import { UpdateExpenseTypeDto } from './dto/update-expense-type.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ExpenseTypesController {
-  constructor(
-    private readonly expenseTypesService: ExpenseTypesService,
-  ) {}
+  constructor(private readonly expenseTypesService: ExpenseTypesService) {}
 
   @Get()
   async findAll() {
@@ -38,16 +36,12 @@ export class ExpenseTypesController {
   }
 
   @Get(':id')
-  async findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async findById(@Param('id', ParseIntPipe) id: number) {
     return this.expenseTypesService.findById(id);
   }
 
   @Post()
-  async create(
-    @Body() dto: CreateExpenseTypeDto,
-  ) {
+  async create(@Body() dto: CreateExpenseTypeDto) {
     return this.expenseTypesService.create(dto);
   }
 
@@ -60,9 +54,7 @@ export class ExpenseTypesController {
   }
 
   @Delete(':id')
-  async delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async delete(@Param('id', ParseIntPipe) id: number) {
     return this.expenseTypesService.delete(id);
   }
 }

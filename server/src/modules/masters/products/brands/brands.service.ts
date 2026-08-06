@@ -4,14 +4,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-
-
 import { BrandsRepository } from './brands.repository.js';
 
 import { CreateBrandDto } from './dto/create-brand.dto.js';
 import { UpdateBrandDto } from './dto/update-brand.dto.js';
 import { DairiesRepository } from '../dairies/dairies.repository.js';
-
 
 @Injectable()
 export class BrandsService {
@@ -42,17 +39,13 @@ export class BrandsService {
     const existingBrand = await this.brandsRepository.findByName(dto.name);
 
     if (existingBrand) {
-      throw new ConflictException(
-        `Brand '${dto.name}' already exists.`,
-      );
+      throw new ConflictException(`Brand '${dto.name}' already exists.`);
     }
 
     const dairy = await this.dairiesRepository.findById(dto.dairy_id);
 
     if (!dairy) {
-      throw new NotFoundException(
-        `Dairy with ID ${dto.dairy_id} not found.`,
-      );
+      throw new NotFoundException(`Dairy with ID ${dto.dairy_id} not found.`);
     }
 
     return this.brandsRepository.create(dto);
@@ -65,9 +58,7 @@ export class BrandsService {
       const existingBrand = await this.brandsRepository.findByName(dto.name);
 
       if (existingBrand && existingBrand.id !== id) {
-        throw new ConflictException(
-          `Brand '${dto.name}' already exists.`,
-        );
+        throw new ConflictException(`Brand '${dto.name}' already exists.`);
       }
     }
 
@@ -75,9 +66,7 @@ export class BrandsService {
       const dairy = await this.dairiesRepository.findById(dto.dairy_id);
 
       if (!dairy) {
-        throw new NotFoundException(
-          `Dairy with ID ${dto.dairy_id} not found.`,
-        );
+        throw new NotFoundException(`Dairy with ID ${dto.dairy_id} not found.`);
       }
     }
 

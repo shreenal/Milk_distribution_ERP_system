@@ -9,13 +9,7 @@ import { VehiclesService } from './vehicles.service.js';
 @Module({
   imports: [PrismaModule],
   controllers: [VehiclesController],
-  providers: [
-    VehiclesService,
-    VehiclesRepository,
-  ],
-  exports: [
-    VehiclesService,
-    VehiclesRepository,
-  ],
+  providers: [VehiclesService, VehiclesRepository],
+  exports: [VehiclesService, VehiclesRepository],
 })
 export class VehiclesModule {}

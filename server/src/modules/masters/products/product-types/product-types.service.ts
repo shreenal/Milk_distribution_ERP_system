@@ -25,9 +25,7 @@ export class ProductTypesService {
     const productType = await this.productTypesRepository.findById(id);
 
     if (!productType) {
-      throw new NotFoundException(
-        `Product Type with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Product Type with ID ${id} not found.`);
     }
 
     return productType;
@@ -37,9 +35,7 @@ export class ProductTypesService {
     const brand = await this.brandsRepository.findById(dto.brand_id);
 
     if (!brand) {
-      throw new NotFoundException(
-        `Brand with ID ${dto.brand_id} not found.`,
-      );
+      throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
     }
 
     const existingProductType =
@@ -57,19 +53,14 @@ export class ProductTypesService {
     return this.productTypesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateProductTypeDto,
-  ) {
+  async update(id: number, dto: UpdateProductTypeDto) {
     await this.findById(id);
 
     if (dto.brand_id) {
       const brand = await this.brandsRepository.findById(dto.brand_id);
 
       if (!brand) {
-        throw new NotFoundException(
-          `Brand with ID ${dto.brand_id} not found.`,
-        );
+        throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
       }
     }
 

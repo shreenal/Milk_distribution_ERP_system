@@ -10,9 +10,7 @@ import { VehiclesRepository } from './vehicles.repository.js';
 
 @Injectable()
 export class VehiclesService {
-  constructor(
-    private readonly vehiclesRepository: VehiclesRepository,
-  ) {}
+  constructor(private readonly vehiclesRepository: VehiclesRepository) {}
 
   findAll() {
     return this.vehiclesRepository.findAll();
@@ -33,41 +31,27 @@ export class VehiclesService {
   }
 
   async create(dto: CreateVehicleDto) {
-    const existingVehicle =
-      await this.vehiclesRepository.findByVehicleNumber(
-        dto.vehicle_number,
-      );
+    const existingVehicle = await this.vehiclesRepository.findByVehicleNumber(
+      dto.vehicle_number,
+    );
 
     if (existingVehicle) {
-      throw new ConflictException(
-        'Vehicle with this number already exists.',
-      );
+      throw new ConflictException('Vehicle with this number already exists.');
     }
 
     return this.vehiclesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateVehicleDto,
-  ) {
+  async update(id: number, dto: UpdateVehicleDto) {
     const vehicle = await this.findById(id);
 
-    const vehicleNumber =
-      dto.vehicle_number ?? vehicle.vehicle_number;
+    const vehicleNumber = dto.vehicle_number ?? vehicle.vehicle_number;
 
     const existingVehicle =
-      await this.vehiclesRepository.findByVehicleNumber(
-        vehicleNumber,
-      );
+      await this.vehiclesRepository.findByVehicleNumber(vehicleNumber);
 
-    if (
-      existingVehicle &&
-      existingVehicle.id !== id
-    ) {
-      throw new ConflictException(
-        'Vehicle with this number already exists.',
-      );
+    if (existingVehicle && existingVehicle.id !== id) {
+      throw new ConflictException('Vehicle with this number already exists.');
     }
 
     return this.vehiclesRepository.update(id, dto);

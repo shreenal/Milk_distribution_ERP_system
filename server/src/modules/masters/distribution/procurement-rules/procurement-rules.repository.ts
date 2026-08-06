@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  Prisma,
-  SupplyCategory,
-} from '../../../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../../../generated/prisma/client.js';
 
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 
@@ -17,9 +14,7 @@ const procurementRuleInclude = {
 
 @Injectable()
 export class ProcurementRulesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.distributor_procurement_rule.findMany({
@@ -74,10 +69,7 @@ export class ProcurementRulesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateProcurementRuleDto,
-  ) {
+  update(id: number, dto: UpdateProcurementRuleDto) {
     return this.prisma.distributor_procurement_rule.update({
       where: { id },
       data: dto,

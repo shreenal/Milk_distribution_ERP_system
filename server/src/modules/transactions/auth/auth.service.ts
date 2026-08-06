@@ -52,16 +52,16 @@ export class AuthService {
   }
 
   async getCurrentUser(userId: number) {
-  const user = await this.authRepository.findById(userId);
+    const user = await this.authRepository.findById(userId);
 
-  if (!user) {
-    throw new UnauthorizedException();
+    if (!user) {
+      throw new UnauthorizedException();
+    }
+
+    return {
+      id: user.id,
+      username: user.username,
+      role: user.role.name,
+    };
   }
-
-  return {
-    id: user.id,
-    username: user.username,
-    role: user.role.name,
-  };
-}
 }
