@@ -34,12 +34,12 @@ The codebase uses three categories of error:
 | --- | --- | --- | --- |
 | **DTO validation** | `ValidationPipe` automatically | 400 | `"orderedQty must be a number"` |
 | **Business-rule violation** | `throw new BadRequestException(...)` in a transaction service | 400 | `"Client 12 does not belong to group 3"` |
-| **Not-found (transactions)** | `throw new BadRequestException(...)` in a transaction service | 400 | `"Order paper not found"` (note: 400, not 404) |
-| **Not-found (masters \+ distributor-transfer)** | `throw new NotFoundException(...)` in a master or `DistributorTransferService.generateTransfer` | 404 | `"Client not found"`, `"Order paper not found"` |
+| **Not-found (transactions)** | `throw new BadRequestException(...)` in most transaction services | 400 | `"Order paper not found"` (note: 400, not 404) |
+| **Not-found (masters \+ distributor-transfer \+ client-trays \+ dairy-trays)** | `throw new NotFoundException(...)` in a master or in `DistributorTransferService`, `ClientTraysService`, or `DairyTraysService` | 404 | `"Client not found"`, `"Order paper not found"`, `"Sheet not found"` |
 | **Duplicate unique key (masters)** | `throw new ConflictException(...)` in a master service | 409 | `"Username already exists"`, `"Tray type already exists for this brand and color"` |
 | **Auth failure** | `JwtAuthGuard` / `RolesGuard` | 401 / 403 | `"Unauthorized"` / `"Forbidden resource"` |
 
-> **Why the split?** Transaction services (`paper`, `orders`, `collections`, `client-trays`, `purchase`, `vehicle-allocation`, `cash-settlement`, `dairy-trays`, `delivery-summary`) throw `BadRequestException` for missing rows so the frontend can treat every non-success response uniformly. Master services (`src/modules/masters/*`) follow the CRUD idiom and use `NotFoundException` (404) for missing rows and `ConflictException` (409) for duplicate unique keys. `DistributorTransferService.generateTransfer` is the one transaction service that also uses `NotFoundException` for a missing paper.
+> **Why the split?** Most transaction services (`paper`, `orders`, `collections`, `purchase`, `vehicle-allocation`, `cash-settlement`, `delivery-summary`) throw `BadRequestException` for missing rows so the frontend can treat every non-success response uniformly. Master services (`src/modules/masters/*`) follow the CRUD idiom and use `NotFoundException` (404) for missing rows and `ConflictException` (409) for duplicate unique keys. Three transaction services use `NotFoundException` for missing top-level entities: `DistributorTransferService` (missing paper), `ClientTraysService` (missing sheet), and `DairyTraysService` (missing paper). Their business-rule violations still use `BadRequestException` like every other transaction service.
 
 ## Error Messages by Module
 

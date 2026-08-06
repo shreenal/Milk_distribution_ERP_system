@@ -21,7 +21,7 @@ The Paper module owns the daily `order_paper` record — the single container ev
 - Exactly one paper per calendar sale date. The DB-level uniqueness is on `order_paper.order_date` (`@unique @db.Date`), which the repository derives as `sale_date − 1 day` via `resolvePaperSaleDate`. `sale_date` itself is not `@unique`.
 - Sale date cannot be in the past or more than 30 days ahead.
 - Requires at least one active delivery group to create sheets.
-- Only Admins can finalize or reopen; the reopen reason is mandatory.
+- Only Admins can finalize or reopen. The reopen request carries a `reason` string that is stored on `order_paper.reopen_reason`; the service records it verbatim and does not enforce a non-empty check.
 - Reopen preserves earlier timestamps; only `finalized_at`, `reopened_at`, `reopen_reason` are affected by the correction loop.
 - `submit-night` requires: night vehicle allocations and assignments configured; and, for every sheet, night orders complete, tray calculations exist, and night collections are recorded.
 - `submit-morning` requires: for every sheet, morning entries complete with sane quantities, tray movements complete, and morning collections recorded; and, for the paper as a whole, purchases complete, dairy trays complete, distributor-transfer rules exist for every required supplier→owner pair, and cash-settlement route denominations plus bank-deposit reconciliation succeed (skipped in `REOPENED` because cash settlement is treated as historical).
@@ -48,7 +48,7 @@ See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) fo
 | `POST` | `/papers/:paperId/submit-night` | EMPLOYEE | Transition `DRAFT → NIGHT_SUBMITTED` |
 | `POST` | `/papers/:paperId/submit-morning` | EMPLOYEE | Transition `NIGHT_SUBMITTED → MORNING_SUBMITTED`; auto-generate transfers |
 | `POST` | `/papers/:paperId/finalize` | ADMIN | Transition `MORNING_SUBMITTED` or `REOPENED` → `FINALIZED` |
-| `POST` | `/papers/:paperId/reopen` | ADMIN | Transition `FINALIZED → REOPENED` (requires `reason`) |
+| `POST` | `/papers/:paperId/reopen` | ADMIN | Transition `FINALIZED → REOPENED`; body carries `reason`, stored on `reopen_reason` |
 
 ## Request flow
 

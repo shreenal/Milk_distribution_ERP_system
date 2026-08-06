@@ -29,13 +29,16 @@ Request body:
 
 The service:
 
-- Rejects the request if the paper is not in `FINALIZED`.
-- Rejects the request if `reason` is null or an empty/whitespace string.
+- Rejects the request if the paper is not in `FINALIZED` (via `WorkflowStateService.validateTransition`).
 - Updates `status` to `REOPENED`.
 - Stamps `reopened_at` with the current timestamp.
-- Sets `reopen_reason` to the exact string provided.
+- Sets `reopen_reason` to the exact string provided in the body.
 
 Only Admins can call this endpoint (`@Roles('ADMIN')`).
+
+<Warning>
+  `PaperService.reopenPaperService` does **not** validate that `reason` is non-empty. An empty or whitespace-only `reason` is stored verbatim. Callers are expected to send a meaningful reason for the audit trail; the backend does not currently enforce this.
+</Warning>
 
 ## What becomes editable
 

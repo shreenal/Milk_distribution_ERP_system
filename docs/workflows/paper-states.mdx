@@ -87,7 +87,7 @@ The exact per-module rules live in `WorkflowStateService`. This summary lists wh
   </Accordion>
 
   <Accordion title="FINALIZED — editable modules">
-    None. The only allowed write is `reopen`, which requires `ADMIN` and a non-empty reason.
+    None. The only allowed write is `reopen`, which requires `ADMIN`; the request body carries a `reason` string that is stored on `order_paper.reopen_reason` verbatim.
   </Accordion>
 
   <Accordion title="REOPENED — editable modules">

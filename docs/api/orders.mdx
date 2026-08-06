@@ -63,6 +63,86 @@ Returns HTTP **200** with an array of `order_sheet_items` rows including `produc
 
 ---
 
+## GET /orders/products
+
+### Purpose
+
+Returns the master products list filtered by supply category. Used to populate the "add product to sheet" picker on the Orders page.
+
+### Query parameters
+
+<ParamField query="category" type="string" required>
+  `MILK` or `NON_MILK`. Filters products to those matching the sheet's category.
+</ParamField>
+
+### Response
+
+Returns HTTP **200** with an array of active products (id, code, name, brand, product\_group, product\_type, packaging, gst, `is_gst_inclusive`).
+
+---
+
+## POST /orders/sheet/:sheetId/products
+
+### Purpose
+
+Adds a product to the sheet by seeding a zero-quantity `order_sheet_items` row for every existing client on the sheet. After this call, every client has a row for the new product ready to be filled during night entry.
+
+### Path parameters
+
+<ParamField path="sheetId" type="number" required>
+  Numeric primary key of the `order_sheet`.
+</ParamField>
+
+### Request body
+
+<ParamField body="productId" type="number" required>
+  Product to add to the sheet.
+</ParamField>
+
+### Response
+
+Returns HTTP **201** with the same payload as `GET /orders/sheet/:sheetId` (the refreshed sheet).
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| `sheetId` invalid | `400 Bad Request` | Invalid sheet id |
+| Sheet not found | `400 Bad Request` | Sheet not found |
+| Product already exists in this sheet (no rows to create) | `400 Bad Request` | `Product already exists in this sheet` |
+
+---
+
+## DELETE /orders/sheet/:sheetId/products/:productId
+
+### Purpose
+
+Removes a product from a sheet by deleting all `order_sheet_items` rows for that product on the sheet. Default products (`master_product.show_by_default = true`) cannot be removed.
+
+### Path parameters
+
+<ParamField path="sheetId" type="number" required>
+  Numeric primary key of the `order_sheet`.
+</ParamField>
+
+<ParamField path="productId" type="number" required>
+  Product to remove.
+</ParamField>
+
+### Response
+
+Returns HTTP **200** with the same payload as `GET /orders/sheet/:sheetId` (the refreshed sheet).
+
+### Validation and errors
+
+| Scenario | HTTP status | Detail |
+| --- | --- | --- |
+| Sheet not found | `400 Bad Request` | Sheet not found |
+| Product is marked `show_by_default` | `400 Bad Request` | `Default products cannot be removed` |
+| Product not present on this sheet | `400 Bad Request` | `Product not found in this sheet` |
+
+---
+
 ## POST /orders/sheet/:sheetId/night-save
 
 ### Purpose

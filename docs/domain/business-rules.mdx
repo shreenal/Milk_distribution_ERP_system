@@ -45,8 +45,8 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
     The transition to `FINALIZED` requires Admin role. This creates an accountability checkpoint where a manager reviews the day's data before it is locked. Employees can complete all data entry but cannot lock the paper themselves.
   </Accordion>
 
-  <Accordion title="Only Admins can reopen a paper, and a reason is mandatory">
-    The transition to `REOPENED` also requires Admin role, and the request must include a non-empty reopen reason. The reason is recorded permanently on the paper. This creates an audit trail for every correction made after finalization.
+  <Accordion title="Only Admins can reopen a paper, and a reason is captured">
+    The transition to `REOPENED` requires Admin role, and the request carries a `reason` string that is stored on `order_paper.reopen_reason`. The value is recorded permanently on the paper as the audit trail for every correction made after finalization. The backend accepts the reason as-is: `PaperService.reopenPaperService` does not enforce a non-empty check, so callers are expected to send a meaningful reason.
   </Accordion>
 
   <Accordion title="A REOPENED paper can be re-finalized directly">
