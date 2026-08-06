@@ -1,0 +1,317 @@
+---
+title: "Business Dependency Architecture"
+sidebarTitle: "Business Dependency Architecture"
+description: "The module dependency graph of the Milk Distribution ERP: source of truth, business ownership, upstream/downstream dependencies, regeneration behavior, and REOPENED implications — independent of controllers, APIs, and UI."
+---
+
+This page describes the **business dependency graph** of the ERP. It ignores UI, controllers, and implementation and focuses only on:
+
+- Source of truth
+- Business ownership
+- Upstream dependencies
+- Downstream dependencies
+- Regeneration behavior
+- REOPENED implications
+
+## 1. Dependency philosophy
+
+Every business module belongs to one of four categories.
+
+### A. Root entities
+
+Business facts entered directly by users that originate business data.
+
+- Orders
+- Purchase
+- Collections
+
+### B. Planning entities
+
+Business decisions built from reference data. They are initially generated using upstream information but become independent business facts once saved.
+
+- Vehicle Allocation
+
+### C. Hybrid entities
+
+Contain both derived values and manually entered values.
+
+- Client Tray Tracking
+- Dairy Tray Tracking
+- Cash Settlement (persisted business entities plus a derived summary)
+
+### D. Derived entities
+
+Never edited directly. Always regenerated from upstream entities.
+
+- Billing
+- Distributor Transfer
+- Purchase Variance
+- Delivery Summary
+- Reports
+
+## 2. Complete business dependency graph
+
+```text
+                                       ORDERS
+                             ordered_qty / delivered_qty
+                                   │
+                ┌──────────────────┼─────────────────────┐
+                │                  │                      │
+                ▼                  ▼                      ▼
+      Allocation Summary      Billing            Distributor Transfer
+                │                                     (derived)
+                ▼
+       Vehicle Allocation
+                │
+                ▼
+           Purchase Entry
+                │
+        ┌───────┴──────────────┐
+        ▼                      ▼
+ Purchase Variance      Dairy Tray Tracking
+                                │
+                                ▼
+                     Next Day Dairy Opening
+
+
+delivered_qty
+      │
+      ▼
+Client Tray Tracking
+      │
+      ▼
+Next Day Client Opening
+
+
+Collections
+      │
+      ▼
+Route Cash
+      │
+Route Expenses
+      │
+Route Denominations
+      │
+Direct Collections
+      │
+Bank Deposits
+      │
+      ▼
+Cash Settlement Summary
+```
+
+## Data flow types
+
+**Reference data**
+
+- Allocation Summary
+- Purchase Prefill
+
+**Persisted business data**
+
+- Orders
+- Vehicle Allocation
+- Purchase
+- Collections
+
+**Persisted calculated fields**
+
+- Bill Amount
+- GST
+- Purchase Amount
+
+**Hybrid business data**
+
+- Client Tray Tracking
+- Dairy Tray Tracking
+
+**Derived artifacts**
+
+- Billing
+- Distributor Transfer
+- Purchase Variance
+- Reports
+
+## 3. Module analysis
+
+### Orders
+
+- **Business entity**: `order_sheet_items`
+- **Manual fields**: `ordered_qty`, `delivered_qty`
+- **Persisted calculated fields**: `night_bill_amount`, `final_bill_amount`, `gst`, `taxable_amount`
+- **Upstream dependencies**: None. Orders is a root business entity.
+- **Downstream dependencies**: Billing, Vehicle Allocation Summary, Distributor Transfer, Client Tray Tracking
+- **Source of truth**: `ordered_qty`, `delivered_qty`
+- **REOPENED impact**: Changing `delivered_qty` invalidates Billing, Distributor Transfer, Client Tray Tracking, and Allocation Summary. All are auto-regenerated from the new delivered quantities.
+
+### Vehicle Allocation
+
+- **Business entities**: `vehicle_distribution_assignment`, `vehicle_allocation`
+- **Manual fields**: Vehicle, Distributor, Allocated Qty
+- **Reference data**: Generated from Allocation Summary, which itself comes from Orders. The summary is **not** persisted.
+- **Upstream dependencies**: Orders → Allocation Summary
+- **Downstream dependencies**: Purchase
+- **Source of truth**: `vehicle_allocation` (not Allocation Summary).
+- **REOPENED impact**: When Orders change, the reference summary is regenerated but **saved allocations are preserved**. Vehicle Allocation is not automatically regenerated because it represents human planning decisions. The user decides whether allocations require revision.
+
+### Purchase
+
+- **Business entity**: `purchase_entry`
+- **Manual fields**: `purchased_qty`, `gatepass_date`
+- **Reference dependencies**: Vehicle Allocation (prefill), Vehicle Assignments, Distributor Product Links, Distributor Rates
+- **Persisted calculated fields**: `purchase_rate`, `purchase_amount`
+- **Derived artifacts**: Purchase Variance
+- **Downstream dependencies**: Dairy Tray Tracking, Purchase Variance
+- **Source of truth**: `purchase_entry`
+
+### Client Tray Tracking
+
+- **Business entity**: `client_tray_transaction`
+- **Manual field**: `trays_returned`
+- **Derived fields**: `opening_balance`, `trays_taken`, `closing_balance`
+- **Dependency**: `Orders.delivered_qty` → Tray Rules → `trays_taken`
+- **Cross-day dependency**: Yesterday's closing → today's opening → today's closing → tomorrow's opening
+- **REOPENED impact**: Changing `delivered_qty` changes `trays_taken`, `closing_balance`, and future opening balances.
+
+### Dairy Tray Tracking
+
+- **Business entity**: `dairy_tray_transaction`
+- **Manual field**: `trays_returned`
+- **Derived fields**: `opening_balance`, `trays_taken`, `closing_balance`
+- **Dependency**: Purchase → Tray Rules → `trays_taken`
+- **Cross-day dependency**: Yesterday's closing → today's opening → today's closing → tomorrow's opening
+- **REOPENED impact**: Changing Purchase changes `trays_taken`, `closing_balance`, and future opening balances.
+
+### Collections
+
+- **Business entity**: `client_collection`
+- **Manual fields**:
+  - Night: `office_amount_given`
+  - Morning: `cash_collection`, `cheque_collection`
+  - Admin: `online_collection`, `bank_deposit`
+- **Derived fields**: `employeeTotal`, `adminTotal`, `grandTotal` (presentation calculations only)
+- **Downstream dependency**: Cash Settlement
+- **Source of truth**: `client_collection`
+
+### Cash Settlement
+
+- **Business entities**: `cash_route_settlement`, `cash_route_expense`, `cash_direct_collection`, `cash_bank_deposit`
+- **Manual fields**:
+  - Route Expenses: Expense, Amount
+  - Route Denominations: Currency Counts
+  - Direct Collections: Employee, Currency Counts
+  - Bank Deposits: Bank, Currency Counts
+- **Persisted data**: Route Expenses, Route Denominations, Direct Collections, Bank Deposits
+- **Derived summary**: Route Cash, Route Net Cash, Office Cash, Cash In Hand, Reconciliation Difference
+- **Upstream dependency**: Collections
+- **REOPENED**: Historical cash is preserved. Expected cash is recalculated. The gap is exposed as **Reconciliation Difference** instead of rewriting history. Route denominations, direct collections, and bank deposits remain frozen after reopen; only Route Expenses stay editable.
+
+### Distributor Transfer
+
+- **Business entity**: `distributor_transfer`
+- **Manual fields**: None.
+- **Source**: `Orders.delivered_qty`
+- **Lookup dependencies**: Supply Rules, Billing Group, Owner Distributor
+- **Downstream**: Reports only.
+- **Regeneration**: Always safe. The entire module can be deleted and regenerated.
+
+### Purchase Variance
+
+- **Source**: Allocated Qty vs Purchased Qty
+- No independent business data. Always regenerated.
+
+### Billing
+
+- **Source**: `ordered_qty` (Draft) and `delivered_qty` (Submitted)
+- Always regenerated.
+
+## 4. Classification matrix
+
+| Module | Category | Source of truth | Regeneratable | Cross-day |
+| --- | --- | --- | --- | --- |
+| Orders | Root | `ordered_qty`, `delivered_qty` | No | No |
+| Vehicle Allocation | Planning | `vehicle_allocation` | No | No |
+| Purchase | Root | `purchase_entry` | No | No |
+| Client Tray Tracking | Hybrid | Returned \+ derived balances | Partial | Yes |
+| Dairy Tray Tracking | Hybrid | Returned \+ derived balances | Partial | Yes |
+| Billing | Derived | Orders | Yes | No |
+| Collections | Root | `client_collection` | No | No |
+| Distributor Transfer | Derived | Orders | Yes | No |
+| Purchase Variance | Derived | Purchase \+ Vehicle Allocation | Yes | No |
+| Cash Settlement | Hybrid | Settlement tables | Partial | No |
+
+## 5. Cross-day dependencies
+
+Only two modules affect future papers.
+
+**Client Tray Tracking**
+
+```text
+Client Tray closing balance → next day client tray opening balance
+```
+
+**Dairy Tray Tracking**
+
+```text
+Dairy Tray closing balance → next day dairy tray opening balance
+```
+
+Everything else is confined to a single Order Paper.
+
+## 6. REOPENED impact matrix
+
+| Changed entity | Invalidates | Auto-regenerate | Manual review | Cross-day |
+| --- | --- | --- | --- | --- |
+| Orders | Billing | ✓ | ✗ | ✗ |
+| Orders | Distributor Transfer | ✓ | ✗ | ✗ |
+| Orders | Client Tray Tracking | ✓ | ✗ | ✓ |
+| Orders | Vehicle Allocation Summary | ✓ | ✗ | ✗ |
+| Vehicle Allocation | Purchase | ✗ | ✓ | ✗ |
+| Purchase | Dairy Tray Tracking | ✓ | ✗ | ✓ |
+| Purchase | Purchase Variance | ✓ | ✗ | ✗ |
+| Collections | Cash Settlement summary | ✓ (as Reconciliation Difference; historical rows preserved) | ✗ | ✗ |
+
+## 7. Core architectural principle
+
+Every module follows one lifecycle.
+
+```text
+Reference Data
+        │
+        ▼
+User enters business facts
+        │
+        ▼
+Persistent Business Entity
+        │
+        ▼
+Derived Artifacts
+```
+
+Example:
+
+```text
+Orders → Allocation Summary → Vehicle Allocation → Purchase → Dairy Tray Tracking
+```
+
+## 8. Architectural invariants
+
+1. Reference data is never persisted.
+2. Business entities are never regenerated automatically.
+3. Hybrid entities preserve manual inputs while recalculating derived values.
+4. Derived artifacts are always disposable and regeneratable.
+5. Cross-day entities propagate only through opening balances.
+6. Workflow state controls edit permissions only; it never owns business data.
+
+The fundamental design rule:
+
+- **Root entities** preserve business facts.
+- **Planning entities** preserve operational decisions.
+- **Hybrid entities** combine derived values with manual corrections.
+
+## Related pages
+
+- [Order Paper](/domain/paper) — the daily container every entity above belongs to.
+- [Business Rules](/domain/business-rules) — the constraints enforced across these modules.
+- [Paper States](/workflows/paper-states) — the state machine that gates edits on every module.
+- [Reopen Workflow](/workflows/reopen-workflow) — how the REOPENED implications above play out end to end.

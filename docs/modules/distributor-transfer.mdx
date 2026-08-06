@@ -19,7 +19,7 @@ The Distributor Transfer module reconciles stock movements between distributors 
 - Transfers exist only when supplier distributor (from group supply rule) differs from owner distributor (from client).
 - Aggregation key: `(paper, supplier_distributor, owner_distributor, billing_group, product)`.
 - `POST /distributor-transfer/:paperId/generate` does not itself check paper status — `DistributorTransferService.generateTransfer` runs whenever called and replaces the paper's transfer rows. `WorkflowStateService.canEditDistributorTransfers(status)` returns true only for `REOPENED`, so callers (typically the frontend) restrict the manual endpoint to `REOPENED`; the automatic invocation happens inside `PaperService.submitMorningEntryService` regardless of state.
-- The `distributor_transfer_rule` whitelist restricts which supplier→owner pairs are eligible. `DistributorTransferValidationService.validateTransferRules` throws `BadRequestException` for any required pair that is missing an active rule (no silent skip).
+- The `distributor_transfer_rule` whitelist restricts which supplier→owner pairs are eligible. `DistributorTransferValidationService.validateTransferRules` throws `BadRequestException` for any required pair that is missing an active rule (no silent skip). The same check runs as part of the morning-submit readiness via `validateGenerationReadiness(paperId)`, so a paper cannot leave `NIGHT_SUBMITTED` with a missing transfer rule.
 - If `paperId` does not resolve to a paper, `generateTransfer` throws `NotFoundException` — this module is the exception to the module-wide "everything is BadRequest" convention documented in [Error Handling](/architecture/error-handling).
 
 ## Dependencies

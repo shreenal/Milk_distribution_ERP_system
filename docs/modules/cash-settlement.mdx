@@ -23,7 +23,8 @@ The Cash Settlement module records the physical accounting of money at the end o
   - `direct-collections`: `NIGHT_SUBMITTED` only (`canEditDirectCollections`).
   - `bank-deposits`: `NIGHT_SUBMITTED` only (`canEditBankDeposits`).
 - Uniqueness: one `cash_route_settlement` per `order_sheet_id`, one `cash_direct_collection` per `(paper, employee)`. `cash_bank_deposit` has no `(paper, bank)` uniqueness — multiple deposits to the same bank on the same day are permitted.
-- The system does not enforce reconciliation. It stores the pieces and expects an Admin to verify before finalizing.
+- Cash settlement is a **precondition of morning submit**, not an after-the-fact step. On `POST /papers/:paperId/submit-morning`, `PaperValidationService` invokes `CashSettlementValidationService.validateMorningSubmitReadiness`, which enforces two reconciliations per paper: (1) for every sheet, `route net cash = route denominations total`; (2) bank deposits must not exceed the office cash available, and the deposited denomination counts must not exceed the available (route \+ direct-collection) denomination stock. Any mismatch blocks the transition.
+- After reopen, cash settlement is treated as **historical**. Route denominations, direct collections, and bank deposits stay frozen (their `canEdit…` helpers whitelist `NIGHT_SUBMITTED` only); only route expenses stay editable. The morning-submit reconciliation is not re-run on re-finalize. Any gap between the persisted cash and the recalculated expected cash surfaces on the settlement summary as `Reconciliation Difference` instead of being rewritten.
 
 ## Dependencies
 

@@ -63,7 +63,7 @@ Only these transitions are legal:
 | `FINALIZED` | `REOPENED` | Admin | `POST /papers/:id/reopen` with a non-empty `reason`. |
 | `REOPENED` | `FINALIZED` | Admin | Re-finalize; no need to walk back through night/morning submission. |
 
-Any other transition (skipping steps, going backward, repeating a step) is rejected by `WorkflowStateService.validateTransition()`.
+Any other transition (skipping steps, going backward, repeating a step) is rejected by `WorkflowStateService.validateTransition()`. In addition, `submit-night`, `submit-morning`, and `finalize` each run a cross-module readiness check through `PaperValidationService` before the transition is applied. Submit-morning includes a cash-settlement reconciliation check (route denominations = route net cash; bank deposits ≤ available cash and denomination stock). Re-finalize from `REOPENED` runs the finalize readiness check but skips the cash reconciliation — after reopen, cash settlement is treated as historical.
 
 ## What each status allows
 
@@ -95,7 +95,7 @@ Any other transition (skipping steps, going backward, repeating a step) is rejec
   </Accordion>
 
   <Accordion title="REOPENED">
-    Unlocks the completion modules again: morning orders, morning/night collections, admin collection fields, purchase, trays, dairy trays, `route-expenses`, and `POST /distributor-transfer/:paperId/generate` are all writable. Both vehicle-allocation sessions (`NIGHT` and `MORNING`) are also editable in `REOPENED`. `cash-settlement` route-denominations, direct-collections, and bank-deposits stay locked (they require `NIGHT_SUBMITTED`). The Admin re-finalizes when done. `reopened_at` and `reopen_reason` are preserved on the record permanently.
+    Unlocks the completion modules again: morning orders, morning/night collections, admin collection fields, purchase, trays, dairy trays, `route-expenses`, and `POST /distributor-transfer/:paperId/generate` are all writable. Both vehicle-allocation sessions (`NIGHT` and `MORNING`) are also editable in `REOPENED`. `cash-settlement` route-denominations, direct-collections, and bank-deposits stay locked (they require `NIGHT_SUBMITTED`). This is deliberate: after reopen, cash settlement is treated as historical. Persisted denominations, direct collections, and bank deposits are preserved; expected cash is recalculated from the revised orders and collections; the gap is exposed as `Reconciliation Difference` on the settlement summary instead of rewriting history. The Admin re-finalizes when done. `reopened_at` and `reopen_reason` are preserved on the record permanently.
   </Accordion>
 </AccordionGroup>
 

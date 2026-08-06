@@ -52,6 +52,16 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
   <Accordion title="A REOPENED paper can be re-finalized directly">
     When a paper is in `REOPENED` status, the Admin can finalize it directly without going back through the NIGHT\_SUBMITTED → MORNING\_SUBMITTED cycle. This makes corrections efficient: fix the specific data, then lock the paper again.
   </Accordion>
+
+  <Accordion title="Every business transition runs a readiness check">
+    `submit-night`, `submit-morning`, and `finalize` are each gated by a cross-module readiness check (`PaperValidationService`) in addition to the state-machine transition rule. The transition is refused if any downstream module is incomplete or inconsistent.
+
+    - **`submit-night` requires**: night vehicle allocations plus vehicle-distribution assignments configured; and, for every sheet, night orders complete, tray calculations exist, and night collections recorded.
+    - **`submit-morning` requires**: for every sheet, morning entries complete with sane quantities, client tray movements complete, and morning collections recorded; and, for the paper as a whole, purchases complete, dairy trays complete, distributor-transfer rules present for every required supplier→owner pair, and cash-settlement reconciliation succeeds (see the Cash Settlement section).
+    - **`finalize` requires**: admin-only collection fields recorded on every sheet.
+
+    Re-finalize from `REOPENED` runs the same finalize readiness check. The cash-settlement reconciliation is deliberately **not** re-run in `REOPENED` because cash settlement is treated as historical after reopen.
+  </Accordion>
 </AccordionGroup>
 
 ## Order Entry Rules
@@ -132,6 +142,14 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
   <Accordion title="Route expenses are editable in NIGHT_SUBMITTED and REOPENED">
     Unlike denominations and deposits, route expenses (diesel, parking, loading charges, etc.) remain editable after reopening, because operational costs are sometimes invoiced after the delivery day.
   </Accordion>
+
+  <Accordion title="Cash settlement must reconcile before morning submit">
+    Morning submit runs a cash-settlement readiness check. For every sheet, route denominations must sum to the sheet's route net cash. For the paper as a whole, bank deposits must not exceed the available office cash, and the deposited denomination counts must not exceed the combined route-plus-direct-collection denomination stock. Any mismatch blocks the transition until it is corrected. Cash settlement is therefore part of the morning shift, not a step performed after it.
+  </Accordion>
+
+  <Accordion title="After reopen, cash settlement is historical">
+    Once a paper is reopened, route denominations, direct collections, and bank deposits stay frozen — their edit windows require `NIGHT_SUBMITTED` and are not re-opened. Only route expenses remain editable. The morning-submit cash reconciliation is not re-run on re-finalize. Any gap between the recalculated expected cash and the persisted totals is surfaced as `Reconciliation Difference` on the settlement summary instead of rewriting the historical rows. This preserves the audit trail of what was physically counted and deposited on the day.
+  </Accordion>
 </AccordionGroup>
 
 ## Distributor Transfer Rules
@@ -146,7 +164,7 @@ The ERP enforces a precise set of business rules to ensure that every day's oper
   </Accordion>
 
   <Accordion title="Every required transfer pair must have an active transfer rule">
-    Generation resolves the set of `(supplier_distributor, owner_distributor)` pairs required by the paper's delivered items and then calls `DistributorTransferValidationService.validateTransferRules`. If any required pair has no active `distributor_transfer_rule`, generation aborts with a `BadRequestException` — the pair is **not** silently skipped. Configure the transfer rules before submitting the morning entry (or before regenerating).
+    Generation resolves the set of `(supplier_distributor, owner_distributor)` pairs required by the paper's delivered items and then calls `DistributorTransferValidationService.validateTransferRules`. If any required pair has no active `distributor_transfer_rule`, generation aborts with a `BadRequestException` — the pair is **not** silently skipped. The same check runs inside the morning-submit readiness gate (`validateGenerationReadiness`), so a paper cannot leave `NIGHT_SUBMITTED` while a required transfer rule is missing. Configure the transfer rules before submitting the morning entry (or before regenerating).
   </Accordion>
 </AccordionGroup>
 

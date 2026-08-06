@@ -4,7 +4,9 @@ sidebarTitle: "Morning Shift"
 description: "How the morning team records delivered quantities, purchases, tray movements, collections, and cash settlement, then submits to close the morning phase."
 ---
 
-The **morning shift** is the second half of the day in the ERP. It begins when the paper is in `NIGHT_SUBMITTED` and ends when an employee submits the morning entry, moving the paper to `MORNING_SUBMITTED`. Cash settlement happens after morning submit and is documented in [Cash Settlement](/workflows/cash-settlement).
+The **morning shift** is the second half of the day in the ERP. It begins when the paper is in `NIGHT_SUBMITTED` and ends when an employee submits the morning entry, moving the paper to `MORNING_SUBMITTED`.
+
+Cash settlement is part of the morning shift, not a step after it: route denominations, direct collections, and bank deposits are only writable in `NIGHT_SUBMITTED`, and the morning-submit readiness check refuses to close the shift until route-cash and bank-deposit reconciliation succeed. See [Cash Settlement](/workflows/cash-settlement) for the details of each channel.
 
 ## Preconditions
 
@@ -64,25 +66,39 @@ The service upserts `client_tray_transaction` rows keyed by `(sheet, client, tra
 
 At the dairy, the vehicles return with empty trays. Employees record the balance per `(vehicle, tray_type)`:
 
-- `POST /dairy-tray-tracking/:paperId/save`
+- `POST /dairy-trays/:paperId/save`
 
 The service creates the `dairy_tray_paper` if it doesn't exist, then upserts `dairy_tray_transaction` rows.
 
-## Step 7 — Employee submits the morning entry
+## Step 7 — Employee records cash settlement
 
-Once morning orders, morning collections, purchases, and trays are complete, an employee calls:
+Before morning submit can close the shift, the day's cash must be entered while the paper is still in `NIGHT_SUBMITTED`. This includes route denominations, route expenses, direct office collections, and bank deposits. See [Cash Settlement](/workflows/cash-settlement) for the exact channels and their write windows.
+
+## Step 8 — Employee submits the morning entry
+
+Once morning orders, morning collections, purchases, trays, dairy trays, and cash settlement are complete, an employee calls:
 
 - `POST /papers/:paperId/submit-morning`
 
-The service:
+The service runs a cross-module **readiness check** through `PaperValidationService` before the transition. It refuses to close the shift if any of the following is incomplete or inconsistent:
 
-- Validates the transition `NIGHT_SUBMITTED → MORNING_SUBMITTED`. Note that `submit-morning` is **only** valid from `NIGHT_SUBMITTED`; when the paper is in `REOPENED`, the same morning-save endpoints are open but the paper re-finalizes via `POST /papers/:paperId/finalize` (transition `REOPENED → FINALIZED`) rather than by re-running `submit-morning`. See [Paper States](/workflows/paper-states) for the exact transition table.
-- Updates the paper's status and stamps `morning_entry_submitted_at`.
-- **Triggers auto-generation of distributor transfers.** See [Distributor Transfer](/workflows/distributor-transfer) for how this works.
+- Morning entries missing or with unrealistic quantities on any sheet.
+- Client tray movements missing on any sheet.
+- Morning collections missing on any sheet.
+- Purchases incomplete.
+- Dairy trays incomplete.
+- Distributor-transfer rules missing for any required supplier→owner pair implied by the day's deliveries.
+- Cash-settlement reconciliation failing: route denominations must equal route net cash on every sheet, and bank deposits must not exceed available office cash or the available denomination stock.
+
+Only after readiness passes does the service:
+
+- Validate the transition `NIGHT_SUBMITTED → MORNING_SUBMITTED`. Note that `submit-morning` is **only** valid from `NIGHT_SUBMITTED`; when the paper is in `REOPENED`, the same morning-save endpoints are open but the paper re-finalizes via `POST /papers/:paperId/finalize` (transition `REOPENED → FINALIZED`) rather than by re-running `submit-morning`. See [Paper States](/workflows/paper-states) for the exact transition table.
+- Update the paper's status and stamp `morning_entry_submitted_at`.
+- **Trigger auto-generation of distributor transfers.** See [Distributor Transfer](/workflows/distributor-transfer) for how this works.
 
 ## After morning submit
 
-- Order, purchase, tray, and morning-collection endpoints are now closed for regular employees. Only Admin-only collection fields and the Cash Settlement module accept writes.
+- Order, purchase, tray, morning-collection, and cash-settlement endpoints are now closed for regular employees. Only Admin-only collection fields (`online_collection`, `bank_deposit`, `admin_remarks`) accept writes.
 - The paper is now visible to Admins for finalization review.
 
 ## Diagram
@@ -93,9 +109,10 @@ Employee → POST /purchases/:paperId
 Employee → POST /orders/sheet/:id/morning-save
 Employee → POST /collections/sheet/:id/{milk,non-milk}/morning-save
 Employee → POST /trays/sheet/:id/save
-Employee → POST /dairy-tray-tracking/:paperId/save
-Employee → POST /papers/:paperId/submit-morning  → status becomes MORNING_SUBMITTED
-                                                    (auto-generates distributor_transfer[])
+Employee → POST /dairy-trays/:paperId/save
+Employee → POST /cash-settlement/:paperId/{route-expenses,route-denominations,direct-collections,bank-deposits}
+Employee → POST /papers/:paperId/submit-morning  → readiness check → status becomes MORNING_SUBMITTED
+                                                                       (auto-generates distributor_transfer[])
 ```
 
 ## Related pages

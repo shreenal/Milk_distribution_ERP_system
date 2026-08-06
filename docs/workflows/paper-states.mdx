@@ -18,16 +18,16 @@ The `order_paper.status` field is an `OrderPaperStatus` enum with exactly five v
 
 ## Transitions
 
-Only these five transitions are legal. Any other attempted move is rejected by `WorkflowStateService.validateTransition()` with a `BadRequestException`.
+Only these five transitions are legal. Any other attempted move is rejected by `WorkflowStateService.validateTransition()` with a `BadRequestException`. In addition, `submit-night`, `submit-morning`, and `finalize` each run a **readiness check** across the affected downstream modules (via `PaperValidationService`) before the transition is applied. If any downstream module reports incomplete or inconsistent data, the transition is refused and the paper stays in its current state.
 
 | From | To | Role | Endpoint | Side effects |
 | --- | --- | --- | --- | --- |
 | `-` | `DRAFT` | `EMPLOYEE` | `POST /papers` | Auto-creates one `order_sheet` per active delivery group |
-| `DRAFT` | `NIGHT_SUBMITTED` | `EMPLOYEE` | `POST /papers/:id/submit-night` | Stamps `night_entry_submitted_at` |
-| `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | `EMPLOYEE` | `POST /papers/:id/submit-morning` | Stamps `morning_entry_submitted_at`; auto-generates `distributor_transfer` rows via `DistributorTransferService.generateTransfer` |
-| `MORNING_SUBMITTED` | `FINALIZED` | `ADMIN` | `POST /papers/:id/finalize` | Stamps `finalized_at` |
+| `DRAFT` | `NIGHT_SUBMITTED` | `EMPLOYEE` | `POST /papers/:id/submit-night` | Runs night readiness: vehicle allocations and assignments configured; per sheet, night orders complete, tray calculations exist, night collections recorded. Stamps `night_entry_submitted_at` |
+| `NIGHT_SUBMITTED` | `MORNING_SUBMITTED` | `EMPLOYEE` | `POST /papers/:id/submit-morning` | Runs morning readiness: per sheet, morning orders complete with sane quantities, tray movements complete, morning collections recorded; purchases complete; dairy trays complete; distributor-transfer rules exist for every required supplier→owner pair; cash-settlement route denominations and bank-deposit reconciliation succeed. Stamps `morning_entry_submitted_at`; auto-generates `distributor_transfer` rows via `DistributorTransferService.generateTransfer` |
+| `MORNING_SUBMITTED` | `FINALIZED` | `ADMIN` | `POST /papers/:id/finalize` | Runs finalize readiness: admin-only collection fields recorded on every sheet. Stamps `finalized_at` |
 | `FINALIZED` | `REOPENED` | `ADMIN` | `POST /papers/:id/reopen` | Stamps `reopened_at`, sets `reopen_reason` |
-| `REOPENED` | `FINALIZED` | `ADMIN` | `POST /papers/:id/finalize` | Stamps `finalized_at` (does not clear `reopened_at` or `reopen_reason`) |
+| `REOPENED` | `FINALIZED` | `ADMIN` | `POST /papers/:id/finalize` | Runs finalize readiness. Cash-settlement reconciliation is **not** re-checked (it is treated as historical after reopen). Stamps `finalized_at` (does not clear `reopened_at` or `reopen_reason`) |
 
 ## State diagram
 
@@ -74,8 +74,8 @@ The exact per-module rules live in `WorkflowStateService`. This summary lists wh
     - Collections: continued night save (`canEditNightCollections` remains true here)
     - Purchase (`canEditPurchases` → `NIGHT_SUBMITTED`, `REOPENED`)
     - Vehicle Allocation: MORNING session (active execution session for this state)
-    - Trays (`canEditTrays` → `NIGHT_SUBMITTED`, `REOPENED`)
-    - Dairy Tray Tracking (`canEditDairyTrayTracking` → `NIGHT_SUBMITTED`, `REOPENED`)
+    - Client Trays (`canEditClientTrays` → `NIGHT_SUBMITTED`, `REOPENED`)
+    - Dairy Trays (`canEditDairyTrays` → `NIGHT_SUBMITTED`, `REOPENED`)
     - Cash Settlement: route expenses (`canEditRouteExpenses` → `NIGHT_SUBMITTED`, `REOPENED`), route denominations, direct collections, bank deposits (each → `NIGHT_SUBMITTED` only)
 
     Night order entry (`canEditNightEntries`) is blocked here.
@@ -97,8 +97,8 @@ The exact per-module rules live in `WorkflowStateService`. This summary lists wh
     - Collections: night, morning, and admin saves
     - Purchase
     - Vehicle Allocation: both NIGHT and MORNING sessions (execution module bypass in `REOPENED`)
-    - Trays and Dairy Tray Tracking
-    - Cash Settlement: route expenses only. Route denominations, direct collections, and bank deposits are still restricted to `NIGHT_SUBMITTED`, so they cannot be re-entered from `REOPENED`.
+    - Client Trays and Dairy Trays
+    - Cash Settlement: route expenses only. Route denominations, direct collections, and bank deposits are still restricted to `NIGHT_SUBMITTED`, so they cannot be re-entered from `REOPENED`. This is deliberate: after reopen, cash settlement is treated as historical and any recalculated gap is surfaced as **Reconciliation Difference** instead of being rewritten.
     - Distributor Transfer regeneration (`canEditDistributorTransfers` → `REOPENED` only)
 
     Night order entry (`canEditNightEntries`) is not re-enabled by reopen. Corrections happen through morning/delivered quantities instead.

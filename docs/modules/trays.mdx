@@ -42,8 +42,8 @@ Dairy-level:
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/dairy-tray-tracking/:paperId` | EMPLOYEE | Return the dairy tray grid |
-| `POST` | `/dairy-tray-tracking/:paperId/save` | EMPLOYEE | Save dairy tray rows |
+| `GET` | `/dairy-trays/:paperId` | EMPLOYEE | Return the dairy tray grid |
+| `POST` | `/dairy-trays/:paperId/save` | EMPLOYEE | Save dairy tray rows |
 
 ## Request flow
 
@@ -63,7 +63,7 @@ POST /trays/sheet/:sheetId/save
 
 ```text
 NIGHT_SUBMITTED → POST /trays/sheet/:id/save
-                  POST /dairy-tray-tracking/:paperId/save
+                  POST /dairy-trays/:paperId/save
 FINALIZED       → read-only
 REOPENED        → writable again
 ```
