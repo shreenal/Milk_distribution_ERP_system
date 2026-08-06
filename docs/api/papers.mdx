@@ -215,9 +215,8 @@ Transitions the paper from `MORNING_SUBMITTED` to `FINALIZED`. Once finalized, n
 | Scenario | HTTP status | Detail |
 | --- | --- | --- |
 | Caller not `ADMIN` | `403 Forbidden` | Role check failure |
-| Paper not in `MORNING_SUBMITTED` | `400 Bad Request` | `Cannot transition from <status> to FINALIZED` |
-| Reopened paper without morning resubmit | `400 Bad Request` | `After reopening from <previousStatus>, you must resubmit morning entry before finalizing` |
-| Admin-side collections incomplete | `400 Bad Request` | Message from the finalize readiness validator |
+| Paper not in `MORNING_SUBMITTED` or `REOPENED` | `400 Bad Request` | `Cannot transition from <status> to FINALIZED` (thrown by `WorkflowStateService.validateTransition`) |
+| Admin-side collections incomplete | `400 Bad Request` | Message from the finalize readiness validator (`PaperValidationService.validateFinalizeReadiness` → `CollectionsValidationService.validateAdminCollections`) |
 
 ---
 
