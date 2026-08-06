@@ -38,6 +38,7 @@ Contain both derived values and manually entered values.
 - Client Tray Tracking
 - Dairy Tray Tracking
 - Cash Settlement (persisted business entities plus a derived summary)
+- Purchase Variance (derived variance with persisted acknowledgements)
 
 ### D. Derived entities
 
@@ -45,7 +46,6 @@ Never edited directly. Always regenerated from upstream entities.
 
 - Billing
 - Distributor Transfer
-- Purchase Variance
 - Delivery Summary
 - Reports
 
@@ -55,11 +55,11 @@ Never edited directly. Always regenerated from upstream entities.
                                        ORDERS
                              ordered_qty / delivered_qty
                                    │
-                ┌──────────────────┼─────────────────────┐
-                │                  │                      │
-                ▼                  ▼                      ▼
-      Allocation Summary      Billing            Distributor Transfer
-                │                                     (derived)
+                ┌──────────────────┼─────────────────────┬────────────────────┐
+                │                  │                      │                    │
+                ▼                  ▼                      ▼                    ▼
+      Allocation Summary      Billing            Distributor Transfer    Delivery Summary
+                │                                     (derived)              (derived)
                 ▼
        Vehicle Allocation
                 │
@@ -69,6 +69,9 @@ Never edited directly. Always regenerated from upstream entities.
         ┌───────┴──────────────┐
         ▼                      ▼
  Purchase Variance      Dairy Tray Tracking
+        │
+        ▼
+ Variance Acknowledgements
                                 │
                                 ▼
                      Next Day Dairy Opening
@@ -124,12 +127,13 @@ Cash Settlement Summary
 
 - Client Tray Tracking
 - Dairy Tray Tracking
+- Purchase Variance (variance calculation \+ acknowledgement rows)
 
 **Derived artifacts**
 
 - Billing
 - Distributor Transfer
-- Purchase Variance
+- Delivery Summary
 - Reports
 
 ## 3. Module analysis
@@ -140,7 +144,7 @@ Cash Settlement Summary
 - **Manual fields**: `ordered_qty`, `delivered_qty`
 - **Persisted calculated fields**: `night_bill_amount`, `final_bill_amount`, `gst`, `taxable_amount`
 - **Upstream dependencies**: None. Orders is a root business entity.
-- **Downstream dependencies**: Billing, Vehicle Allocation Summary, Distributor Transfer, Client Tray Tracking
+- **Downstream dependencies**: Billing, Vehicle Allocation Summary, Distributor Transfer, Client Tray Tracking, Delivery Summary
 - **Source of truth**: `ordered_qty`, `delivered_qty`
 - **REOPENED impact**: Changing `delivered_qty` invalidates Billing, Distributor Transfer, Client Tray Tracking, and Allocation Summary. All are auto-regenerated from the new delivered quantities.
 
@@ -217,13 +221,24 @@ Cash Settlement Summary
 
 ### Purchase Variance
 
-- **Source**: Allocated Qty vs Purchased Qty
-- No independent business data. Always regenerated.
+- **Business entity**: `purchase_variance_acknowledgement` (one per `purchase_entry`).
+- **Manual fields**: `reason`, `remarks`, `acknowledged_by` (user who acknowledged).
+- **Derived fields**: allocated qty, purchased qty, variance qty, severity.
+- **Source**: Allocated Qty vs Purchased Qty (derived); acknowledgements are entered per purchase entry when a variance exceeds tolerance.
+- **Upstream dependencies**: Purchase, Vehicle Allocation.
+- **REOPENED impact**: Variance is recalculated from the corrected allocations and purchases. Existing acknowledgements remain attached to their `purchase_entry` and must be re-reviewed if the underlying variance has changed.
 
 ### Billing
 
 - **Source**: `ordered_qty` (Draft) and `delivered_qty` (Submitted)
 - Always regenerated.
+
+### Delivery Summary
+
+- **Business entity**: None (read-only rollup).
+- **Source**: `Orders.delivered_qty` grouped by billing group and product.
+- **Downstream**: Reports only.
+- **Regeneration**: Always safe. Recomputed on every read from the current delivered quantities.
 
 ## 4. Classification matrix
 
@@ -237,7 +252,8 @@ Cash Settlement Summary
 | Billing | Derived | Orders | Yes | No |
 | Collections | Root | `client_collection` | No | No |
 | Distributor Transfer | Derived | Orders | Yes | No |
-| Purchase Variance | Derived | Purchase \+ Vehicle Allocation | Yes | No |
+| Purchase Variance | Hybrid | Purchase \+ Vehicle Allocation \+ acknowledgements | Partial | No |
+| Delivery Summary | Derived | Orders | Yes | No |
 | Cash Settlement | Hybrid | Settlement tables | Partial | No |
 
 ## 5. Cross-day dependencies
@@ -266,9 +282,10 @@ Everything else is confined to a single Order Paper.
 | Orders | Distributor Transfer | ✓ | ✗ | ✗ |
 | Orders | Client Tray Tracking | ✓ | ✗ | ✓ |
 | Orders | Vehicle Allocation Summary | ✓ | ✗ | ✗ |
+| Orders | Delivery Summary | ✓ | ✗ | ✗ |
 | Vehicle Allocation | Purchase | ✗ | ✓ | ✗ |
 | Purchase | Dairy Tray Tracking | ✓ | ✗ | ✓ |
-| Purchase | Purchase Variance | ✓ | ✗ | ✗ |
+| Purchase | Purchase Variance (calculation) | ✓ | ✓ (acknowledgements preserved, must be re-reviewed) | ✗ |
 | Collections | Cash Settlement summary | ✓ (as Reconciliation Difference; historical rows preserved) | ✗ | ✗ |
 
 ## 7. Core architectural principle
@@ -315,3 +332,25 @@ The fundamental design rule:
 - [Business Rules](/domain/business-rules) — the constraints enforced across these modules.
 - [Paper States](/workflows/paper-states) — the state machine that gates edits on every module.
 - [Reopen Workflow](/workflows/reopen-workflow) — how the REOPENED implications above play out end to end.
+
+## Documentation changes
+
+The updates below were applied to align this documentation with the current implementation. Each change lists the file, what was changed, and why.
+
+| File | Change | Reason |
+| --- | --- | --- |
+| `domain/business-dependency-architecture.mdx` | Reclassified Purchase Variance from **Derived** to **Hybrid**. | The implementation now persists `purchase_variance_acknowledgement` rows (reason, remarks, acknowledging user) attached to `purchase_entry`, so variance is no longer purely derived. |
+| `domain/business-dependency-architecture.mdx` | Added a **Delivery Summary** business entry (module analysis, classification matrix, dependency graph, REOPENED impact row). | Delivery Summary is a live read-only rollup of `Orders.delivered_qty` and belongs in the graph as a derived downstream of Orders. |
+| `domain/business-dependency-architecture.mdx` | Rewrote the **Purchase Variance** module section to list manual fields (`reason`, `remarks`, `acknowledged_by`), derived fields (allocated/purchased/variance qty and severity), upstream dependencies, and REOPENED behavior. | Reflects the acknowledgement business entity and the recompute-plus-review REOPENED behavior. |
+| `domain/business-dependency-architecture.mdx` | Extended the top-level dependency graph to include **Delivery Summary** (from Orders) and **Variance Acknowledgements** (from Purchase Variance). | Keeps the visual graph consistent with the module analysis. |
+| `domain/business-dependency-architecture.mdx` | Added Orders → Delivery Summary and refined Purchase → Purchase Variance rows in the REOPENED impact matrix (calculation auto-regenerated, acknowledgements preserved and re-reviewed). | Matches the current REOPENED behavior in the implementation. |
+| `domain/business-dependency-architecture.mdx` | Added Orders → Delivery Summary to the Orders **Downstream dependencies** list. | Missing downstream after the module was added. |
+| `architecture/module-responsibilities.mdx` | Renamed `trays` → `client-trays` and `dairy-tray-tracking` → `dairy-trays` in the module table; updated dependency references accordingly. | The backend modules were renamed during the refactor (`src/modules/transactions/client-trays`, `src/modules/transactions/dairy-trays`). |
+| `architecture/module-responsibilities.mdx` | Replaced `canEditTrays` with `canEditClientTrays` and `canEditDairyTrayTracking` with `canEditDairyTrays` in the workflow row. | Method names on `WorkflowStateService` changed as part of the module rename. |
+| `architecture/module-responsibilities.mdx` | Added `purchase_variance_acknowledgement` to the `purchase` module's write ownership. | New table now owned by the `purchase` module. |
+| `architecture/module-responsibilities.mdx` | Noted that `paper` invokes `DistributorTransferService.generateTransfer` on morning submit (in addition to using it as a readiness validator). | Auto-generation is now part of the `submit-morning` transition, not an unrelated call. |
+| `architecture/overview.mdx` | Renamed `trays/` → `client-trays/` and `dairy-tray-tracking/` → `dairy-trays/` in the source-tree diagram and updated the `src/types/` listing to match the current filenames. | Reflects the current file layout. |
+| `architecture/overview.mdx` | Replaced `canEditTrays`/`canEditDairyTrayTracking` with `canEditClientTrays`/`canEditDairyTrays` in the WorkflowStateService method list. | Method names changed in the workflow service. |
+| `architecture/overview.mdx` | Removed obsolete notes about `orders/` using `order.billing-builder.ts` and `trays/` using `tray.billing-builder.ts`. | Those builder filenames no longer exist; the modules now use `order.builder.ts` and `client-trays.builder.ts`. |
+| `architecture/error-handling.mdx` | Renamed `trays` → `client-trays` and `dairy-tray-tracking` → `dairy-trays` in the transaction-service list. | Module rename. |
+| `modules/purchase.mdx` | Added a responsibility line and a business rule for `purchase_variance_acknowledgement`, updated the request-flow pseudocode to upsert acknowledgements, and listed the new table under database tables. | The purchase save flow now accepts and persists variance acknowledgements alongside purchase entries. |
