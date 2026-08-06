@@ -16,7 +16,7 @@ The Dairy Tray Tracking module records what each vehicle physically returned to 
 
 ## Business rules
 
-- Writes require `NIGHT_SUBMITTED` or `REOPENED` (`WorkflowStateService.canEditDairyTrayTracking`).
+- Writes require `NIGHT_SUBMITTED` or `REOPENED` (`WorkflowStateService.canEditDairyTrays`).
 - One row per `(dairy_tray_paper_id, vehicle_id, tray_type_id)` — enforced by DB unique index.
 - The tray-returned quantity is captured verbatim; no reconciliation is enforced against the client-level takings — that comparison happens in the read payload for the operator to eyeball.
 
@@ -30,16 +30,16 @@ The Dairy Tray Tracking module records what each vehicle physically returned to 
 
 | Method | Path | Role | Purpose |
 | --- | --- | --- | --- |
-| `GET` | `/dairy-tray-tracking/:paperId` | EMPLOYEE | Return the dairy-tray grid (vehicles × tray types) |
-| `POST` | `/dairy-tray-tracking/:paperId/save` | EMPLOYEE | Upsert dairy-tray transaction rows |
+| `GET` | `/dairy-trays/:paperId` | EMPLOYEE | Return the dairy-tray grid (vehicles × tray types) |
+| `POST` | `/dairy-trays/:paperId/save` | EMPLOYEE | Upsert dairy-tray transaction rows |
 
 ## Request flow
 
 ```text
-POST /dairy-tray-tracking/:paperId/save
-  → DairyTrayTrackingController
-  → DairyTrayTrackingService.saveDairyTrayEntries(paperId, dto)
-       verify canEditDairyTrayTracking(paper.status)
+POST /dairy-trays/:paperId/save
+  → DairyTraysController
+  → DairyTraysService.saveDairyTrayEntries(paperId, dto)
+       verify canEditDairyTrays(paper.status)
        ensure dairy_tray_paper exists for the paper (create if missing)
        for each entry:
          upsert dairy_tray_transaction keyed by (paper, vehicle, tray_type)

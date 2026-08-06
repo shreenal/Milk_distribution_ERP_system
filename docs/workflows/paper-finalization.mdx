@@ -41,13 +41,17 @@ Most admins follow this sequence on the operations screen:
 
 ## What finalization does at the database level
 
-`WorkflowStateService.validateTransition()` accepts the transition and:
+Before transitioning, `PaperValidationService.validateFinalizeReadiness` runs the finalize readiness check: on every order sheet, the admin-only collection fields must be recorded. If any sheet still has admin collections pending, finalize is refused.
+
+Once the readiness check passes, `WorkflowStateService.validateTransition()` accepts the transition and:
 
 - Updates `order_paper.status` to `FINALIZED`.
 - Stamps `finalized_at` with the current timestamp.
 - Leaves `reopened_at` and `reopen_reason` untouched (they only get cleared on a fresh workflow, never automatically).
 
 There is no bulk recomputation on finalize. All amounts on `order_sheet_items` and `client_collection` were already computed at their respective save endpoints.
+
+When re-finalizing from `REOPENED`, the same admin-collections readiness check runs. Cash-settlement reconciliation is **not** re-run: after reopen, cash settlement is treated as historical and the recalculated gap is exposed as Reconciliation Difference rather than being blocked.
 
 ## What finalization blocks
 
@@ -58,10 +62,6 @@ Once the paper is `FINALIZED`:
 - Reopening is the only way to unlock writes again.
 
 ## Common mistakes
-
-<Warning>
-  Finalizing before cash settlement is complete is a common mistake. The finalize action does not verify that route denominations, direct collections, or bank deposits are entered — an admin can technically finalize an incomplete day. The recovery is to reopen with a reason like "cash settlement not entered" and complete the missing entries.
-</Warning>
 
 <Warning>
   Finalizing without regenerating distributor transfers after edits leaves stale transfer records. If you edit collections or purchases in `REOPENED` and did not regenerate transfers before finalizing, the transfer rows may not match the final numbers. Regenerate first.

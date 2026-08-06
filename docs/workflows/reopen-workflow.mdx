@@ -44,9 +44,9 @@ In `REOPENED`, the paper accepts writes on this set of modules (checked from `Wo
 - Morning-save on `order_sheet_items` (delivered qty, final rate, final amounts) — `canEditMorningEntries`.
 - All three collection paths on `client_collection`: night save (`canEditNightCollections`), morning save (`canEditMorningCollections`), and admin save (`canAdminEditCollections`).
 - Purchase entries — `canEditPurchases`.
-- Trays (`canEditTrays`) and Dairy Tray Tracking (`canEditDairyTrayTracking`).
+- Client Trays (`canEditClientTrays`) and Dairy Trays (`canEditDairyTrays`).
 - Vehicle Allocation — both `NIGHT` and `MORNING` sessions (`canEditVehicleAllocations` returns true for either session when the paper is `REOPENED`).
-- Cash Settlement: **only `route-expenses`** (`canEditRouteExpenses` → `NIGHT_SUBMITTED`, `REOPENED`). Route denominations, direct collections, and bank deposits stay locked in `REOPENED` — their `canEdit…` helpers whitelist `NIGHT_SUBMITTED` only, so they cannot be re-entered from a reopened paper.
+- Cash Settlement: **only `route-expenses`** (`canEditRouteExpenses` → `NIGHT_SUBMITTED`, `REOPENED`). Route denominations, direct collections, and bank deposits stay locked in `REOPENED` — their `canEdit…` helpers whitelist `NIGHT_SUBMITTED` only, so they cannot be re-entered from a reopened paper. This is deliberate: after reopen, cash settlement is treated as historical. The persisted denominations, direct collections, and bank deposits are preserved; expected cash is recalculated from the revised orders/collections; and the gap surfaces as **Reconciliation Difference** on the settlement summary instead of rewriting history.
 - Distributor Transfer regeneration — `canEditDistributorTransfers` → `REOPENED` only.
 
 Night saves for order items are **not** re-enabled by reopen. If a night quantity was wrong, correct the delivered quantity to match reality — the delivered quantity is what drives billing.
@@ -56,6 +56,8 @@ Night saves for order items are **not** re-enabled by reopen. If a night quantit
 `POST /papers/:paperId/finalize`
 
 From `REOPENED`, the finalize endpoint transitions the paper straight back to `FINALIZED`. It does not require re-submitting night or morning entries because those submissions already happened; the timestamps `night_entry_submitted_at` and `morning_entry_submitted_at` are still set from the original run.
+
+Re-finalize still runs the finalize readiness check (admin-only collection fields must be recorded on every sheet). It does **not** re-run the cash-settlement reconciliation that gates the first `MORNING_SUBMITTED → FINALIZED` transition, because cash settlement is treated as historical after reopen.
 
 The service stamps `finalized_at` again. `reopened_at` and `reopen_reason` are **not** cleared — they remain as a permanent record of the correction.
 

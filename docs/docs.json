@@ -34,6 +34,7 @@
           {
             "group": "Core Concepts",
             "pages": [
+              "domain/business-dependency-architecture",
               "domain/paper",
               "domain/relationships",
               "domain/business-rules",

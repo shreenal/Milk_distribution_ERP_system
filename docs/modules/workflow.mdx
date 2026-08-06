@@ -42,9 +42,9 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 | `canEditNightCollections(status)` | `DRAFT`, `NIGHT_SUBMITTED`, `REOPENED` |
 | `canEditMorningCollections(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
 | `canAdminEditCollections(status)` | `MORNING_SUBMITTED`, `REOPENED` |
-| `canEditTrays(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditClientTrays(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
 | `canEditPurchases(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
-| `canEditDairyTrayTracking(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
+| `canEditDairyTrays(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
 | `canEditEmployeeCollections(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
 | `canEditVehicleAllocations(status, session)` | `DRAFT` \+ `NIGHT`, `NIGHT_SUBMITTED` \+ `MORNING`, or `REOPENED` (either session) |
 | `canEditRouteExpenses(status)` | `NIGHT_SUBMITTED`, `REOPENED` |
@@ -57,11 +57,11 @@ DRAFT → NIGHT_SUBMITTED → MORNING_SUBMITTED → FINALIZED
 The service also exposes:
 
 - `getActiveExecutionSession(status)` — returns `NIGHT` for `DRAFT`, `MORNING` for `NIGHT_SUBMITTED`; throws `BadRequestException` for any other status.
-- `shouldValidateVehicleAllocations(status, session)`, `shouldValidatePurchases(status)`, `shouldValidateDeliveredQuantity(status)`, `shouldValidateTrays(status)`, `shouldValidateEmployeeCollections(status)`, `shouldValidateDairyTrayTracking(status)` — used by services that need to know whether to run validation but not necessarily block writes.
+- `shouldValidateVehicleAllocations(status, session)`, `shouldValidatePurchases(status)`, `shouldValidateDeliveredQuantity(status)`, `shouldValidateClientTrays(status)`, `shouldValidateEmployeeCollections(status)`, `shouldValidateDairyTrayTracking(status)` — used by services that need to know whether to run validation but not necessarily block writes.
 
 Internally, two `private` helpers back most of the public `canEdit*` methods:
 
-- `canEditCompletionModule(status)` returns `true` for `NIGHT_SUBMITTED` and `REOPENED`. Used by morning entries, trays, purchases, dairy-tray-tracking, employee collections, and route expenses.
+- `canEditCompletionModule(status)` returns `true` for `NIGHT_SUBMITTED` and `REOPENED`. Used by morning entries, client trays, purchases, dairy trays, and employee collections. (Route expenses reuse the same status set but do not go through this helper.)
 - `canEditExecutionModule(status, session)` returns `true` in `REOPENED` for either session, `NIGHT` in `DRAFT`, and `MORNING` in `NIGHT_SUBMITTED`. Used by vehicle allocations.
 
 ## `WorkflowBuilder`
@@ -71,9 +71,9 @@ Builds the workflow envelope returned to the frontend from each read endpoint. A
 | Method | Return shape |
 | --- | --- |
 | `buildOrdersWorkflow(status)` | `{ status, editable }` — `editable = canEditNightEntries \|\| canEditMorningEntries` |
-| `buildTraysWorkflow(status)` | `{ status, editable }` — `editable = canEditTrays` |
+| `buildTraysWorkflow(status)` | `{ status, editable }` — `editable = canEditClientTrays` |
 | `buildPurchasesWorkflow(status)` | `{ status, editable }` — `editable = canEditPurchases` |
-| `buildDairyTrayTrackingWorkflow(status)` | `{ status, editable }` — `editable = canEditDairyTrayTracking` |
+| `buildDairyTrayTrackingWorkflow(status)` | `{ status, editable }` — `editable = canEditDairyTrays` |
 | `buildVehicleAllocationWorkflow(status, session)` | `{ status, editable }` — `editable = canEditVehicleAllocations(status, session)` |
 | `buildCollectionsWorkflow(status)` | `{ status, permissions: { canEditNightCollections, canEditMorningCollections, canEditAdminCollections, canFinalize } }` |
 | `buildCashSettlementWorkflow(status)` | `{ status, permissions: { canEditRouteExpenses, canEditRouteDenominations, canEditDirectCollections, canEditBankDeposits } }` |
@@ -88,7 +88,7 @@ None. `WorkflowStateService` is pure; it takes a status (and optionally a sessio
 Every mutating transaction service imports `WorkflowStateService`:
 
 - `PaperService` — `validateTransition` for status changes.
-- `OrdersService`, `CollectionsService`, `TraysService`, `PurchaseService`, `VehicleAllocationService`, `DairyTrayTrackingService`, `DistributorTransferService`, `CashSettlementService` — all check the relevant `canEdit*` before upserting.
+- `OrdersService`, `CollectionsService`, `ClientTraysService`, `PurchaseService`, `VehicleAllocationService`, `DairyTraysService`, `DistributorTransferService`, `CashSettlementService` — all check the relevant `canEdit*` before upserting.
 
 ## Related
 

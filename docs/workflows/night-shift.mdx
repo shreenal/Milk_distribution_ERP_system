@@ -17,7 +17,7 @@ Before the night shift begins:
 
 The paper is created via `POST /papers` with a `date` (the sale date). The endpoint is decorated `@Roles('EMPLOYEE')`, so either an `EMPLOYEE` or an `ADMIN` may call it (Admin passes the `EMPLOYEE` role check through the hierarchy in `RolesGuard`). Business practice is that an Admin owns paper creation; the code does not enforce that. The service:
 
-1. Rejects the request if `date` is before today or more than 30 days ahead. "Today" is computed in **UTC** — the service does `Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())`. `DATE_CONFIG.TIMEZONE = 'Asia/Kolkata'` is defined in `paper.constants.ts` but is not referenced anywhere in the comparison.
+1. Rejects the request if `date` is before today or more than 30 days ahead. "Today" is the current business day in the **Asia/Kolkata (IST)** calendar (`DATE_CONFIG.TIMEZONE`). The requested sale date is compared against the IST business day; dates continue to be stored internally as date-only values normalized to UTC midnight.
 2. Confirms at least one active delivery group exists.
 3. Inserts one `order_paper` row with `status = DRAFT`, `sale_date = date`, and `order_date = date − 1 day` (derived by `resolvePaperSaleDate`). The `@unique` on `order_date` enforces one paper per sale date.
 4. Auto-creates one `order_sheet` per active delivery group, linked to that paper.
@@ -61,10 +61,17 @@ The service creates or updates the `vehicle_allocation_paper` row for `(paper, N
 
 ## Step 5 — Employee submits the night entry
 
-Once night orders, night collections, and the night vehicle allocation are complete, an employee calls `POST /papers/:paperId/submit-night`. The service:
+Once night orders, night collections, and the night vehicle allocation are complete, an employee calls `POST /papers/:paperId/submit-night`. The service runs a cross-module **readiness check** through `PaperValidationService` before the transition. It refuses to close the night if any of the following is incomplete:
 
-- Validates the transition `DRAFT → NIGHT_SUBMITTED` via `WorkflowStateService.validateTransition()`.
-- Updates the paper's `status` to `NIGHT_SUBMITTED` and stamps `night_entry_submitted_at`.
+- Night vehicle allocations missing or vehicle-distribution assignments unset.
+- Night order entries missing on any sheet.
+- Tray calculations missing on any sheet.
+- Night collections missing on any sheet.
+
+Only after readiness passes does the service:
+
+- Validate the transition `DRAFT → NIGHT_SUBMITTED` via `WorkflowStateService.validateTransition()`.
+- Update the paper's `status` to `NIGHT_SUBMITTED` and stamp `night_entry_submitted_at`.
 
 ## After night submit
 

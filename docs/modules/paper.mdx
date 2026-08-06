@@ -14,6 +14,7 @@ The Paper module owns the daily `order_paper` record — the single container ev
 - Read the paper by ID, by date, or "today's" paper.
 - Transition status: submit-night, submit-morning, finalize, reopen.
 - Enforce the state machine via `WorkflowStateService.validateTransition()`.
+- Run cross-module **readiness validation** before every business transition. `PaperValidationService` composes the per-module validation services (Orders, Vehicle Allocation, Client Trays, Collections, Purchase, Cash Settlement, Distributor Transfer, Dairy Trays) so that submit-night, submit-morning, and finalize each fail fast if any upstream module is incomplete or inconsistent.
 
 ## Business rules
 
@@ -22,6 +23,9 @@ The Paper module owns the daily `order_paper` record — the single container ev
 - Requires at least one active delivery group to create sheets.
 - Only Admins can finalize or reopen; the reopen reason is mandatory.
 - Reopen preserves earlier timestamps; only `finalized_at`, `reopened_at`, `reopen_reason` are affected by the correction loop.
+- `submit-night` requires: night vehicle allocations and assignments configured; and, for every sheet, night orders complete, tray calculations exist, and night collections are recorded.
+- `submit-morning` requires: for every sheet, morning entries complete with sane quantities, tray movements complete, and morning collections recorded; and, for the paper as a whole, purchases complete, dairy trays complete, distributor-transfer rules exist for every required supplier→owner pair, and cash-settlement route denominations plus bank-deposit reconciliation succeed (skipped in `REOPENED` because cash settlement is treated as historical).
+- `finalize` requires admin-only collection fields to be recorded on every sheet.
 
 See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) for the full list.
 
@@ -29,6 +33,7 @@ See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) fo
 
 - `PrismaService` — writes and reads `order_paper` and `order_sheet`.
 - `WorkflowStateService` — the shared state-machine validator.
+- `PaperValidationService` — composes readiness checks across every downstream module before a status transition proceeds.
 - Master data — reads `master_group` to auto-create sheets.
 - Distributor Transfer service — invoked at `submit-morning` to auto-generate transfers.
 
@@ -51,6 +56,7 @@ See [Business Rules — Paper Creation and Lifecycle](/domain/business-rules) fo
 HTTP request → PaperController
              → JwtAuthGuard (auth) → RolesGuard (role)
              → PaperService.<action>
+             → PaperValidationService.validate<Action>Readiness() (for submit-night, submit-morning, finalize)
              → WorkflowStateService.validateTransition() (for status changes)
              → PrismaService (order_paper[, order_sheet[]])
              → (submit-morning only) DistributorTransferService.generateTransfer()
