@@ -72,11 +72,11 @@ async submitMorningEntry(
 The service is where all rules live. A typical mutating service method:
 
 1. Loads the affected paper via the repository.
-2. Delegates to a `<module>-validation.service.ts` to check workflow state, referential integrity, and business rules.
+2. Delegates to a validation service (`services/<module>-validation.service.ts` in most transaction modules; at the module root for `distributor-transfer`) to check workflow state, referential integrity, and business rules.
 3. Opens a Prisma `$transaction` to perform the mutation atomically.
 4. Returns the updated aggregate.
 
-The `WorkflowStateService` is injected almost universally to answer questions like `canEditOrders(paper.status)`. No module implements state gating independently.
+The `WorkflowStateService` is injected almost universally to answer per-module `canEdit*` questions (for example `canEditNightEntries(paper.status)` or `canEditVehicleAllocations(paper.status, session)`). No module implements state gating independently. Shared calculators from `src/common/calculators/` (`CashSettlementCalculationService`, `PurchaseVarianceCalculator`, `TrayCalculationService`) are injected where the same math is needed by more than one module (for example the cash-settlement service and the paper readiness check both consume denomination totals).
 
 ## Stage 7 — Nest's default exception handling
 

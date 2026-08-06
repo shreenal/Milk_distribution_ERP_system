@@ -32,6 +32,11 @@ server/
 │   │   ├── builders/           # Shared response builders
 │   │   │   ├── allocation-summary.builder.ts
 │   │   │   └── product-columns.builder.ts
+│   │   ├── calculators/        # Shared pure-function calculators reused across modules
+│   │   │   ├── cash-settlement.calculator.ts
+│   │   │   ├── purchase-variance.calculator.ts
+│   │   │   ├── purchase-variance.constant.ts
+│   │   │   └── tray-calculation.service.ts
 │   │   ├── crud/               # Reserved for shared CRUD base classes (files present but empty)
 │   │   │   ├── base.repository.ts
 │   │   │   ├── base.service.ts
@@ -98,12 +103,20 @@ Most feature modules follow the same internal layer pattern:
 ├── <module>.controller.ts      # HTTP routes, guards, param parsing
 ├── <module>.service.ts         # Business logic, orchestration
 ├── <module>.repository.ts      # Prisma queries
-├── <module>-validation.service.ts  # Business-rule validation
 ├── <module>.builder.ts         # Response/grid construction
 ├── <module>.constants.ts       # Error messages, config values
 ├── <module>.module.ts          # NestJS module definition
-└── dto/                        # Request body shapes (class-validator)
+├── dto/                        # Request body shapes (class-validator)
+└── services/                   # Split-out helper services (validation, billing, ...)
+    └── <module>-validation.service.ts  # Business-rule validation
 ```
+
+Transaction modules keep helper services in a `services/` subfolder. The `<module>.module.ts` imports and registers each one. Two modules ship additional helpers alongside their validation service:
+
+- `orders/services/` — `night-billing.service.ts`, `final-billing.service.ts`, `order-commercial.service.ts`, and `orders-validation.service.ts`.
+- `purchase/services/` — `purchase-billing.service.ts`, `purchase-commercial.service.ts`, and `purchase-validation.service.ts`.
+
+Modules with no helper services do not create a `services/` folder (see `delivery-summary/`). One module (`distributor-transfer/`) keeps its validation service at the module root instead of under `services/`.
 
 ### Master modules
 
@@ -122,13 +135,14 @@ Two masters use a non-plural filename convention:
 
 Transaction modules under `src/modules/transactions/*` follow the fuller pattern with these concrete deviations:
 
-- `auth/` — has no builder, no `*-validation.service.ts`, no constants. It ships `auth.controller.ts`, `auth.service.ts`, `auth.repository.ts` (currently commented out; `AuthService` injects `UsersRepository` from the users master), `auth.module.ts`, `auth.guard.ts`, `jwt.strategy.ts`, `roles.guard.ts`, `roles.decorator.ts`, and `dto/login.dto.ts`.
-- `paper/` — has no builder. It ships `paper.repository.spec.ts` (test file); there is no `paper.service.spec.ts`.
-- `delivery-summary/` — no validation service, no `dto/` folder (read-only).
-- `distributor-transfer/` — no `dto/` folder.
-- `orders/` — uses `order.builder.ts` (not `orders.builder.ts`).
-- `client-trays/` — standard `client-trays.builder.ts`.
-- `workflow/` — pure state-machine module. Files: `workflow-state.service.ts`, `workflow.builder.ts`, `workflow.module.ts`, plus `constants/workflow-status.constants.ts`, `guards/workflow-status.guard.ts`, and `types/workflow.types.ts`. No controller or repository.
+- `auth/` — has no builder, no `services/` folder, and no constants. It ships `auth.controller.ts`, `auth.service.ts`, `auth.repository.ts` (currently commented out; `AuthService` injects `UsersRepository` from the users master), `auth.module.ts`, `auth.guard.ts`, `jwt.strategy.ts`, `roles.guard.ts`, `roles.decorator.ts`, and `dto/login.dto.ts`. Guards, strategy, and the roles decorator live at the module root rather than in a subfolder.
+- `paper/` — has no builder and no `dto/` folder. Its validation service is `services/paper-validation.service.ts`. No test files (`.spec.ts`) exist in the codebase.
+- `delivery-summary/` — no `services/` folder, no `dto/` folder (read-only).
+- `distributor-transfer/` — no `dto/` folder, no `services/` folder. Its validation service `distributor-transfer-validation.service.ts` sits at the module root.
+- `orders/` — uses `order.builder.ts` (not `orders.builder.ts`). `services/` contains four files: `orders-validation.service.ts`, `night-billing.service.ts`, `final-billing.service.ts`, and `order-commercial.service.ts`.
+- `purchase/` — `services/` contains three files: `purchase-validation.service.ts`, `purchase-billing.service.ts`, and `purchase-commercial.service.ts`.
+- `client-trays/`, `dairy-trays/`, `cash-settlement/`, `collections/`, `vehicle-allocation/` — each ships the standard six-file module layout plus `dto/` and `services/<module>-validation.service.ts`.
+- `workflow/` — pure state-machine module. Files: `workflow-state.service.ts`, `workflow.builder.ts`, `workflow.module.ts`, plus placeholder subfolders `constants/workflow-status.constants.ts`, `guards/workflow-status.guard.ts`, and `types/workflow.types.ts` (all three files are currently empty). No controller or repository.
 
 This separation ensures that HTTP concerns stay in the controller, database concerns stay in the repository, and all domain rules live exclusively in the service and validation service.
 

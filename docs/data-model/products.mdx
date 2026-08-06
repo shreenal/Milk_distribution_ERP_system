@@ -33,6 +33,8 @@ master_packaging_type   (packaging shape; used by product_tray_rule)
 | `packaging_unit` | string (e.g. `L`, `ml`, `g`) |
 | `is_gst_inclusive` | boolean controlling billing mode |
 | `gst_percentage` | decimal(5,2) |
+| `show_by_default` | boolean — when true, the product is seeded on every new order sheet and cannot be removed via `DELETE /orders/sheet/:sheetId/products/:productId` |
+| `display_order` | int, nullable — presentation-only sort key |
 | `is_active` | soft delete |
 
 Uniqueness: `@@unique([brand_id, product_group_id, product_type_id, packaging_type_id, packaging_size, packaging_unit])`.

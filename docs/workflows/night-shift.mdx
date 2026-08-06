@@ -45,7 +45,7 @@ While on the route, employees also receive payments. For each order sheet and ea
 - `POST /collections/sheet/:sheetId/milk/night-save`
 - `POST /collections/sheet/:sheetId/non-milk/night-save`
 
-The request contains, per client, `cash_collection`, `cheque_collection`, `online_collection`, `office_amount_given`, `bank_deposit`, and `employee_remarks`. The row keyed by `(order_sheet_id, client_id, category)` is upserted.
+Night save writes only `office_amount_given` per client (that is the sole non-key field on `SaveNightCollectionsDto.entries[]`). The other collection fields — `cash_collection`, `cheque_collection`, `employee_remarks` — are written by the morning-save endpoint, and `online_collection`, `bank_deposit`, `admin_remarks` are written by the admin-save endpoint. The row keyed by `(order_sheet_id, client_id, category)` is upserted.
 
 ## Step 4 — Employees plan the night vehicle allocation
 
