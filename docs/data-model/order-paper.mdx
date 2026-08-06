@@ -12,7 +12,7 @@ The `order_paper` table is the daily container that anchors every operational re
 | --- | --- | --- |
 | `id` | int, PK, autoincrement | Referenced by every child table |
 | `order_date` | date, unique | The date the paper was generated for. Uniqueness lives on this column. |
-| `sale_date` | date | The delivery date. `sale_date = order_date + 1` day when generated from `order_date`. |
+| `sale_date` | date | The delivery date. Passed in as the `date` field on `POST /papers`; `order_date` is derived as `sale_date − 1 day` by `resolvePaperSaleDate`. Not itself `@unique`. |
 | `status` | `OrderPaperStatus` enum | See below |
 | `night_entry_submitted_at` | datetime, nullable | Set on `submit-night` |
 | `morning_entry_submitted_at` | datetime, nullable | Set on `submit-morning` |
@@ -25,11 +25,11 @@ The `order_paper` table is the daily container that anchors every operational re
 
 | Value | Meaning | Writes allowed |
 | --- | --- | --- |
-| `DRAFT` | Just generated; night entry in progress | orders (night), collections (night), vehicle-allocation |
-| `NIGHT_SUBMITTED` | Night shift closed; delivery in progress | orders (morning), collections (morning), purchase, trays, dairy-tray |
-| `MORNING_SUBMITTED` | Morning shift closed; awaiting admin review | collections (admin), cash-settlement, delivery-summary read |
+| `DRAFT` | Just generated; night entry in progress | orders (night save), collections (night save: `office_amount_given`), vehicle-allocation (night session) |
+| `NIGHT_SUBMITTED` | Night shift closed; delivery in progress | orders (morning), collections (night \+ morning), purchase, client trays, dairy-tray, vehicle-allocation (morning session), cash-settlement (all four channels) |
+| `MORNING_SUBMITTED` | Morning shift closed; awaiting admin review | collections (admin only: `online_collection`, `bank_deposit`, `admin_remarks`); delivery-summary read |
 | `FINALIZED` | Immutable | None; requires `reopen` |
-| `REOPENED` | Finalized then reopened by admin | Same set as `MORNING_SUBMITTED`; refinalization needed |
+| `REOPENED` | Finalized then reopened by admin | orders (morning), collections (night, morning, admin), purchase, client trays, dairy-tray, vehicle-allocation (both sessions), cash-settlement route-expenses, distributor-transfer regenerate. Route denominations, direct collections, and bank deposits remain locked (they only allow `NIGHT_SUBMITTED`). Refinalization needed. |
 
 Transitions are enforced by `WorkflowStateService.validateTransition()`. See [Paper States](/workflows/paper-states) for the state machine diagram.
 

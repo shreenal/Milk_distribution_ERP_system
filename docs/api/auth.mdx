@@ -87,7 +87,7 @@ Return the authenticated user's identity and role. Used by the frontend on load 
 
 ### Expected workflow
 
-The `JwtAuthGuard` validates the token and populates `req.user` with `{ id, username, role }`. The controller returns that object as-is.
+The `JwtAuthGuard` validates the token and populates `req.user` with `{ id, username, role }`. The controller then calls `AuthService.getCurrentUser(req.user.id)`, which re-fetches the row via `UsersRepository.findById` and returns `{ id, username, role: user.role.name }`. If the user no longer exists, it throws `UnauthorizedException` (401), so a deleted user cannot continue using an already-issued token.
 
 ### Request
 

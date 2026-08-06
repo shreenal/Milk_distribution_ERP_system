@@ -27,11 +27,11 @@ At the dairy, vehicles are loaded. Employees enter what was actually picked up p
 
 - `POST /purchases/:paperId`
 
-Each entry contains `vehicle_id`, `product_link_id`, `delivery_session`, `purchased_qty`, `purchase_rate`, `purchase_amount`, `distributor_id`, `category`, and `gatepass_date`. The service:
+Each entry contains `vehicleId`, `deliverySession`, `distributorId`, `category`, `productId`, and `purchasedQty` (`SavePurchaseDto.entries[]`). `product_link_id` is resolved by the service from `(distributorId, productId)`; `purchase_rate` is resolved from the active `distributor_product_rate`; `purchase_amount = purchasedQty × purchase_rate`; `gatepass_date` is derived from the brand's `gatepass_date_policy` (`SAME_DAY` = paper sale date; `PREVIOUS_DAY` = sale date minus one). The service:
 
 - Creates the `purchase_paper` if one does not already exist for the paper.
 - Upserts `purchase_entry` keyed by `(purchase_paper, delivery_session, vehicle, product_link)`.
-- Applies the brand's `gatepass_date_policy` to default `gatepass_date` when the caller does not provide one (`SAME_DAY` = paper sale date; `PREVIOUS_DAY` = sale date minus one).
+- Compares each entry against its planned `vehicle_allocation.allocated_qty` for the same `(vehicle, distributor, category, product, deliverySession)`. If they differ, a matching entry in `acknowledgements` (with a `PurchaseVarianceReason`) is required; otherwise the save is rejected.
 
 ## Step 3 — Vehicles deliver, employees record delivered quantities
 
