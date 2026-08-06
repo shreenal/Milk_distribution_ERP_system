@@ -29,9 +29,9 @@ export class AuthController {
     return this.authService.login(dto.username, dto.password);
   }
 
-  @Get("me")
-@UseGuards(JwtAuthGuard)
-async getMe(@Req() req: AuthRequest) {
-  return this.authService.getCurrentUser(req.user.id);
-}
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  async getMe(@Req() req: AuthRequest) {
+    return this.authService.getCurrentUser(req.user.id);
+  }
 }

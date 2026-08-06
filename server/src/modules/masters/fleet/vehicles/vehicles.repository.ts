@@ -7,9 +7,7 @@ import { UpdateVehicleDto } from './dto/update-vehicle.dto.js';
 
 @Injectable()
 export class VehiclesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_vehicle.findMany({
@@ -52,10 +50,7 @@ export class VehiclesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateVehicleDto,
-  ) {
+  update(id: number, dto: UpdateVehicleDto) {
     return this.prisma.master_vehicle.update({
       where: {
         id,

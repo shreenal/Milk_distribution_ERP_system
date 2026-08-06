@@ -9,18 +9,9 @@ import { DriversRepository } from './drivers.repository.js';
 import { DriversService } from './drivers.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    VehiclesModule,
-  ],
+  imports: [PrismaModule, VehiclesModule],
   controllers: [DriversController],
-  providers: [
-    DriversService,
-    DriversRepository,
-  ],
-  exports: [
-    DriversService,
-    DriversRepository,
-  ],
+  providers: [DriversService, DriversRepository],
+  exports: [DriversService, DriversRepository],
 })
 export class DriversModule {}

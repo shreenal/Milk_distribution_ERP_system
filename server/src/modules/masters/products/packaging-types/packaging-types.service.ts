@@ -20,13 +20,10 @@ export class PackagingTypesService {
   }
 
   async findById(id: number) {
-    const packagingType =
-      await this.packagingTypesRepository.findById(id);
+    const packagingType = await this.packagingTypesRepository.findById(id);
 
     if (!packagingType) {
-      throw new NotFoundException(
-        `Packaging Type with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Packaging Type with ID ${id} not found.`);
     }
 
     return packagingType;
@@ -45,16 +42,10 @@ export class PackagingTypesService {
     return this.packagingTypesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdatePackagingTypeDto,
-  ) {
+  async update(id: number, dto: UpdatePackagingTypeDto) {
     const packagingType = await this.findById(id);
 
-    if (
-      dto.name &&
-      dto.name !== packagingType.name
-    ) {
+    if (dto.name && dto.name !== packagingType.name) {
       const existingPackagingType =
         await this.packagingTypesRepository.findByName(dto.name);
 

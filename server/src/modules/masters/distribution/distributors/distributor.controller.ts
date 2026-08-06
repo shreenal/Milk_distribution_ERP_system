@@ -22,9 +22,7 @@ import { DistributorService } from './distributor.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class DistributorController {
-  constructor(
-    private readonly distributorService: DistributorService,
-  ) {}
+  constructor(private readonly distributorService: DistributorService) {}
 
   @Get()
   findAll() {
@@ -37,16 +35,12 @@ export class DistributorController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.distributorService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateDistributorDto,
-  ) {
+  create(@Body() dto: CreateDistributorDto) {
     return this.distributorService.create(dto);
   }
 
@@ -59,9 +53,7 @@ export class DistributorController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.distributorService.delete(id);
   }
 }

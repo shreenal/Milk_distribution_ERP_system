@@ -17,7 +17,7 @@ import {
 } from './collections.constants.js';
 
 import { SupplyCategory } from '../../../generated/prisma/client.js';
-import { CollectionsValidationService } from './collections-validation.service.js';
+import { CollectionsValidationService } from './services/collections-validation.service.js';
 
 @Injectable()
 export class CollectionsService {

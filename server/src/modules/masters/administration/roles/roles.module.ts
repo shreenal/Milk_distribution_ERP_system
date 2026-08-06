@@ -9,13 +9,7 @@ import { RolesService } from './roles.service.js';
 @Module({
   imports: [PrismaModule],
   controllers: [RolesController],
-  providers: [
-    RolesService,
-    RolesRepository,
-  ],
-  exports: [
-    RolesService,
-    RolesRepository,
-  ],
+  providers: [RolesService, RolesRepository],
+  exports: [RolesService, RolesRepository],
 })
 export class RolesModule {}

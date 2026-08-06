@@ -30,24 +30,19 @@ export class DistributorProductRatesService {
       await this.distributorProductRatesRepository.findById(id);
 
     if (!distributorProductRate) {
-      throw new NotFoundException(
-        'Distributor product rate not found',
-      );
+      throw new NotFoundException('Distributor product rate not found');
     }
 
     return distributorProductRate;
   }
 
   async create(dto: CreateDistributorProductRatesDto) {
-    const productLink =
-      await this.productLinksRepository.findById(
-        dto.product_link_id,
-      );
+    const productLink = await this.productLinksRepository.findById(
+      dto.product_link_id,
+    );
 
     if (!productLink) {
-      throw new NotFoundException(
-        'Product link not found',
-      );
+      throw new NotFoundException('Product link not found');
     }
 
     const effectiveFrom = dto.effective_from
@@ -61,38 +56,29 @@ export class DistributorProductRatesService {
       );
 
     if (existingRate) {
-      throw new ConflictException(
-        'Distributor product rate already exists',
-      );
+      throw new ConflictException('Distributor product rate already exists');
     }
 
     return this.distributorProductRatesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateDistributorProductRatesDto,
-  ) {
+  async update(id: number, dto: UpdateDistributorProductRatesDto) {
     const distributorProductRate = await this.findById(id);
 
     const productLinkId =
-      dto.product_link_id ??
-      distributorProductRate.product_link_id;
+      dto.product_link_id ?? distributorProductRate.product_link_id;
 
     const effectiveFrom = dto.effective_from
       ? new Date(dto.effective_from)
       : distributorProductRate.effective_from;
 
     if (dto.product_link_id !== undefined) {
-      const productLink =
-        await this.productLinksRepository.findById(
-          dto.product_link_id,
-        );
+      const productLink = await this.productLinksRepository.findById(
+        dto.product_link_id,
+      );
 
       if (!productLink) {
-        throw new NotFoundException(
-          'Product link not found',
-        );
+        throw new NotFoundException('Product link not found');
       }
     }
 
@@ -103,15 +89,10 @@ export class DistributorProductRatesService {
       );
 
     if (existingRate && existingRate.id !== id) {
-      throw new ConflictException(
-        'Distributor product rate already exists',
-      );
+      throw new ConflictException('Distributor product rate already exists');
     }
 
-    return this.distributorProductRatesRepository.update(
-      id,
-      dto,
-    );
+    return this.distributorProductRatesRepository.update(id, dto);
   }
 
   async delete(id: number) {

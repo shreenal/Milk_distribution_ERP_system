@@ -12,9 +12,7 @@ const groupInclude = {
 
 @Injectable()
 export class GroupsRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_group.findMany({

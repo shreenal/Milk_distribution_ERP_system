@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma ,SupplyCategory} from '../../../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../../../generated/prisma/client.js';
 
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 
@@ -11,9 +11,7 @@ const clientCategoryInclude = {
 
 @Injectable()
 export class ClientCategoriesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_client_category.findMany({

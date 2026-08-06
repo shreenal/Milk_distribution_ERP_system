@@ -56,10 +56,7 @@ export class TrayTypesRepository {
     });
   }
 
-  async findByBrandAndColor(
-    brandId: number,
-    color: string,
-  ) {
+  async findByBrandAndColor(brandId: number, color: string) {
     return this.prisma.master_tray_type.findFirst({
       where: {
         brand_id: brandId,
@@ -74,10 +71,7 @@ export class TrayTypesRepository {
     });
   }
 
-  async update(
-    id: number,
-    dto: UpdateTrayTypeDto,
-  ) {
+  async update(id: number, dto: UpdateTrayTypeDto) {
     return this.prisma.master_tray_type.update({
       where: { id },
       data: dto,

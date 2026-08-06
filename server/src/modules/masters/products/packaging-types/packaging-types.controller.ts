@@ -21,9 +21,7 @@ import { UpdatePackagingTypeDto } from './dto/update-packaging-type.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class PackagingTypesController {
-  constructor(
-    private readonly packagingTypesService: PackagingTypesService,
-  ) {}
+  constructor(private readonly packagingTypesService: PackagingTypesService) {}
 
   @Get()
   findAll() {
@@ -31,16 +29,12 @@ export class PackagingTypesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.packagingTypesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreatePackagingTypeDto,
-  ) {
+  create(@Body() dto: CreatePackagingTypeDto) {
     return this.packagingTypesService.create(dto);
   }
 
@@ -53,9 +47,7 @@ export class PackagingTypesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.packagingTypesService.delete(id);
   }
 }

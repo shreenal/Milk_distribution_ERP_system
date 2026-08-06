@@ -3,17 +3,20 @@ import { Module } from '@nestjs/common';
 import { OrdersController } from './orders.controller.js';
 import { OrdersRepository } from './orders.repository.js';
 import { OrdersService } from './orders.service.js';
-import { OrdersBillingBuilder } from './order.billing-builder.js';
-import { OrdersValidationService } from './orders-validation.service.js';
-import { TraysModule } from '../trays/trays.module.js';
+import { OrdersBuilder } from './order.builder.js';
+import { OrdersValidationService } from './services/orders-validation.service.js';
+import { ClientTraysModule } from '../client-trays/client-trays.module.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { CollectionsModule } from '../collections/collections.module.js';
 import { ProductColumnsBuilder } from '../../../common/builders/product-columns.builder.js';
 import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocation.module.js';
+import { OrderCommercialService } from './services/order-commercial.service.js';
+import { NightBillingService } from './services/night-billing.service.js';
+import { FinalBillingService } from './services/final-billing.service.js';
 
 @Module({
   imports: [
-    TraysModule,
+    ClientTraysModule,
     CollectionsModule,
     WorkflowModule,
     VehicleAllocationModule,
@@ -24,9 +27,12 @@ import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocatio
   providers: [
     OrdersService,
     OrdersRepository,
-    OrdersBillingBuilder,
+    OrdersBuilder,
     OrdersValidationService,
     ProductColumnsBuilder,
+    OrderCommercialService,
+    NightBillingService,
+    FinalBillingService,
   ],
 
   exports: [

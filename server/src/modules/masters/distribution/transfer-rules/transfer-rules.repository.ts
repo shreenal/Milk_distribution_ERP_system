@@ -13,9 +13,7 @@ const transferRuleInclude = {
 
 @Injectable()
 export class TransferRulesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.distributor_transfer_rule.findMany({
@@ -45,10 +43,7 @@ export class TransferRulesRepository {
     });
   }
 
-  findDuplicate(
-    supplierDistributorId: number,
-    ownerDistributorId: number,
-  ) {
+  findDuplicate(supplierDistributorId: number, ownerDistributorId: number) {
     return this.prisma.distributor_transfer_rule.findUnique({
       where: {
         supplier_distributor_id_owner_distributor_id: {
@@ -66,10 +61,7 @@ export class TransferRulesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateTransferRuleDto,
-  ) {
+  update(id: number, dto: UpdateTransferRuleDto) {
     return this.prisma.distributor_transfer_rule.update({
       where: { id },
       data: dto,

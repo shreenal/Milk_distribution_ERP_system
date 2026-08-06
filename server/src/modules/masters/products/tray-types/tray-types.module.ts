@@ -8,12 +8,9 @@ import { TrayTypesRepository } from './tray-types.repository.js';
 import { TrayTypesService } from './tray-types.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    BrandsModule,
-  ],
+  imports: [PrismaModule, BrandsModule],
   controllers: [TrayTypesController],
   providers: [TrayTypesService, TrayTypesRepository],
-  exports: [TrayTypesService,TrayTypesRepository],
+  exports: [TrayTypesService, TrayTypesRepository],
 })
 export class TrayTypesModule {}

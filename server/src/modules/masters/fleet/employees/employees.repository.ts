@@ -7,9 +7,7 @@ import { UpdateEmployeeDto } from './dto/update-employee.dto.js';
 
 @Injectable()
 export class EmployeesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_employee.findMany({
@@ -52,10 +50,7 @@ export class EmployeesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateEmployeeDto,
-  ) {
+  update(id: number, dto: UpdateEmployeeDto) {
     return this.prisma.master_employee.update({
       where: {
         id,

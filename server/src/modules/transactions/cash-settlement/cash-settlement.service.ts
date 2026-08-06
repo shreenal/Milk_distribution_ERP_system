@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { CashSettlementRepository } from './cash-settlement.repository.js';
 
@@ -13,25 +9,30 @@ import { SaveRouteDenominationsDto } from './dto/save-route-denominations.dto.js
 
 import { SaveDirectCollectionsDto } from './dto/save-direct-collections.dto.js';
 import { SaveBankDepositsDto } from './dto/save-bank-deposit.dto.js';
-import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
 import { CASH_SETTLEMENT_ERRORS } from './cash-settlement.constants.js';
 
+import { CashSettlementValidationService } from './services/cash-settlement-validation.service.js';
+
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
+
 @Injectable()
 export class CashSettlementService {
   constructor(
     private readonly repository: CashSettlementRepository,
 
-    private readonly builder: CashSettlementBuilder,
+    private readonly cashSettlementValidationService: CashSettlementValidationService,
 
-    private readonly workflowStateService: WorkflowStateService,
+    private readonly builder: CashSettlementBuilder,
 
     private readonly workflowBuilder: WorkflowBuilder,
   ) {}
 
   async getCashSettlementService(paperId: number) {
-    const paper = await this.getCashSettlementPaper(paperId);
+    const paper =
+      await this.cashSettlementValidationService.getCashSettlementPaper(
+        paperId,
+      );
 
     const workflow = this.workflowBuilder.buildCashSettlementWorkflow(
       paper.status,
@@ -59,7 +60,9 @@ export class CashSettlementService {
   }
 
   async saveRouteExpensesService(paperId: number, dto: SaveRouteExpensesDto) {
-    await this.validateRouteExpenseEditing(paperId);
+    await this.cashSettlementValidationService.validateRouteExpenseEditing(
+      paperId,
+    );
 
     const expensesBySheet = new Map<number, typeof dto.expenses>();
 
@@ -83,7 +86,9 @@ export class CashSettlementService {
     paperId: number,
     dto: SaveRouteDenominationsDto,
   ) {
-    await this.validateRouteDenominationEditing(paperId);
+    await this.cashSettlementValidationService.validateRouteDenominationEditing(
+      paperId,
+    );
 
     for (const denomination of dto.denominations) {
       await this.repository.saveRouteDenomination(denomination);
@@ -98,7 +103,9 @@ export class CashSettlementService {
     paperId: number,
     dto: SaveDirectCollectionsDto,
   ) {
-    await this.validateDirectCollectionEditing(paperId);
+    await this.cashSettlementValidationService.validateDirectCollectionEditing(
+      paperId,
+    );
 
     await this.repository.replaceDirectCollections(
       paperId,
@@ -111,62 +118,14 @@ export class CashSettlementService {
   }
 
   async saveBankDepositsService(paperId: number, dto: SaveBankDepositsDto) {
-    await this.validateBankDepositEditing(paperId);
+    await this.cashSettlementValidationService.validateBankDepositEditing(
+      paperId,
+    );
 
     await this.repository.replaceBankDeposits(paperId, dto.bankDeposits);
 
     return {
       success: true,
     };
-  }
-
-  private async getCashSettlementPaper(paperId: number) {
-    const paper = await this.repository.getCashSettlementData(paperId);
-
-    if (!paper) {
-      throw new NotFoundException(CASH_SETTLEMENT_ERRORS.PAPER_NOT_FOUND);
-    }
-
-    return paper;
-  }
-
-  private async validateRouteExpenseEditing(paperId: number) {
-    const paper = await this.getCashSettlementPaper(paperId);
-
-    if (!this.workflowStateService.canEditRouteExpenses(paper.status)) {
-      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
-    }
-
-    return paper;
-  }
-
-  private async validateRouteDenominationEditing(paperId: number) {
-    const paper = await this.getCashSettlementPaper(paperId);
-
-    if (!this.workflowStateService.canEditRouteDenominations(paper.status)) {
-      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
-    }
-
-    return paper;
-  }
-
-  private async validateDirectCollectionEditing(paperId: number) {
-    const paper = await this.getCashSettlementPaper(paperId);
-
-    if (!this.workflowStateService.canEditDirectCollections(paper.status)) {
-      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
-    }
-
-    return paper;
-  }
-
-  private async validateBankDepositEditing(paperId: number) {
-    const paper = await this.getCashSettlementPaper(paperId);
-
-    if (!this.workflowStateService.canEditBankDeposits(paper.status)) {
-      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.EDITING_NOT_ALLOWED);
-    }
-
-    return paper;
   }
 }

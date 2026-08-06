@@ -1,8 +1,4 @@
-import {
-  IsInt,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsInt, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateProductTypeDto {

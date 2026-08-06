@@ -10,9 +10,7 @@ import { EmployeesRepository } from './employees.repository.js';
 
 @Injectable()
 export class EmployeesService {
-  constructor(
-    private readonly employeesRepository: EmployeesRepository,
-  ) {}
+  constructor(private readonly employeesRepository: EmployeesRepository) {}
 
   findAll() {
     return this.employeesRepository.findAll();
@@ -33,36 +31,26 @@ export class EmployeesService {
   }
 
   async create(dto: CreateEmployeeDto) {
-    const existingEmployee =
-      await this.employeesRepository.findByName(dto.name);
+    const existingEmployee = await this.employeesRepository.findByName(
+      dto.name,
+    );
 
     if (existingEmployee) {
-      throw new ConflictException(
-        'Employee with this name already exists.',
-      );
+      throw new ConflictException('Employee with this name already exists.');
     }
 
     return this.employeesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateEmployeeDto,
-  ) {
+  async update(id: number, dto: UpdateEmployeeDto) {
     const employee = await this.findById(id);
 
     const name = dto.name ?? employee.name;
 
-    const existingEmployee =
-      await this.employeesRepository.findByName(name);
+    const existingEmployee = await this.employeesRepository.findByName(name);
 
-    if (
-      existingEmployee &&
-      existingEmployee.id !== id
-    ) {
-      throw new ConflictException(
-        'Employee with this name already exists.',
-      );
+    if (existingEmployee && existingEmployee.id !== id) {
+      throw new ConflictException('Employee with this name already exists.');
     }
 
     return this.employeesRepository.update(id, dto);

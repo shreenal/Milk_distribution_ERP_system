@@ -7,9 +7,7 @@ import { UpdateDriverDto } from './dto/update-driver.dto.js';
 
 @Injectable()
 export class DriversRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_driver.findMany({
@@ -64,10 +62,7 @@ export class DriversRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateDriverDto,
-  ) {
+  update(id: number, dto: UpdateDriverDto) {
     return this.prisma.master_driver.update({
       where: {
         id,

@@ -10,7 +10,6 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
-
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
@@ -22,9 +21,7 @@ import { UpdateTrayTypeDto } from './dto/update-tray-type.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class TrayTypesController {
-  constructor(
-    private readonly trayTypesService: TrayTypesService,
-  ) {}
+  constructor(private readonly trayTypesService: TrayTypesService) {}
 
   @Get()
   findAll() {

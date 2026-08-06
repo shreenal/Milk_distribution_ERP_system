@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { DATE_CONFIG, ERROR_MESSAGES } from './paper.constants.js';
-import { PaperValidationService } from './paper-validation.service.js';
+import { PaperValidationService } from './services/paper-validation.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { PaperRepository } from './paper.repository.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
@@ -14,7 +14,7 @@ export class PaperService {
     private readonly paperValidationService: PaperValidationService,
     private readonly workflowState: WorkflowStateService,
     private readonly distributorTransferService: DistributorTransferService,
-  ) { }
+  ) {}
 
   async generatePaperService(date: string) {
     try {

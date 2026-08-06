@@ -46,74 +46,56 @@ export class ProductLinksService {
       throw new NotFoundException('Distributor not found');
     }
 
-    const product = await this.productsRepository.findById(
-      dto.product_id,
-    );
+    const product = await this.productsRepository.findById(dto.product_id);
 
     if (!product) {
       throw new NotFoundException('Product not found');
     }
 
-    const existingLink =
-      await this.productLinksRepository.findDuplicate(
-        dto.distributor_id,
-        dto.product_id,
-      );
+    const existingLink = await this.productLinksRepository.findDuplicate(
+      dto.distributor_id,
+      dto.product_id,
+    );
 
     if (existingLink) {
-      throw new ConflictException(
-        'Product link already exists',
-      );
+      throw new ConflictException('Product link already exists');
     }
 
     return this.productLinksRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateProductLinksDto,
-  ) {
+  async update(id: number, dto: UpdateProductLinksDto) {
     const productLink = await this.findById(id);
 
-    const distributorId =
-      dto.distributor_id ?? productLink.distributor_id;
+    const distributorId = dto.distributor_id ?? productLink.distributor_id;
 
-    const productId =
-      dto.product_id ?? productLink.product_id;
+    const productId = dto.product_id ?? productLink.product_id;
 
     if (dto.distributor_id !== undefined) {
-      const distributor =
-        await this.distributorRepository.findById(
-          dto.distributor_id,
-        );
+      const distributor = await this.distributorRepository.findById(
+        dto.distributor_id,
+      );
 
       if (!distributor) {
-        throw new NotFoundException(
-          'Distributor not found',
-        );
+        throw new NotFoundException('Distributor not found');
       }
     }
 
     if (dto.product_id !== undefined) {
-      const product = await this.productsRepository.findById(
-        dto.product_id,
-      );
+      const product = await this.productsRepository.findById(dto.product_id);
 
       if (!product) {
         throw new NotFoundException('Product not found');
       }
     }
 
-    const existingLink =
-      await this.productLinksRepository.findDuplicate(
-        distributorId,
-        productId,
-      );
+    const existingLink = await this.productLinksRepository.findDuplicate(
+      distributorId,
+      productId,
+    );
 
     if (existingLink && existingLink.id !== id) {
-      throw new ConflictException(
-        'Product link already exists',
-      );
+      throw new ConflictException('Product link already exists');
     }
 
     return this.productLinksRepository.update(id, dto);

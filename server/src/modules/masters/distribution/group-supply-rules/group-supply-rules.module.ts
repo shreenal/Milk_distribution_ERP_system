@@ -10,19 +10,9 @@ import { GroupSupplyRulesRepository } from './group-supply-rules.repository.js';
 import { GroupSupplyRulesService } from './group-supply-rules.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    GroupsModule,
-    DistributorModule,
-  ],
+  imports: [PrismaModule, GroupsModule, DistributorModule],
   controllers: [GroupSupplyRulesController],
-  providers: [
-    GroupSupplyRulesService,
-    GroupSupplyRulesRepository,
-  ],
-  exports: [
-    GroupSupplyRulesService,
-    GroupSupplyRulesRepository,
-  ],
+  providers: [GroupSupplyRulesService, GroupSupplyRulesRepository],
+  exports: [GroupSupplyRulesService, GroupSupplyRulesRepository],
 })
 export class GroupSupplyRulesModule {}

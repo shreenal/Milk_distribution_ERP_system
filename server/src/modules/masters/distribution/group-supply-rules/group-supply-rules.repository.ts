@@ -1,8 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import {
-  Prisma,
-  SupplyCategory,
-} from '../../../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../../../generated/prisma/client.js';
 
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 
@@ -16,9 +13,7 @@ const groupSupplyRuleInclude = {
 
 @Injectable()
 export class GroupSupplyRulesRepository {
-  constructor(
-    private readonly prisma: PrismaService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_group_supply_rule.findMany({
@@ -48,10 +43,7 @@ export class GroupSupplyRulesRepository {
     });
   }
 
-  findDuplicate(
-    groupId: number,
-    category: SupplyCategory,
-  ) {
+  findDuplicate(groupId: number, category: SupplyCategory) {
     return this.prisma.master_group_supply_rule.findUnique({
       where: {
         group_id_category: {
@@ -69,10 +61,7 @@ export class GroupSupplyRulesRepository {
     });
   }
 
-  update(
-    id: number,
-    dto: UpdateGroupSupplyRuleDto,
-  ) {
+  update(id: number, dto: UpdateGroupSupplyRuleDto) {
     return this.prisma.master_group_supply_rule.update({
       where: { id },
       data: dto,

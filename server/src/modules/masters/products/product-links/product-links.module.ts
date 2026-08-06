@@ -10,19 +10,9 @@ import { ProductLinksRepository } from './product-links.repository.js';
 import { ProductLinksService } from './product-links.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    DistributorModule,
-    ProductsModule,
-  ],
+  imports: [PrismaModule, DistributorModule, ProductsModule],
   controllers: [ProductLinksController],
-  providers: [
-    ProductLinksService,
-    ProductLinksRepository,
-  ],
-  exports: [
-    ProductLinksService,
-    ProductLinksRepository,
-  ],
+  providers: [ProductLinksService, ProductLinksRepository],
+  exports: [ProductLinksService, ProductLinksRepository],
 })
 export class ProductLinksModule {}

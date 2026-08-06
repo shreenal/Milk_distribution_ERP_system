@@ -1,8 +1,4 @@
-import {
-  IsBoolean,
-  IsInt,
-  IsOptional,
-} from 'class-validator';
+import { IsBoolean, IsInt, IsOptional } from 'class-validator';
 
 export class CreateTransferRuleDto {
   @IsInt()

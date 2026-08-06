@@ -36,16 +36,12 @@ export class ClientProductRatesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.clientProductRatesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateClientProductRateDto,
-  ) {
+  create(@Body() dto: CreateClientProductRateDto) {
     return this.clientProductRatesService.create(dto);
   }
 
@@ -58,9 +54,7 @@ export class ClientProductRatesController {
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.clientProductRatesService.delete(id);
   }
 }

@@ -22,9 +22,7 @@ import { RolesService } from './roles.service.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class RolesController {
-  constructor(
-    private readonly rolesService: RolesService,
-  ) {}
+  constructor(private readonly rolesService: RolesService) {}
 
   @Get()
   findAll() {
@@ -32,31 +30,22 @@ export class RolesController {
   }
 
   @Get(':id')
-  findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  findById(@Param('id', ParseIntPipe) id: number) {
     return this.rolesService.findById(id);
   }
 
   @Post()
-  create(
-    @Body() dto: CreateRolesDto,
-  ) {
+  create(@Body() dto: CreateRolesDto) {
     return this.rolesService.create(dto);
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: UpdateRolesDto,
-  ) {
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateRolesDto) {
     return this.rolesService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  delete(@Param('id', ParseIntPipe) id: number) {
     return this.rolesService.delete(id);
   }
 }

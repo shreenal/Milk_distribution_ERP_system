@@ -29,9 +29,7 @@ export class TrayTypesService {
     const trayType = await this.trayTypesRepository.findById(id);
 
     if (!trayType) {
-      throw new NotFoundException(
-        `Tray Type with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Tray Type with ID ${id} not found.`);
     }
 
     return trayType;
@@ -41,16 +39,13 @@ export class TrayTypesService {
     const brand = await this.brandsRepository.findById(dto.brand_id);
 
     if (!brand) {
-      throw new NotFoundException(
-        `Brand with ID ${dto.brand_id} not found.`,
-      );
+      throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
     }
 
-    const existingTrayType =
-      await this.trayTypesRepository.findByBrandAndColor(
-        dto.brand_id,
-        dto.color,
-      );
+    const existingTrayType = await this.trayTypesRepository.findByBrandAndColor(
+      dto.brand_id,
+      dto.color,
+    );
 
     if (existingTrayType) {
       throw new ConflictException(
@@ -61,19 +56,14 @@ export class TrayTypesService {
     return this.trayTypesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateTrayTypeDto,
-  ) {
+  async update(id: number, dto: UpdateTrayTypeDto) {
     await this.findById(id);
 
     if (dto.brand_id) {
       const brand = await this.brandsRepository.findById(dto.brand_id);
 
       if (!brand) {
-        throw new NotFoundException(
-          `Brand with ID ${dto.brand_id} not found.`,
-        );
+        throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
       }
     }
 

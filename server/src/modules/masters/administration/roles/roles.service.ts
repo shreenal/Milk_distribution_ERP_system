@@ -10,9 +10,7 @@ import { RolesRepository } from './roles.repository.js';
 
 @Injectable()
 export class RolesService {
-  constructor(
-    private readonly rolesRepository: RolesRepository,
-  ) {}
+  constructor(private readonly rolesRepository: RolesRepository) {}
 
   findAll() {
     return this.rolesRepository.findAll();
@@ -29,9 +27,7 @@ export class RolesService {
   }
 
   async create(dto: CreateRolesDto) {
-    const existingRole = await this.rolesRepository.findByName(
-      dto.name,
-    );
+    const existingRole = await this.rolesRepository.findByName(dto.name);
 
     if (existingRole) {
       throw new ConflictException('Role already exists');
@@ -40,16 +36,11 @@ export class RolesService {
     return this.rolesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateRolesDto,
-  ) {
+  async update(id: number, dto: UpdateRolesDto) {
     await this.findById(id);
 
     if (dto.name) {
-      const existingRole = await this.rolesRepository.findByName(
-        dto.name,
-      );
+      const existingRole = await this.rolesRepository.findByName(dto.name);
 
       if (existingRole && existingRole.id !== id) {
         throw new ConflictException('Role already exists');

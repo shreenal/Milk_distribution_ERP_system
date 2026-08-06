@@ -30,13 +30,10 @@ export class ProcurementRulesService {
   }
 
   async findById(id: number) {
-    const procurementRule =
-      await this.procurementRulesRepository.findById(id);
+    const procurementRule = await this.procurementRulesRepository.findById(id);
 
     if (!procurementRule) {
-      throw new NotFoundException(
-        'Procurement rule not found.',
-      );
+      throw new NotFoundException('Procurement rule not found.');
     }
 
     return procurementRule;
@@ -45,61 +42,44 @@ export class ProcurementRulesService {
   async create(dto: CreateProcurementRuleDto) {
     await this.validateReferences(dto);
 
-    const duplicate =
-      await this.procurementRulesRepository.findDuplicate(
-        dto.distributor_id,
-        dto.category,
-        dto.brand_id,
-        dto.product_group_id,
-      );
+    const duplicate = await this.procurementRulesRepository.findDuplicate(
+      dto.distributor_id,
+      dto.category,
+      dto.brand_id,
+      dto.product_group_id,
+    );
 
     if (duplicate) {
-      throw new ConflictException(
-        'Procurement rule already exists.',
-      );
+      throw new ConflictException('Procurement rule already exists.');
     }
 
     return this.procurementRulesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateProcurementRuleDto,
-  ) {
+  async update(id: number, dto: UpdateProcurementRuleDto) {
     const existing = await this.findById(id);
 
     const data = {
-      distributor_id:
-        dto.distributor_id ?? existing.distributor_id,
-      category:
-        dto.category ?? existing.category,
-      brand_id:
-        dto.brand_id ?? existing.brand_id,
-      product_group_id:
-        dto.product_group_id ??
-        existing.product_group_id,
+      distributor_id: dto.distributor_id ?? existing.distributor_id,
+      category: dto.category ?? existing.category,
+      brand_id: dto.brand_id ?? existing.brand_id,
+      product_group_id: dto.product_group_id ?? existing.product_group_id,
     };
 
     await this.validateReferences(data);
 
-    const duplicate =
-      await this.procurementRulesRepository.findDuplicate(
-        data.distributor_id,
-        data.category,
-        data.brand_id,
-        data.product_group_id,
-      );
+    const duplicate = await this.procurementRulesRepository.findDuplicate(
+      data.distributor_id,
+      data.category,
+      data.brand_id,
+      data.product_group_id,
+    );
 
     if (duplicate && duplicate.id !== id) {
-      throw new ConflictException(
-        'Procurement rule already exists.',
-      );
+      throw new ConflictException('Procurement rule already exists.');
     }
 
-    return this.procurementRulesRepository.update(
-      id,
-      dto,
-    );
+    return this.procurementRulesRepository.update(id, dto);
   }
 
   async delete(id: number) {
@@ -113,37 +93,26 @@ export class ProcurementRulesService {
     brand_id: number;
     product_group_id: number;
   }) {
-    const distributor =
-      await this.distributorRepository.findById(
-        data.distributor_id,
-      );
+    const distributor = await this.distributorRepository.findById(
+      data.distributor_id,
+    );
 
     if (!distributor) {
-      throw new NotFoundException(
-        'Distributor not found.',
-      );
+      throw new NotFoundException('Distributor not found.');
     }
 
-    const brand =
-      await this.brandsRepository.findById(
-        data.brand_id,
-      );
+    const brand = await this.brandsRepository.findById(data.brand_id);
 
     if (!brand) {
-      throw new NotFoundException(
-        'Brand not found.',
-      );
+      throw new NotFoundException('Brand not found.');
     }
 
-    const productGroup =
-      await this.productGroupRepository.findById(
-        data.product_group_id,
-      );
+    const productGroup = await this.productGroupRepository.findById(
+      data.product_group_id,
+    );
 
     if (!productGroup) {
-      throw new NotFoundException(
-        'Product group not found.',
-      );
+      throw new NotFoundException('Product group not found.');
     }
   }
 }

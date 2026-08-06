@@ -13,11 +13,9 @@ export class CreateClientProductRateDto {
   @IsInt()
   product_link_id!: number;
 
-  @IsNumber(
-    {
-      maxDecimalPlaces: 2,
-    },
-  )
+  @IsNumber({
+    maxDecimalPlaces: 2,
+  })
   selling_rate!: number;
 
   @IsOptional()

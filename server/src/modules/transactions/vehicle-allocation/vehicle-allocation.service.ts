@@ -3,7 +3,7 @@ import { VehicleAllocationBuilder } from './vehicle-allocation.builder.js';
 import { VehicleAllocationRepository } from './vehicle-allocation.repository.js';
 import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
-import { VehicleAllocationValidationService } from './vehicle-allocation-validation.service.js';
+import { VehicleAllocationValidationService } from './services/vehicle-allocation-validation.service.js';
 import { AllocationSummaryBuilder } from '../../../common/builders/allocation-summary.builder.js';
 import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
 import {

@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 
-import { CLIENT_CODE_PREFIX,CLIENT_CODE_LENGTH } from './clients.constants.js';
+import { CLIENT_CODE_PREFIX, CLIENT_CODE_LENGTH } from './clients.constants.js';
 
 import { DistributorRepository } from '../../distribution/distributors/distributor.repository.js';
 import { GroupsRepository } from '../groups/groups.repository.js';

@@ -98,10 +98,10 @@ export class ProductsRepository {
   }
 
   async create(dto: CreateProductDto & { code?: string | null }) {
-  return this.prisma.master_product.create({
-    data: dto,
-  });
-}
+    return this.prisma.master_product.create({
+      data: dto,
+    });
+  }
 
   async update(id: number, dto: UpdateProductDto) {
     return this.prisma.master_product.update({
@@ -110,24 +110,22 @@ export class ProductsRepository {
     });
   }
 
-   async updateCode(id: number, code: string) {
-  return this.prisma.master_product.update({
-    where: { id },
-    data: { code },
-    include: {
-      master_brand: true,
-      master_product_group: true,
-      master_product_type: true,
-      master_packaging_type: true,
-    },
-  });
-}
+  async updateCode(id: number, code: string) {
+    return this.prisma.master_product.update({
+      where: { id },
+      data: { code },
+      include: {
+        master_brand: true,
+        master_product_group: true,
+        master_product_type: true,
+        master_packaging_type: true,
+      },
+    });
+  }
 
   async delete(id: number) {
     return this.prisma.master_product.delete({
       where: { id },
     });
   }
-
- 
 }

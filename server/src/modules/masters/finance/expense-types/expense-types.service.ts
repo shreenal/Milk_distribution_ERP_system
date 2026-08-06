@@ -25,22 +25,19 @@ export class ExpenseTypesService {
     const expenseType = await this.expenseTypesRepository.findById(id);
 
     if (!expenseType) {
-      throw new NotFoundException(
-        `Expense Type with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Expense Type with ID ${id} not found.`);
     }
 
     return expenseType;
   }
 
   async create(dto: CreateExpenseTypeDto) {
-    const existingExpenseType =
-      await this.expenseTypesRepository.findByName(dto.name);
+    const existingExpenseType = await this.expenseTypesRepository.findByName(
+      dto.name,
+    );
 
     if (existingExpenseType) {
-      throw new ConflictException(
-        `Expense Type '${dto.name}' already exists.`,
-      );
+      throw new ConflictException(`Expense Type '${dto.name}' already exists.`);
     }
 
     return this.expenseTypesRepository.create(dto);
@@ -50,8 +47,9 @@ export class ExpenseTypesService {
     await this.findById(id);
 
     if (dto.name) {
-      const existingExpenseType =
-        await this.expenseTypesRepository.findByName(dto.name);
+      const existingExpenseType = await this.expenseTypesRepository.findByName(
+        dto.name,
+      );
 
       if (existingExpenseType && existingExpenseType.id !== id) {
         throw new ConflictException(

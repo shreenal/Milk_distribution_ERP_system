@@ -23,9 +23,7 @@ import { UpdateDairyDto } from './dto/update-dairy.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class DairiesController {
-  constructor(
-    private readonly dairiesService: DairiesService,
-  ) {}
+  constructor(private readonly dairiesService: DairiesService) {}
 
   @Get()
   async findAll() {
@@ -38,16 +36,12 @@ export class DairiesController {
   }
 
   @Get(':id')
-  async findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async findById(@Param('id', ParseIntPipe) id: number) {
     return this.dairiesService.findById(id);
   }
 
   @Post()
-  async create(
-    @Body() dto: CreateDairyDto,
-  ) {
+  async create(@Body() dto: CreateDairyDto) {
     return this.dairiesService.create(dto);
   }
 
@@ -60,9 +54,7 @@ export class DairiesController {
   }
 
   @Delete(':id')
-  async delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async delete(@Param('id', ParseIntPipe) id: number) {
     return this.dairiesService.delete(id);
   }
 }

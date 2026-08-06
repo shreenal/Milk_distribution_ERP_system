@@ -1,9 +1,4 @@
-import {
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsOptional,
-} from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional } from 'class-validator';
 
 import { SupplyCategory } from '../../../../../generated/prisma/client.js';
 

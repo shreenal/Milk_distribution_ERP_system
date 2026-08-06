@@ -23,9 +23,7 @@ import { UpdateProductTypeDto } from './dto/update-product-type.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ProductTypesController {
-  constructor(
-    private readonly productTypesService: ProductTypesService,
-  ) {}
+  constructor(private readonly productTypesService: ProductTypesService) {}
 
   @Get()
   async findAll() {
@@ -33,16 +31,12 @@ export class ProductTypesController {
   }
 
   @Get(':id')
-  async findById(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async findById(@Param('id', ParseIntPipe) id: number) {
     return this.productTypesService.findById(id);
   }
 
   @Post()
-  async create(
-    @Body() dto: CreateProductTypeDto,
-  ) {
+  async create(@Body() dto: CreateProductTypeDto) {
     return this.productTypesService.create(dto);
   }
 
@@ -55,9 +49,7 @@ export class ProductTypesController {
   }
 
   @Delete(':id')
-  async delete(
-    @Param('id', ParseIntPipe) id: number,
-  ) {
+  async delete(@Param('id', ParseIntPipe) id: number) {
     return this.productTypesService.delete(id);
   }
 }

@@ -9,18 +9,9 @@ import { UsersRepository } from './users.repository.js';
 import { UsersService } from './users.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    RolesModule,
-  ],
+  imports: [PrismaModule, RolesModule],
   controllers: [UsersController],
-  providers: [
-    UsersService,
-    UsersRepository,
-  ],
-  exports: [
-    UsersService,
-    UsersRepository,
-  ],
+  providers: [UsersService, UsersRepository],
+  exports: [UsersService, UsersRepository],
 })
 export class UsersModule {}

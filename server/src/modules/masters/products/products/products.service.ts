@@ -40,9 +40,7 @@ export class ProductsService {
     const product = await this.productsRepository.findById(id);
 
     if (!product) {
-      throw new NotFoundException(
-        `Product with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Product with ID ${id} not found.`);
     }
 
     return product;
@@ -52,15 +50,12 @@ export class ProductsService {
     const brand = await this.brandsRepository.findById(dto.brand_id);
 
     if (!brand) {
-      throw new NotFoundException(
-        `Brand with ID ${dto.brand_id} not found.`,
-      );
+      throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
     }
 
-    const productGroup =
-      await this.productGroupRepository.findById(
-        dto.product_group_id,
-      );
+    const productGroup = await this.productGroupRepository.findById(
+      dto.product_group_id,
+    );
 
     if (!productGroup) {
       throw new NotFoundException(
@@ -69,10 +64,9 @@ export class ProductsService {
     }
 
     if (dto.product_type_id) {
-      const productType =
-        await this.productTypesRepository.findById(
-          dto.product_type_id,
-        );
+      const productType = await this.productTypesRepository.findById(
+        dto.product_type_id,
+      );
 
       if (!productType) {
         throw new NotFoundException(
@@ -82,10 +76,9 @@ export class ProductsService {
     }
 
     if (dto.packaging_type_id) {
-      const packagingType =
-        await this.packagingTypesRepository.findById(
-          dto.packaging_type_id,
-        );
+      const packagingType = await this.packagingTypesRepository.findById(
+        dto.packaging_type_id,
+      );
 
       if (!packagingType) {
         throw new NotFoundException(
@@ -94,15 +87,14 @@ export class ProductsService {
       }
     }
 
-    const duplicate =
-      await this.productsRepository.findDuplicate(
-        dto.brand_id,
-        dto.product_group_id,
-        dto.product_type_id ?? null,
-        dto.packaging_type_id ?? null,
-        dto.packaging_size,
-        dto.packaging_unit,
-      );
+    const duplicate = await this.productsRepository.findDuplicate(
+      dto.brand_id,
+      dto.product_group_id,
+      dto.product_type_id ?? null,
+      dto.packaging_type_id ?? null,
+      dto.packaging_size,
+      dto.packaging_unit,
+    );
 
     if (duplicate) {
       throw new ConflictException(
@@ -117,24 +109,16 @@ export class ProductsService {
 
     const code = this.generateProductCode(product.id);
 
-    return this.productsRepository.updateCode(
-      product.id,
-      code,
-    );
+    return this.productsRepository.updateCode(product.id, code);
   }
 
-  async update(
-    id: number,
-    dto: UpdateProductDto,
-  ) {
+  async update(id: number, dto: UpdateProductDto) {
     const existingProduct = await this.findById(id);
 
-    const brandId =
-      dto.brand_id ?? existingProduct.brand_id;
+    const brandId = dto.brand_id ?? existingProduct.brand_id;
 
     const productGroupId =
-      dto.product_group_id ??
-      existingProduct.product_group_id;
+      dto.product_group_id ?? existingProduct.product_group_id;
 
     const productTypeId =
       dto.product_type_id !== undefined
@@ -146,27 +130,18 @@ export class ProductsService {
         ? dto.packaging_type_id
         : existingProduct.packaging_type_id;
 
-    const packagingSize =
-      dto.packaging_size ??
-      existingProduct.packaging_size;
+    const packagingSize = dto.packaging_size ?? existingProduct.packaging_size;
 
-    const packagingUnit =
-      dto.packaging_unit ??
-      existingProduct.packaging_unit;
+    const packagingUnit = dto.packaging_unit ?? existingProduct.packaging_unit;
 
-    const brand =
-      await this.brandsRepository.findById(brandId);
+    const brand = await this.brandsRepository.findById(brandId);
 
     if (!brand) {
-      throw new NotFoundException(
-        `Brand with ID ${brandId} not found.`,
-      );
+      throw new NotFoundException(`Brand with ID ${brandId} not found.`);
     }
 
     const productGroup =
-      await this.productGroupRepository.findById(
-        productGroupId,
-      );
+      await this.productGroupRepository.findById(productGroupId);
 
     if (!productGroup) {
       throw new NotFoundException(
@@ -176,9 +151,7 @@ export class ProductsService {
 
     if (productTypeId) {
       const productType =
-        await this.productTypesRepository.findById(
-          productTypeId,
-        );
+        await this.productTypesRepository.findById(productTypeId);
 
       if (!productType) {
         throw new NotFoundException(
@@ -189,9 +162,7 @@ export class ProductsService {
 
     if (packagingTypeId) {
       const packagingType =
-        await this.packagingTypesRepository.findById(
-          packagingTypeId,
-        );
+        await this.packagingTypesRepository.findById(packagingTypeId);
 
       if (!packagingType) {
         throw new NotFoundException(
@@ -200,15 +171,14 @@ export class ProductsService {
       }
     }
 
-    const duplicate =
-      await this.productsRepository.findDuplicate(
-        brandId,
-        productGroupId,
-        productTypeId ?? null,
-        packagingTypeId ?? null,
-        packagingSize,
-        packagingUnit,
-      );
+    const duplicate = await this.productsRepository.findDuplicate(
+      brandId,
+      productGroupId,
+      productTypeId ?? null,
+      packagingTypeId ?? null,
+      packagingSize,
+      packagingUnit,
+    );
 
     if (duplicate && duplicate.id !== id) {
       throw new ConflictException(

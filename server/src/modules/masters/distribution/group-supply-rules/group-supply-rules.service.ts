@@ -28,13 +28,10 @@ export class GroupSupplyRulesService {
   }
 
   async findById(id: number) {
-    const groupSupplyRule =
-      await this.groupSupplyRulesRepository.findById(id);
+    const groupSupplyRule = await this.groupSupplyRulesRepository.findById(id);
 
     if (!groupSupplyRule) {
-      throw new NotFoundException(
-        'Group supply rule not found.',
-      );
+      throw new NotFoundException('Group supply rule not found.');
     }
 
     return groupSupplyRule;
@@ -43,52 +40,39 @@ export class GroupSupplyRulesService {
   async create(dto: CreateGroupSupplyRuleDto) {
     await this.validateReferences(dto);
 
-    const duplicate =
-      await this.groupSupplyRulesRepository.findDuplicate(
-        dto.group_id,
-        dto.category,
-      );
+    const duplicate = await this.groupSupplyRulesRepository.findDuplicate(
+      dto.group_id,
+      dto.category,
+    );
 
     if (duplicate) {
-      throw new ConflictException(
-        'Group supply rule already exists.',
-      );
+      throw new ConflictException('Group supply rule already exists.');
     }
 
     return this.groupSupplyRulesRepository.create(dto);
   }
 
-  async update(
-    id: number,
-    dto: UpdateGroupSupplyRuleDto,
-  ) {
+  async update(id: number, dto: UpdateGroupSupplyRuleDto) {
     const existing = await this.findById(id);
 
     const data = {
       group_id: dto.group_id ?? existing.group_id,
       category: dto.category ?? existing.category,
-      distributor_id:
-        dto.distributor_id ?? existing.distributor_id,
+      distributor_id: dto.distributor_id ?? existing.distributor_id,
     };
 
     await this.validateReferences(data);
 
-    const duplicate =
-      await this.groupSupplyRulesRepository.findDuplicate(
-        data.group_id,
-        data.category,
-      );
+    const duplicate = await this.groupSupplyRulesRepository.findDuplicate(
+      data.group_id,
+      data.category,
+    );
 
     if (duplicate && duplicate.id !== id) {
-      throw new ConflictException(
-        'Group supply rule already exists.',
-      );
+      throw new ConflictException('Group supply rule already exists.');
     }
 
-    return this.groupSupplyRulesRepository.update(
-      id,
-      dto,
-    );
+    return this.groupSupplyRulesRepository.update(id, dto);
   }
 
   async delete(id: number) {
@@ -101,26 +85,18 @@ export class GroupSupplyRulesService {
     group_id: number;
     distributor_id: number;
   }) {
-    const group =
-      await this.groupsRepository.findById(
-        data.group_id,
-      );
+    const group = await this.groupsRepository.findById(data.group_id);
 
     if (!group) {
-      throw new NotFoundException(
-        'Group not found.',
-      );
+      throw new NotFoundException('Group not found.');
     }
 
-    const distributor =
-      await this.distributorRepository.findById(
-        data.distributor_id,
-      );
+    const distributor = await this.distributorRepository.findById(
+      data.distributor_id,
+    );
 
     if (!distributor) {
-      throw new NotFoundException(
-        'Distributor not found.',
-      );
+      throw new NotFoundException('Distributor not found.');
     }
   }
 }
