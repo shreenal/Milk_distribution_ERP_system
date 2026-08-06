@@ -47,35 +47,63 @@ Each module defines its error messages as constants in a `<module>.constants.ts`
 
 ### Paper module (`paper.constants.ts`)
 
+The exported constant is `ERROR_MESSAGES` (paired with `SUCCESS_MESSAGES` and a `DATE_CONFIG` object holding `MAX_FUTURE_DAYS: 30` and `TIMEZONE: 'Asia/Kolkata'`).
+
 ```typescript
+INVALID_PAPER_ID: 'Invalid paper ID provided'
+PAPER_NOT_FOUND: 'Order paper not found'
+NO_PAPERS_FOUND: 'No papers found in system'
+NO_ACTIVE_GROUPS: 'No active groups found to generate sheets'
+INVALID_STATUS_TRANSITION: (current, target) =>
+  `Cannot transition from ${current} to ${target}`
+MUST_RESUBMIT_MORNING: (previousStatus) =>
+  `After reopening from ${previousStatus}, you must resubmit morning entry before finalizing`
 INVALID_DATE_FORMAT: 'Invalid date format'
 PAST_DATE_NOT_ALLOWED: 'Cannot perform operations on past dates'
 FUTURE_DATE_TOO_FAR: (maxDays) => `Cannot generate paper more than ${maxDays} days ahead`
-PAPER_NOT_FOUND: 'Order paper not found'
-NO_ACTIVE_GROUPS: 'No active groups found to generate sheets'
 PAPER_NOT_IN_DRAFT_STATUS: 'Paper not in DRAFT status'
 MISSING_REQUIRED_FIELD: (field) => `Required field "${field}" is missing`
 ```
 
 ### Orders module (`orders.constants.ts`)
 
+The exported constant is `ERROR_MESSAGES`. The file also exports `TRANSACTION_CONFIG` (Prisma `$transaction` timeout, isolation, retries), `QUANTITY_PRECISION` (`OPERATIONAL_UNIT_LITRES: 10`, `MIN_UNIT_PRECISION: 0.5`, `MAX_ORDERED_QTY`/`MAX_DELIVERED_QTY: 10000`), `DATE_CONFIG`, and `SUCCESS_MESSAGES`.
+
 ```typescript
+INVALID_SHEET_ID: 'Invalid sheet ID provided'
 SHEET_NOT_FOUND: 'Order sheet not found'
+INVALID_PAPER_ID: 'Invalid paper ID provided'
+PAPER_NOT_FOUND: 'Order paper not found'
+NO_ACTIVE_GROUPS: 'No active groups found to generate sheets'
+PRODUCT_NOT_FOUND: (id) => `Product with ID ${id} not found`
+PRODUCT_INACTIVE: (name) => `Product "${name}" is inactive and cannot be ordered`
+CLIENT_NOT_FOUND: (id) => `Client with ID ${id} not found`
+CLIENT_INACTIVE: (name) => `Client "${name}" is inactive and cannot be ordered`
+PRODUCT_NOT_IN_GROUP: (productId, groupId) =>
+  `Product ${productId} does not belong to group ${groupId}`
+CLIENT_NOT_IN_GROUP: (clientId, groupId) =>
+  `Client ${clientId} does not belong to group ${groupId}`
+NO_ORDERS_IN_SHEET: (groupName) =>
+  `No orders entered for sheet "${groupName}". Please enter at least one order before submitting.`
 CANNOT_EDIT_NIGHT: (status) =>
   `Cannot edit night entries when paper is ${status}. Allowed statuses: DRAFT, REOPENED`
 CANNOT_EDIT_MORNING: (status) =>
   `Cannot edit morning entries when paper is ${status}. Allowed statuses: NIGHT_SUBMITTED, REOPENED`
-NO_APPLICABLE_RATE: (productId, date) =>
-  `No active rate found for product ${productId} on date ${date}`
-DUPLICATE_ENTRIES: (keys) =>
-  `Duplicate entries found: ${keys.join(', ')}. Each client-product combination can only appear once per sheet.`
-NO_ORDERED_QUANTITY: (clientId, productId) =>
-  `No ordered quantity found for Client ${clientId}, Product ${productId}`
-CLIENT_NOT_IN_GROUP: (clientId, groupId) =>
-  `Client ${clientId} does not belong to group ${groupId}`
+NIGHT_ENTRY_INCOMPLETE: (groupName) => `Night entry incomplete for sheet "${groupName}"`
+INVALID_QUANTITY_PRECISION: (qty, precision) =>
+  `Invalid quantity: ${qty}. Quantities must be in increments of ${precision} (e.g., 10, 10.5, 11, 11.5, etc.)`
 QUANTITY_NEGATIVE: (field, value) => `${field} cannot be negative: ${value}`
+QUANTITY_EXCEEDS_MAX: (field, value, max) => `${field} (${value}) exceeds maximum of ${max}`
 DELIVERED_EXCEEDS_ORDERED: (delivered, ordered) =>
   `Delivered quantity (${delivered}) cannot exceed ordered quantity (${ordered})`
+NO_ORDERED_QUANTITY: (clientId, productId) =>
+  `No ordered quantity found for Client ${clientId}, Product ${productId}`
+DUPLICATE_ENTRIES: (keys) =>
+  `Duplicate entries found: ${keys.join(', ')}. Each client-product combination can only appear once per sheet.`
+CONFLICTING_DELIVERY_QTY: (clientId, productId) =>
+  `Conflicting delivered quantities for Client ${clientId}, Product ${productId}`
+NO_APPLICABLE_RATE: (productId, date) =>
+  `No active rate found for product ${productId} on date ${date}`
 ```
 
 ### Collections module (`collections.constants.ts`)

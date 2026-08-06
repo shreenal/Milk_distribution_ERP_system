@@ -43,7 +43,7 @@ Upserts purchase entries for the paper. Each entry is scoped by `(vehicleId, del
 `SavePurchaseDto`:
 
 <ParamField body="entries" type="array" required>
-  Array of entries. Each entry:
+  Array of purchase entries. Each entry:
 </ParamField>
 
 <ParamField body="entries[].deliverySession" type="string" required>
@@ -52,6 +52,14 @@ Upserts purchase entries for the paper. Each entry is scoped by `(vehicleId, del
 
 <ParamField body="entries[].category" type="string" required>
   `MILK` or `NON_MILK`.
+</ParamField>
+
+<ParamField body="acknowledgements" type="array">
+  Optional array of variance acknowledgements. One entry per purchase line whose `purchasedQty` differs from the corresponding vehicle allocation. Each acknowledgement:
+
+  - `vehicleId`, `deliverySession`, `distributorId`, `category`, `productId` — must match a purchase entry in the same request.
+  - `reason` — one of `SHORT_SUPPLY`, `EXCESS_SUPPLY`, `DAMAGED_PRODUCT`, `QUALITY_REJECTION`, `MANUAL_ADJUSTMENT`, `OTHER`.
+  - `remarks` — optional free-text; required by validation for reasons that need it.
 </ParamField>
 
 #### Example request
@@ -69,7 +77,18 @@ Content-Type: application/json
       "distributorId": 5,
       "category": "MILK",
       "productId": 7,
-      "purchasedQty": 40
+      "purchasedQty": 38
+    }
+  ],
+  "acknowledgements": [
+    {
+      "vehicleId": 3,
+      "deliverySession": "MORNING",
+      "distributorId": 5,
+      "category": "MILK",
+      "productId": 7,
+      "reason": "SHORT_SUPPLY",
+      "remarks": "Dairy short-supplied 2L"
     }
   ]
 }
@@ -82,6 +101,8 @@ Content-Type: application/json
 - `purchase_rate` is resolved from `distributor_product_rate` on that `product_link_id`, active at the paper's date.
 - `purchase_amount = purchasedQty × purchase_rate`.
 - `gatepass_date` is derived from `master_brand.gatepass_date_policy` (`SAME_DAY` → `sale_date`; `PREVIOUS_DAY` → `sale_date − 1`).
+- Every entry is compared against its planned `vehicle_allocation.allocated_qty` for the same `(vehicle, distributor, category, product, deliverySession)`. If the two differ, the request must carry a matching entry in `acknowledgements`; otherwise the save is rejected. Conversely, an acknowledgement without an actual variance is also rejected.
+- Acknowledgements are upserted into `purchase_variance_acknowledgement` (unique per `purchase_entry_id`), recording `reason`, optional `remarks`, and the authenticated user in `acknowledged_by`.
 
 ### Validation and errors
 
@@ -90,7 +111,11 @@ Content-Type: application/json
 | Paper not in `NIGHT_SUBMITTED` or `REOPENED` | `400 Bad Request` | Purchases locked in other states |
 | No active `master_product_link` for `(distributorId, productId)` | `400 Bad Request` | Cannot resolve product link |
 | No active `distributor_product_rate` for the product link | `400 Bad Request` | Rate resolution failed |
-| `deliverySession` not `NIGHT`/`MORNING` or `category` not `MILK`/`NON_MILK` | `400 Bad Request` | DTO enum validation |
+| `deliverySession` not `NIGHT`/`MORNING`, `category` not `MILK`/`NON_MILK`, or `reason` not a valid `PurchaseVarianceReason` | `400 Bad Request` | DTO enum validation |
+| `purchasedQty` exceeds `allocated_qty` for the line | `400 Bad Request` | `Purchased quantity exceeds allocated quantity` |
+| Variance exists but no matching acknowledgement supplied | `400 Bad Request` | `Purchase variance must be acknowledged before saving` |
+| Acknowledgement supplied but no variance on that line | `400 Bad Request` | `Variance acknowledgement is not allowed when there is no variance` |
+| Duplicate acknowledgement for the same line | `400 Bad Request` | `Duplicate variance acknowledgement detected` |
 
 ### Related endpoints
 

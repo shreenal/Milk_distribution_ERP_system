@@ -151,7 +151,7 @@ Saves the ordered quantities entered during the night shift. The request body is
 
 ### Behavior
 
-- Editable only when the parent paper's status passes `WorkflowStateService.canEditNightEntries`, which is `DRAFT` only.
+- Editable only when the parent paper's status passes `WorkflowStateService.canEditNightEntries`, which returns true only when `status === DRAFT`.
 - The service validates each client (exists and active), validates each client belongs to the sheet's delivery group, resolves the `product_link_id` from the group's supply rules, and looks up the selling rate from `master_client_rate_product` (fallback: `distributor_product_rate`).
 - On save, `ordered_qty`, `night_selling_rate`, and `night_bill_amount = ordered_qty × night_selling_rate` are upserted.
 - GST fields remain null until morning save.
