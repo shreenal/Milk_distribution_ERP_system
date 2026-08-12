@@ -17,7 +17,8 @@
     "test": "vitest",
     "test:watch": "vitest --watch",
     "test:cov": "vitest --coverage",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "db:export": "tsx scripts/export-database.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

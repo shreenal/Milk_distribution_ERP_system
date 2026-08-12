@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { TransferSummaryBuilder } from '../../../types/distributor-transfer.types.js';
-import { Prisma } from '../../../generated/prisma/client.js';
-import { DistributorTransferRepository } from './distributor-transfer.repository.js';
-import { DistributorTransferBuilder } from './distributor-transfer.builder.js';
+import { TransferSummaryBuilder } from '../../../../types/distributor-transfer.types.js';
+import { Prisma } from '../../../../generated/prisma/client.js';
+import { DistributorTransferRepository } from '../distributor-transfer.repository.js';
+import { DistributorTransferBuilder } from '../distributor-transfer.builder.js';
 
 type DistributorTransferRule = Prisma.distributor_transfer_ruleGetPayload<{}>;
 

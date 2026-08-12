@@ -8,7 +8,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { SaveTrayReturnDto } from './dto/save-trays-entries.dto.js';
 
-@Controller('trays')
+@Controller('client-trays')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class ClientTraysController {
   constructor(private readonly clienttraysService: ClientTraysService) {}

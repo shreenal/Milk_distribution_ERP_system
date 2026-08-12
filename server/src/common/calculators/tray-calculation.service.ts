@@ -4,6 +4,7 @@ import type {
   TrayRuleProduct,
 } from '../../types/tray.types.js';
 import { PurchaseEntry } from '../../types/dairy-trays.types.js';
+import { DeliverySession } from '../../generated/prisma/client.js';
 
 export interface TrayTransactionFields {
   opening_balance: number;
@@ -96,8 +97,11 @@ export class TrayCalculationService {
   buildTakenMapFromPurchaseEntries(
     purchaseEntries: PurchaseEntry[],
     trayRules: ProductTrayRule[],
-  ): Map<number, Map<number, number>> {
-    const takenMap = new Map<number, Map<number, number>>();
+  ): Map<number, Map<DeliverySession, Map<number, number>>> {
+    const takenMap = new Map<
+      number,
+      Map<DeliverySession, Map<number, number>>
+    >();
 
     for (const entry of purchaseEntries) {
       const trayRule = this.resolveTrayRule(entry.master_product, trayRules);
@@ -109,13 +113,22 @@ export class TrayCalculationService {
       let vehicleMap = takenMap.get(entry.vehicle_id);
 
       if (!vehicleMap) {
-        vehicleMap = new Map<number, number>();
+        vehicleMap = new Map<DeliverySession, Map<number, number>>();
+
         takenMap.set(entry.vehicle_id, vehicleMap);
       }
 
-      const currentTaken = vehicleMap.get(trayRule.tray_type_id) ?? 0;
+      let sessionMap = vehicleMap.get(entry.delivery_session);
 
-      vehicleMap.set(
+      if (!sessionMap) {
+        sessionMap = new Map<number, number>();
+
+        vehicleMap.set(entry.delivery_session, sessionMap);
+      }
+
+      const currentTaken = sessionMap.get(trayRule.tray_type_id) ?? 0;
+
+      sessionMap.set(
         trayRule.tray_type_id,
         currentTaken + Number(entry.purchased_qty),
       );

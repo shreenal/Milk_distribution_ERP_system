@@ -7,7 +7,6 @@ import { OrdersValidationService } from '../../orders/services/orders-validation
 import { PaperRepository } from '../paper.repository.js';
 import { PurchaseValidationService } from '../../purchase/services/purchase-validation.service.js';
 import { CashSettlementValidationService } from '../../cash-settlement/services/cash-settlement-validation.service.js';
-import { DistributorTransferValidationService } from '../../distributor-transfer/distributor-transfer-validation.service.js';
 import { DairyTraysValidationService } from '../../dairy-trays/services/dairy-trays-validation.service.js';
 import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 
@@ -22,7 +21,6 @@ export class PaperValidationService {
     private readonly collectionsValidationService: CollectionsValidationService,
     private readonly purchaseValidationService: PurchaseValidationService,
     private readonly cashSettlementValidationService: CashSettlementValidationService,
-    private readonly distributorTransferValidationService: DistributorTransferValidationService,
     private readonly dairyTraysValidationService: DairyTraysValidationService,
   ) {}
 
@@ -94,9 +92,6 @@ export class PaperValidationService {
       paperId,
     );
 
-    await this.distributorTransferValidationService.validateGenerationReadiness(
-      paperId,
-    );
     return paper;
   }
 

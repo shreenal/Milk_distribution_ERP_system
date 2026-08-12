@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { SupplyCategory } from '../../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import {
   ProductColumnNode,
   ProductColumnsBuilder,
@@ -170,5 +170,45 @@ export class DistributorTransferBuilder {
     return {
       transfers,
     };
+  }
+
+  buildTransferEntities(
+    orderPaperId: number,
+    summaries: TransferSummaryBuilder[],
+  ): Prisma.distributor_transferCreateManyInput[] {
+    const transfers: Prisma.distributor_transferCreateManyInput[] = [];
+
+    for (const summary of summaries) {
+      for (const row of summary.rows) {
+        for (const [field, value] of Object.entries(row)) {
+          if (field === 'billingGroupId' || field === 'billingGroupName') {
+            continue;
+          }
+
+          if (!field.startsWith('product_')) {
+            continue;
+          }
+
+          const qty = Number(value ?? 0);
+
+          if (qty <= 0) {
+            continue;
+          }
+
+          const productId = Number(field.replace('product_', ''));
+
+          transfers.push({
+            order_paper_id: orderPaperId,
+            supplier_distributor_id: summary.supplierDistributor.id,
+            owner_distributor_id: summary.ownerDistributor.id,
+            billing_group_id: row.billingGroupId,
+            product_id: productId,
+            transfer_qty: qty,
+          });
+        }
+      }
+    }
+
+    return transfers;
   }
 }

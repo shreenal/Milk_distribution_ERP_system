@@ -7,6 +7,7 @@ import { ClientTraysBuilder } from './client-trays.builder.js';
 import { ClientTraysValidationService } from './services/client-trays-validation.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
+import { ClientTraysPropagationService } from './services/client-trays-propagation.service.js';
 
 @Module({
   imports: [WorkflowModule],
@@ -19,6 +20,7 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
     ClientTraysBuilder,
     ClientTraysValidationService,
     TrayCalculationService,
+    ClientTraysPropagationService,
   ],
 
   exports: [
@@ -26,7 +28,7 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
     ClientTraysRepository,
     ClientTraysBuilder,
     ClientTraysValidationService,
-    TrayCalculationService,
+    ClientTraysPropagationService,
   ],
 })
 export class ClientTraysModule {}

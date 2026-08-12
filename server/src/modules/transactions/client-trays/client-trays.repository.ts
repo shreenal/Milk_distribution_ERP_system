@@ -36,6 +36,17 @@ export class ClientTraysRepository {
     return sheet.order_paper.status;
   }
 
+  async getSheetsByPaperId(paperId: number) {
+    return this.prisma.order_sheet.findMany({
+      where: {
+        order_paper_id: paperId,
+      },
+      select: {
+        id: true,
+      },
+    });
+  }
+
   async findSheetById(sheetId: number) {
     return this.prisma.order_sheet.findUnique({
       where: {
@@ -229,6 +240,24 @@ export class ClientTraysRepository {
           },
         });
       }
+    });
+  }
+
+  async getNextSheet(groupId: number, saleDate: Date) {
+    return this.prisma.order_sheet.findFirst({
+      where: {
+        group_id: groupId,
+        order_paper: {
+          sale_date: {
+            gt: saleDate,
+          },
+        },
+      },
+      orderBy: {
+        order_paper: {
+          sale_date: 'asc',
+        },
+      },
     });
   }
 }

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '../../../generated/prisma/client.js';
+import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
 import { SaveDairyTrayEntryDto } from './dto/save-dairy-tray-entry.dto.js';
 import {
   Vehicle,
@@ -18,7 +18,7 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
 export class DairyTraysBuilder {
   constructor(
     private readonly trayCalculationService: TrayCalculationService,
-  ) {}
+  ) { }
 
   buildDairyTrayGrid({
     vehicles,
@@ -39,6 +39,7 @@ export class DairyTraysBuilder {
     const rows = this.buildRows(
       vehicles,
       trayTypes,
+      purchaseEntries,
       takenMap,
       previousTransactions,
       currentTransactions,
@@ -134,7 +135,8 @@ export class DairyTraysBuilder {
   private buildRows(
     vehicles: Vehicle[],
     trayTypes: TrayType[],
-    takenMap: Map<number, Map<number, number>>,
+    purchaseEntries: PurchaseEntry[],
+    takenMap: Map<number, Map<DeliverySession, Map<number, number>>>,
     previousTransactions: DairyTrayTransaction[],
     currentTransactions: DairyTrayTransaction[],
   ): DairyTrayRow[] {
@@ -142,47 +144,63 @@ export class DairyTraysBuilder {
 
     const trayFields = this.initializeTrayFields(trayTypes);
 
+    const sessions = [DeliverySession.NIGHT, DeliverySession.MORNING];
+
+    const vehicleSessions = new Set(
+      purchaseEntries.map(
+        (entry) => `${entry.vehicle_id}_${entry.delivery_session}`,
+      ),
+    );
+
     for (const vehicle of vehicles) {
-      const row: DairyTrayRow = {
-        vehicleId: vehicle.id,
-        vehicleName: vehicle.vehicle_name,
-        ...structuredClone(trayFields),
-      };
+      for (const session of sessions) {
 
-      const vehicleTaken = takenMap.get(vehicle.id);
+        if (!vehicleSessions.has(`${vehicle.id}_${session}`)) {
+          continue;
+        }
+        const row: DairyTrayRow = {
+          vehicleId: vehicle.id,
+          vehicleName: vehicle.vehicle_name,
+          deliverySession: session,
+          ...structuredClone(trayFields),
+        };
 
-      for (const trayType of trayTypes) {
-        const previous = previousTransactions.find(
-          (transaction) =>
-            transaction.vehicle_id === vehicle.id &&
-            transaction.tray_type_id === trayType.id,
-        );
+        const sessionTaken = takenMap.get(vehicle.id)?.get(session);
 
-        const current = currentTransactions.find(
-          (transaction) =>
-            transaction.vehicle_id === vehicle.id &&
-            transaction.tray_type_id === trayType.id,
-        );
+        for (const trayType of trayTypes) {
+          const current = currentTransactions.find(
+            (transaction) =>
+              transaction.vehicle_id === vehicle.id &&
+              transaction.tray_type_id === trayType.id &&
+              transaction.delivery_session === session,
+          );
 
-        const opening = previous?.closing_balance ?? 0;
+          const previous = previousTransactions.find(
+            (transaction) =>
+              transaction.vehicle_id === vehicle.id &&
+              transaction.tray_type_id === trayType.id &&
+              transaction.delivery_session === session,
+          );
 
-        const trays = vehicleTaken?.get(trayType.id) ?? 0;
+          const opening = Number(previous?.closing_balance ?? 0);
 
-        const returned = current?.trays_returned ?? 0;
+          const trays = sessionTaken?.get(trayType.id) ?? 0;
 
-        const closing = this.trayCalculationService.calculateClosingBalance(
-          opening,
-          trays,
-          returned,
-        );
+          const returned = current?.trays_returned ?? 0;
 
-        row[`tray_${trayType.id}_opening`] = opening;
-        row[`tray_${trayType.id}`] = trays;
-        row[`tray_${trayType.id}_returned`] = returned;
-        row[`tray_${trayType.id}_closing`] = closing;
+          const closing = this.trayCalculationService.calculateClosingBalance(
+            opening,
+            trays,
+            returned,
+          );
+
+          row[`tray_${trayType.id}_opening`] = opening;
+          row[`tray_${trayType.id}`] = trays;
+          row[`tray_${trayType.id}_returned`] = returned;
+          row[`tray_${trayType.id}_closing`] = closing;
+        }
+        rows.push(row);
       }
-
-      rows.push(row);
     }
 
     return rows;
@@ -274,7 +292,7 @@ export class DairyTraysBuilder {
     trayTypes: TrayType[],
   ): DairyTrayTotals {
     const totals: DairyTrayTotals = {
-      totalVehicles: rows.length,
+      totalVehicles: new Set(rows.map((row) => row.vehicleId)).size,
     };
 
     for (const trayType of trayTypes) {
@@ -330,28 +348,37 @@ export class DairyTraysBuilder {
     const transactions: Prisma.dairy_tray_transactionCreateManyInput[] = [];
 
     for (const entry of trayentries) {
+      const key = `${entry.vehicleId}_${entry.deliverySession}_${entry.trayTypeId}`;
+
       const previous = previousTransactions.find(
         (transaction) =>
           transaction.vehicle_id === entry.vehicleId &&
-          transaction.tray_type_id === entry.trayTypeId,
+          transaction.tray_type_id === entry.trayTypeId &&
+          transaction.delivery_session === entry.deliverySession,
       );
 
-      const openingBalance = previous?.closing_balance ?? 0;
+      const openingBalance = Number(previous?.closing_balance ?? 0);
 
       const traysTaken =
-        takenMap.get(entry.vehicleId)?.get(entry.trayTypeId) ?? 0;
+        takenMap
+          .get(entry.vehicleId)
+          ?.get(entry.deliverySession)
+          ?.get(entry.trayTypeId) ?? 0;
 
       const traysReturned = entry.returned;
+
+      const transaction = this.trayCalculationService.buildTransaction(
+        openingBalance,
+        traysTaken,
+        traysReturned,
+      );
 
       transactions.push({
         dairy_tray_paper_id: dairyTrayPaperId,
         vehicle_id: entry.vehicleId,
         tray_type_id: entry.trayTypeId,
-        ...this.trayCalculationService.buildTransaction(
-          openingBalance,
-          traysTaken,
-          traysReturned,
-        ),
+        delivery_session: entry.deliverySession,
+        ...transaction,
       });
     }
 

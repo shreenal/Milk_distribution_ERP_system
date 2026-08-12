@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 
 import {
   OrderPaperStatus,
@@ -19,6 +19,8 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
 
 @Injectable()
 export class ClientTraysBuilder {
+  private readonly logger = new Logger(ClientTraysBuilder.name);
+
   constructor(
     private readonly trayCalculationService: TrayCalculationService,
   ) {}
@@ -52,15 +54,33 @@ export class ClientTraysBuilder {
       data.trayTypes,
     );
 
+    this.logger.debug(
+      `[TRAY TYPES] milk=${JSON.stringify(
+        milkTrayTypes.map((t) => ({
+          id: t.id,
+          color: t.color,
+          brand: t.master_brand?.name,
+        })),
+      )}`,
+    );
+
     const nonMilkTrayTypes = this.getTrayTypesForItems(
       nonMilkSheetItems,
       data.trayRules,
       data.trayTypes,
     );
 
-    const useOrderedQuantity =
-      paperStatus === OrderPaperStatus.DRAFT ||
-      paperStatus === OrderPaperStatus.REOPENED;
+    this.logger.debug(
+      `[TRAY TYPES] nonMilk=${JSON.stringify(
+        nonMilkTrayTypes.map((t) => ({
+          id: t.id,
+          color: t.color,
+          brand: t.master_brand?.name,
+        })),
+      )}`,
+    );
+
+    const useOrderedQuantity = paperStatus === OrderPaperStatus.DRAFT;
 
     const milkTrayGrid = this.buildGrid({
       ...data,
@@ -204,60 +224,48 @@ export class ClientTraysBuilder {
           return null;
         }
 
-        // const expectedTrayMap = new Map<number, number>();
-
-        // const trayTakenMap = new Map<number, number>();
-
         const trayCountMap = new Map<number, number>();
 
         for (const item of clientItems) {
-          // const matchingRules = trayRules.filter((rule) => {
-          //   const baseMatch =
-          //     (rule.brand_id === null ||
-          //       rule.brand_id === item.master_product.brand_id) &&
-          //     (rule.product_group_id === null ||
-          //       rule.product_group_id ===
-          //         item.master_product.product_group_id) &&
-          //     (rule.product_type_id === null ||
-          //       rule.product_type_id === item.master_product.product_type_id);
+          for (const item of clientItems) {
+            this.logger.debug(
+              `[TRAY DEBUG] sheetItem=${item.id} client=${item.client_id} product=${item.product_id}`,
+            );
 
-          //   if (!baseMatch) {
-          //     return false;
-          //   }
+            this.logger.debug(
+              `[TRAY DEBUG] product fields: ${JSON.stringify({
+                id: item.master_product.id,
+                brand_id: item.master_product.brand_id,
+                product_group_id: item.master_product.product_group_id,
+                product_type_id: item.master_product.product_type_id,
+                packaging_type_id: item.master_product.packaging_type_id,
+                ordered_qty: item.ordered_qty,
+                delivered_qty: item.delivered_qty,
+              })}`,
+            );
 
-          //   if (rule.applies_to_packaging) {
-          //     return (
-          //       rule.packaging_type_id === item.master_product.packaging_type_id
-          //     );
-          //   }
+            const rule = this.trayCalculationService.resolveTrayRule(
+              item.master_product,
+              trayRules,
+            );
 
-          //   return true;
-          // });
+            this.logger.debug(
+              `[TRAY DEBUG] resolved rule: ${JSON.stringify(
+                rule
+                  ? {
+                      id: rule.id,
+                      tray_type_id: rule.tray_type_id,
+                      brand_id: rule.brand_id,
+                      product_group_id: rule.product_group_id,
+                      product_type_id: rule.product_type_id,
+                      packaging_type_id: rule.packaging_type_id,
+                    }
+                  : null,
+              )}`,
+            );
 
-          // if (matchingRules.length === 0) {
-          //   continue;
-          // }
-          // // =========================
-          // // MOST SPECIFIC RULE WINS
-          // // =========================
-
-          // matchingRules.sort((a, b) => {
-          //   const aSpecificity =
-          //     Number(a.brand_id !== null) +
-          //     Number(a.product_group_id !== null) +
-          //     Number(a.product_type_id !== null) +
-          //     Number(a.packaging_type_id !== null);
-
-          //   const bSpecificity =
-          //     Number(b.brand_id !== null) +
-          //     Number(b.product_group_id !== null) +
-          //     Number(b.product_type_id !== null) +
-          //     Number(b.packaging_type_id !== null);
-
-          //   return bSpecificity - aSpecificity;
-          // });
-
-          // const rule = matchingRules[0];
+            // existing code...
+          }
 
           const rule = this.trayCalculationService.resolveTrayRule(
             item.master_product,
@@ -364,6 +372,18 @@ export class ClientTraysBuilder {
       };
     }
 
+    this.logger.debug(
+      `[TRAY GRID] ${JSON.stringify(
+        rows.map((row) => ({
+          clientId: row.clientId,
+          clientName: row.clientName,
+          tray4: row.tray_4,
+          tray5: row.tray_5,
+          tray3: row.tray_3,
+        })),
+      )}`,
+    );
+
     return {
       columns,
       rows,
@@ -379,49 +399,36 @@ export class ClientTraysBuilder {
     const trayTypeIds = new Set<number>();
 
     for (const item of sheetItems) {
-      //   const matchingRules = trayRules.filter((rule) => {
-      //     const baseMatch =
-      //       (rule.brand_id === null ||
-      //         rule.brand_id === item.master_product.brand_id) &&
-      //       (rule.product_group_id === null ||
-      //         rule.product_group_id === item.master_product.product_group_id) &&
-      //       (rule.product_type_id === null ||
-      //         rule.product_type_id === item.master_product.product_type_id);
+      for (const item of sheetItems) {
+        const rule = this.trayCalculationService.resolveTrayRule(
+          item.master_product,
+          trayRules,
+        );
 
-      //     if (!baseMatch) {
-      //       return false;
-      //     }
+        console.log('[TRAY TYPE DEBUG]', {
+          productId: item.product_id,
+          clientId: item.client_id,
+          product: {
+            brand_id: item.master_product.brand_id,
+            product_group_id: item.master_product.product_group_id,
+            product_type_id: item.master_product.product_type_id,
+            packaging_type_id: item.master_product.packaging_type_id,
+          },
+          resolvedRule: rule
+            ? {
+                id: rule.id,
+                tray_type_id: rule.tray_type_id,
+              }
+            : null,
+        });
 
-      //     if (rule.applies_to_packaging) {
-      //       return (
-      //         rule.packaging_type_id === item.master_product.packaging_type_id
-      //       );
-      //     }
+        if (!rule) {
+          continue;
+        }
 
-      //     return true;
-      //   });
+        trayTypeIds.add(rule.tray_type_id);
+      }
 
-      //   if (matchingRules.length === 0) {
-      //     continue;
-      //   }
-
-      //   matchingRules.sort((a, b) => {
-      //     const aSpecificity =
-      //       Number(a.brand_id !== null) +
-      //       Number(a.product_group_id !== null) +
-      //       Number(a.product_type_id !== null) +
-      //       Number(a.packaging_type_id !== null);
-
-      //     const bSpecificity =
-      //       Number(b.brand_id !== null) +
-      //       Number(b.product_group_id !== null) +
-      //       Number(b.product_type_id !== null) +
-      //       Number(b.packaging_type_id !== null);
-
-      //     return bSpecificity - aSpecificity;
-      //   });
-
-      //   trayTypeIds.add(matchingRules[0].tray_type_id);
       const rule = this.trayCalculationService.resolveTrayRule(
         item.master_product,
         trayRules,
