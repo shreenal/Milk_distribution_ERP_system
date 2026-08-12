@@ -4,7 +4,9 @@ import { PaperValidationService } from './services/paper-validation.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { PaperRepository } from './paper.repository.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
-import { DistributorTransferService } from '../distributor-transfer/distributor-transfer.service.js';
+import { ClientTraysPropagationService } from '../client-trays/services/client-trays-propagation.service.js';
+import { DairyTraysPropagationService } from '../dairy-trays/services/dairy-trays-propagation.service.js';
+import { DistributorTransferPropagationService } from '../distributor-transfer/services/distributor-transfer-propagation.service.js';
 
 @Injectable()
 export class PaperService {
@@ -13,7 +15,9 @@ export class PaperService {
     private readonly paperRepository: PaperRepository,
     private readonly paperValidationService: PaperValidationService,
     private readonly workflowState: WorkflowStateService,
-    private readonly distributorTransferService: DistributorTransferService,
+    private readonly clientTraysPropagationService: ClientTraysPropagationService,
+    private readonly dairyTraysPropagationService: DairyTraysPropagationService,
+    private readonly distributorTransferPropagationService: DistributorTransferPropagationService,
   ) {}
 
   async generatePaperService(date: string) {
@@ -194,8 +198,6 @@ export class PaperService {
       OrderPaperStatus.MORNING_SUBMITTED,
     );
 
-    await this.distributorTransferService.generateTransfer(paperId);
-
     return this.paperRepository.submitMorningEntry(paperId);
   }
 
@@ -207,6 +209,12 @@ export class PaperService {
       paper.status,
       OrderPaperStatus.FINALIZED,
     );
+
+    await this.clientTraysPropagationService.propagateFromPaper(paperId);
+
+    await this.dairyTraysPropagationService.propagateFromPaper(paperId);
+
+    await this.distributorTransferPropagationService.propagate(paperId);
 
     return this.paperRepository.finalizePaper(paperId);
   }

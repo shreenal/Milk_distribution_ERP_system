@@ -1,4 +1,4 @@
-import { Prisma } from '../generated/prisma/client.js';
+import { DeliverySession, Prisma } from '../generated/prisma/client.js';
 import type {
   ProductTrayRule,
   TrayRuleProduct,
@@ -39,31 +39,11 @@ export type PurchaseEntry = Prisma.purchase_entryGetPayload<{
   };
 }>;
 
-// export type ProductTrayRule = Prisma.product_tray_ruleGetPayload<{
-//   include: {
-//     master_tray_type: {
-//       include: {
-//         master_brand: true;
-//       };
-//     };
-//     master_brand: true;
-//     master_product_group: true;
-//     master_product_type: true;
-//     master_packaging_type: true;
-//   };
-// }>;
-
 export type DairyTrayGrid = {
   columns: DairyTrayColumnNode[];
   rows: DairyTrayRow[];
   totals: DairyTrayTotals;
 };
-
-// export type TrayType = Prisma.master_tray_typeGetPayload<{
-//   include: {
-//     master_brand: true;
-//   };
-// }>;
 
 export type DairyTrayTransaction = Prisma.dairy_tray_transactionGetPayload<{
   include: {
@@ -79,6 +59,7 @@ export type DairyTrayTransaction = Prisma.dairy_tray_transactionGetPayload<{
 export type DairyTrayRow = {
   vehicleId: number;
   vehicleName: string | null;
+  deliverySession: DeliverySession;
   [key: string]: string | number | null;
 };
 

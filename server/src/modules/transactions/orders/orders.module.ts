@@ -13,6 +13,8 @@ import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocatio
 import { OrderCommercialService } from './services/order-commercial.service.js';
 import { NightBillingService } from './services/night-billing.service.js';
 import { FinalBillingService } from './services/final-billing.service.js';
+import { BillingService } from './services/billing.service.js';
+import { DistributorTransferModule } from '../distributor-transfer/distributor-transfer.module.js';
 
 @Module({
   imports: [
@@ -20,6 +22,7 @@ import { FinalBillingService } from './services/final-billing.service.js';
     CollectionsModule,
     WorkflowModule,
     VehicleAllocationModule,
+    DistributorTransferModule,
   ],
 
   controllers: [OrdersController],
@@ -33,6 +36,7 @@ import { FinalBillingService } from './services/final-billing.service.js';
     OrderCommercialService,
     NightBillingService,
     FinalBillingService,
+    BillingService,
   ],
 
   exports: [

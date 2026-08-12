@@ -721,17 +721,14 @@ model dairy_tray_transaction {
   id Int @id @default(autoincrement())
 
   dairy_tray_paper_id Int
-
   vehicle_id Int
-
   tray_type_id Int
 
+  delivery_session DeliverySession
+
   opening_balance Int @default(0)
-
   trays_taken Int @default(0)
-
   trays_returned Int @default(0)
-
   closing_balance Int @default(0)
 
   remarks String?
@@ -739,13 +736,14 @@ model dairy_tray_transaction {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  dairy_tray_paper dairy_tray_paper @relation(fields: [dairy_tray_paper_id], references: [id], onDelete: Cascade)
+  dairy_tray_paper dairy_tray_paper @relation(fields: [dairy_tray_paper_id],references: [id],onDelete: Cascade)
 
-  master_vehicle master_vehicle @relation(fields: [vehicle_id], references: [id])
+  master_vehicle master_vehicle @relation(fields: [vehicle_id],references: [id])
 
-  master_tray_type master_tray_type @relation(fields: [tray_type_id], references: [id])
+  master_tray_type master_tray_type @relation(fields: [tray_type_id],references: [id])
 
-  @@unique([dairy_tray_paper_id, vehicle_id, tray_type_id])
+  @@unique([dairy_tray_paper_id,delivery_session,vehicle_id,tray_type_id])
+
   @@index([vehicle_id])
   @@index([tray_type_id])
   @@index([dairy_tray_paper_id])

@@ -91,6 +91,63 @@ export class OrdersValidationService {
     return client;
   }
 
+  async validateClientCanBuyProductCategory(
+    clientId: number,
+    productId: number,
+    txClient?: TransactionClient,
+  ) {
+    const prisma = txClient || this.prisma;
+
+    const client = await prisma.master_client.findUnique({
+      where: { id: clientId },
+      select: {
+        id: true,
+        name: true,
+        categories: {
+          select: {
+            category: true,
+          },
+        },
+      },
+    });
+
+    if (!client) {
+      throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
+    }
+
+    const product = await prisma.master_product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        master_product_group: {
+          select: {
+            category: true,
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.PRODUCT_NOT_FOUND(productId),
+      );
+    }
+
+    const productCategory = product.master_product_group.category;
+
+    const isAllowed = client.categories.some(
+      (entry) => entry.category === productCategory,
+    );
+
+    if (!isAllowed) {
+      throw new BadRequestException(
+        `Client "${client.name}" is not authorized to purchase ${productCategory} products`,
+      );
+    }
+
+    return true;
+  }
+
   validateNoDuplicates(
     entries: {
       clientId: number;

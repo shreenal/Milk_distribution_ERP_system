@@ -3,10 +3,14 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { SaveDairyTrayEntryDto } from '.././dto/save-dairy-tray-entry.dto.js';
 import { DAIRY_TRAYS_ERROR_MESSAGES } from '.././dairy-trays.constants.js';
 import { DairyTraysRepository } from '.././dairy-trays.repository.js';
+import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
 
 @Injectable()
 export class DairyTraysValidationService {
-  constructor(private readonly dairytraysrepository: DairyTraysRepository) {}
+  constructor(
+    private readonly dairytraysrepository: DairyTraysRepository,
+    private readonly trayCalculationService: TrayCalculationService,
+  ) {}
   validateSaveRequest(
     entries: SaveDairyTrayEntryDto[],
     vehicles: { id: number }[],
@@ -21,7 +25,7 @@ export class DairyTraysValidationService {
     const seen = new Set<string>();
 
     for (const entry of entries) {
-      const key = `${entry.vehicleId}_${entry.trayTypeId}`;
+      const key = `${entry.vehicleId}_${entry.deliverySession}_${entry.trayTypeId}`;
 
       if (seen.has(key)) {
         throw new BadRequestException(
@@ -85,32 +89,30 @@ export class DairyTraysValidationService {
     const expected = new Set<string>();
 
     for (const purchase of purchaseEntries) {
-      const rule = trayRules.find(
-        (rule) =>
-          rule.brand_id === purchase.master_product.brand_id &&
-          rule.product_group_id === purchase.master_product.product_group_id &&
-          (!rule.applies_to_packaging ||
-            rule.packaging_type_id ===
-              purchase.master_product.packaging_type_id),
+      const rule = this.trayCalculationService.resolveTrayRule(
+        purchase.master_product,
+        trayRules,
       );
 
       if (!rule) {
         continue;
       }
 
-      expected.add(`${purchase.vehicle_id}_${rule.tray_type_id}`);
+      expected.add(
+        `${purchase.vehicle_id}_${purchase.delivery_session}_${rule.tray_type_id}`,
+      );
     }
 
     const existing = new Set(
       transactions.map(
         (transaction) =>
-          `${transaction.vehicle_id}_${transaction.tray_type_id}`,
+          `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`,
       ),
     );
 
     for (const key of expected) {
       if (!existing.has(key)) {
-        const [vehicleId, trayTypeId] = key.split('_');
+        const [vehicleId, deliverySession, trayTypeId] = key.split('_');
 
         throw new BadRequestException(
           DAIRY_TRAYS_ERROR_MESSAGES.MISSING_ENTRY(

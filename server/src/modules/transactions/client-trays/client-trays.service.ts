@@ -16,6 +16,8 @@ import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
+import { ClientTraysPropagationService } from './services/client-trays-propagation.service.js';
+import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 
 @Injectable()
 export class ClientTraysService {
@@ -31,6 +33,8 @@ export class ClientTraysService {
     private readonly workflowStateService: WorkflowStateService,
 
     private readonly workflowBuilder: WorkflowBuilder,
+
+    private readonly clientTraysPropagationService: ClientTraysPropagationService,
   ) {}
   async getTraySheetService(sheetId: number) {
     const sheet = await this.clienttraysRepository.findSheetById(sheetId);
@@ -141,6 +145,17 @@ export class ClientTraysService {
 
       const field = `tray_${entry.trayTypeId}`;
 
+      console.log('ENTRY:', entry);
+      console.log(
+        'TRAY ROW:',
+        trayRows.find((row) => row.clientId === entry.clientId),
+      );
+      console.log(
+        'CLIENT 2 ROWS:',
+        trayRows.filter((row) => row.clientId === 2),
+      );
+      console.log('FIELD:', field);
+
       const trayRow = trayRows.find(
         (row) => row.clientId === entry.clientId && row[field] !== undefined,
       );
@@ -171,6 +186,8 @@ export class ClientTraysService {
     await this.clienttraysRepository.replaceTrayTransactions(
       transactionEntries,
     );
+
+    await this.clientTraysPropagationService.recalculateFromSheet(sheetId);
 
     return {
       success: true,

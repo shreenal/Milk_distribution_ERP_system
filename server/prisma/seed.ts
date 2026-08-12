@@ -315,9 +315,8 @@ async function main() {
     // ------------------------------------------------------------
     // 12) PRODUCTS
     // ------------------------------------------------------------
-    const products = await Promise.all([
-        // GOVIND MILK
-        prisma.master_product.create({
+    const products = [
+        await prisma.master_product.create({
             data: {
                 code: 'GOV-COW-500',
                 brand_id: govind.id,
@@ -328,10 +327,11 @@ async function main() {
                 packaging_unit: 'ML',
                 gst_percentage: '0',
                 is_gst_inclusive: false,
+                show_by_default: true,
                 is_active: true,
             },
         }),
-        prisma.master_product.create({
+        await prisma.master_product.create({
             data: {
                 code: 'GOV-COW-1000',
                 brand_id: govind.id,
@@ -345,7 +345,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_product.create({
+        await prisma.master_product.create({
             data: {
                 code: 'GOV-BUF-500',
                 brand_id: govind.id,
@@ -359,10 +359,7 @@ async function main() {
                 is_active: true,
             },
         }),
-
-        // GOVIND CURD
-        // GOVIND CURD - CUP (NO TRAY)
-        prisma.master_product.create({
+        await prisma.master_product.create({
             data: {
                 code: 'GOV-CURD-CUP-200',
                 brand_id: govind.id,
@@ -376,9 +373,7 @@ async function main() {
                 is_active: true,
             },
         }),
-
-        // GOVIND CURD - POUCH (TRAY)
-        prisma.master_product.create({
+        await prisma.master_product.create({
             data: {
                 code: 'GOV-CURD-PCH-400',
                 brand_id: govind.id,
@@ -392,68 +387,7 @@ async function main() {
                 is_active: true,
             },
         }),
-
-        // GOVIND LASSI
-        prisma.master_product.create({
-            data: {
-                code: 'GOV-LASSI-BTL-200',
-                brand_id: govind.id,
-                product_group_id: pgLassi.id,
-                product_type_id: govindLassiSweet.id,
-                packaging_type_id: bottle.id,
-                packaging_size: '200',
-                packaging_unit: 'ML',
-                gst_percentage: '5',
-                is_gst_inclusive: true,
-                is_active: true,
-            },
-        }),
-
-        prisma.master_product.create({
-            data: {
-                code: 'GOV-LASSI-PCH-200',
-                brand_id: govind.id,
-                product_group_id: pgLassi.id,
-                product_type_id: govindLassiSweet.id,
-                packaging_type_id: pouch.id,
-                packaging_size: '200',
-                packaging_unit: 'ML',
-                gst_percentage: '5',
-                is_gst_inclusive: true,
-                is_active: true,
-            },
-        }),
-
-        // SHAKTI MILK
-        prisma.master_product.create({
-            data: {
-                code: 'SHA-TONED-500',
-                brand_id: shakti.id,
-                product_group_id: pgMilk.id,
-                product_type_id: shaktiToned.id,
-                packaging_type_id: pouch.id,
-                packaging_size: '500',
-                packaging_unit: 'ML',
-                gst_percentage: '0',
-                is_gst_inclusive: false,
-                is_active: true,
-            },
-        }),
-        prisma.master_product.create({
-            data: {
-                code: 'SHA-TONED-1000',
-                brand_id: shakti.id,
-                product_group_id: pgMilk.id,
-                product_type_id: shaktiToned.id,
-                packaging_type_id: pouch.id,
-                packaging_size: '1000',
-                packaging_unit: 'ML',
-                gst_percentage: '0',
-                is_gst_inclusive: false,
-                is_active: true,
-            },
-        }),
-        prisma.master_product.create({
+        await prisma.master_product.create({
             data: {
                 code: 'SHA-FC-500',
                 brand_id: shakti.id,
@@ -467,7 +401,64 @@ async function main() {
                 is_active: true,
             },
         }),
-    ]);
+        await prisma.master_product.create({
+            data: {
+                code: 'GOV-LASSI-PCH-200',
+                brand_id: govind.id,
+                product_group_id: pgLassi.id,
+                product_type_id: govindLassiSweet.id,
+                packaging_type_id: pouch.id,
+                packaging_size: '200',
+                packaging_unit: 'ML',
+                gst_percentage: '5',
+                is_gst_inclusive: true,
+                is_active: true,
+            },
+        }),
+        await prisma.master_product.create({
+            data: {
+                code: 'SHA-TONED-1000',
+                brand_id: shakti.id,
+                product_group_id: pgMilk.id,
+                product_type_id: shaktiToned.id,
+                packaging_type_id: pouch.id,
+                packaging_size: '1000',
+                packaging_unit: 'ML',
+                gst_percentage: '0',
+                is_gst_inclusive: false,
+                show_by_default: true,
+                is_active: true,
+            },
+        }),
+        await prisma.master_product.create({
+            data: {
+                code: 'SHA-TONED-500',
+                brand_id: shakti.id,
+                product_group_id: pgMilk.id,
+                product_type_id: shaktiToned.id,
+                packaging_type_id: pouch.id,
+                packaging_size: '500',
+                packaging_unit: 'ML',
+                gst_percentage: '0',
+                is_gst_inclusive: false,
+                is_active: true,
+            },
+        }),
+        await prisma.master_product.create({
+            data: {
+                code: 'GOV-LASSI-BTL-200',
+                brand_id: govind.id,
+                product_group_id: pgLassi.id,
+                product_type_id: govindLassiSweet.id,
+                packaging_type_id: bottle.id,
+                packaging_size: '200',
+                packaging_unit: 'ML',
+                gst_percentage: '5',
+                is_gst_inclusive: true,
+                is_active: true,
+            },
+        }),
+    ];
 
     const productByCode = new Map(products.map((p) => [p.code, p]));
 
@@ -732,8 +723,8 @@ async function main() {
     // ------------------------------------------------------------
     // 15) VEHICLES
     // ------------------------------------------------------------
-    const vehicles = await Promise.all([
-        prisma.master_vehicle.create({
+    const vehicles = [
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1001',
                 vehicle_name: 'Vehicle 1',
@@ -741,7 +732,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1002',
                 vehicle_name: 'Vehicle 2',
@@ -749,7 +740,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1003',
                 vehicle_name: 'Vehicle 3',
@@ -757,7 +748,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1004',
                 vehicle_name: 'Vehicle 4',
@@ -765,7 +756,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1005',
                 vehicle_name: 'Vehicle 5',
@@ -773,7 +764,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1006',
                 vehicle_name: 'Vehicle 6',
@@ -781,7 +772,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1007',
                 vehicle_name: 'Vehicle 7',
@@ -789,7 +780,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1008',
                 vehicle_name: 'Vehicle 8',
@@ -797,7 +788,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1009',
                 vehicle_name: 'Vehicle 9',
@@ -805,7 +796,7 @@ async function main() {
                 is_active: true,
             },
         }),
-        prisma.master_vehicle.create({
+        await prisma.master_vehicle.create({
             data: {
                 vehicle_number: 'MH01AA1010',
                 vehicle_name: 'Vehicle 10',
@@ -813,7 +804,7 @@ async function main() {
                 is_active: true,
             },
         }),
-    ]);
+    ];
 
     // ------------------------------------------------------------
     // 16) DRIVERS
@@ -969,6 +960,16 @@ async function main() {
                 owner_distributor_id: distributorC.id,
                 is_active: true,
             },
+            {
+                supplier_distributor_id: distributorC.id,
+                owner_distributor_id: distributorA.id,
+                is_active: true,
+            },
+            {
+                supplier_distributor_id: distributorC.id,
+                owner_distributor_id: distributorB.id,
+                is_active: true,
+            },
         ],
     });
 
@@ -1031,21 +1032,31 @@ async function main() {
     // ------------------------------------------------------------
     // 19A) CLIENT CATEGORIES
     // ------------------------------------------------------------
+    //
+    // Deterministic scenario:
+    // - Every client purchases MILK.
+    // - Every 3rd seeded client also purchases NON_MILK.
+    //
+    // Use the seed serial, never client.id.
+    // ------------------------------------------------------------
 
     const clientCategoryRows: {
         client_id: number;
         category: SupplyCategory;
     }[] = [];
 
-    for (const client of clients) {
-        // Every client purchases Milk
+    for (let index = 0; index < clients.length; index++) {
+        const client = clients[index];
+        const clientSerial = index + 1;
+
+        // Every client purchases Milk.
         clientCategoryRows.push({
             client_id: client.id,
             category: SupplyCategory.MILK,
         });
 
-        // Every third client also purchases Non-Milk
-        if (client.id % 3 === 0) {
+        // Every third seeded client also purchases Non-Milk.
+        if (clientSerial % 3 === 0) {
             clientCategoryRows.push({
                 client_id: client.id,
                 category: SupplyCategory.NON_MILK,
@@ -1056,12 +1067,12 @@ async function main() {
     await prisma.master_client_category.createMany({
         data: clientCategoryRows,
     });
-
-
     // ------------------------------------------------------------
     // 20) CLIENT SELLING RATES
     // master_client_rate_product now points to master_product_link
+    // Only create rates for categories the client is allowed to buy.
     // ------------------------------------------------------------
+
     const allProducts = await prisma.master_product.findMany({
         include: {
             master_product_group: true,
@@ -1069,9 +1080,10 @@ async function main() {
         orderBy: { id: 'asc' },
     });
 
-    const allDistributorRates = await prisma.distributor_product_rate.findMany({
-        where: { is_active: true },
-    });
+    const allDistributorRates =
+        await prisma.distributor_product_rate.findMany({
+            where: { is_active: true },
+        });
 
     const distributorRateByProductLinkId = new Map(
         allDistributorRates.map((rate) => [rate.product_link_id, rate]),
@@ -1086,40 +1098,59 @@ async function main() {
         is_active: boolean;
     }> = [];
 
-
     const groupSupplyRuleMap = new Map(
-        groupSupplyRulesData.map(rule => [
+        groupSupplyRulesData.map((rule) => [
             `${rule.group_id}_${rule.category}`,
             rule.distributor_id,
         ]),
     );
 
+    // Build client -> allowed categories
+    const clientCategories = new Map<number, Set<SupplyCategory>>();
+
+    for (const row of clientCategoryRows) {
+        let categories = clientCategories.get(row.client_id);
+
+        if (!categories) {
+            categories = new Set<SupplyCategory>();
+            clientCategories.set(row.client_id, categories);
+        }
+
+        categories.add(row.category);
+    }
+
     for (const client of clients) {
+        const allowedCategories =
+            clientCategories.get(client.id) ?? new Set<SupplyCategory>();
+
         for (const product of allProducts) {
+            const category =
+                product.master_product_group.category;
 
-
+            // Client is not allowed to purchase this category.
+            if (!allowedCategories.has(category)) {
+                continue;
+            }
 
             const distributorId = groupSupplyRuleMap.get(
-                `${client.delivery_group_id}_${product.master_product_group.category}`,
+                `${client.delivery_group_id}_${category}`,
             );
 
             if (!distributorId) {
                 continue;
-                // or
-                // throw new Error(
-                //   `Missing supply rule for group ${client.delivery_group_id} and category ${product.master_product_group.category}`,
-                // );
             }
 
-            const productLink = productLinkByDistributorProduct.get(
-                `${distributorId}_${product.id}`,
-            );
+            const productLink =
+                productLinkByDistributorProduct.get(
+                    `${distributorId}_${product.id}`,
+                );
 
             if (!productLink) {
                 continue;
             }
 
-            const rate = distributorRateByProductLinkId.get(productLink.id);
+            const rate =
+                distributorRateByProductLinkId.get(productLink.id);
 
             if (!rate) {
                 continue;

@@ -32,12 +32,6 @@ export class WorkflowStateService {
     }
   }
 
-  // canEditMorningEntries(status: OrderPaperStatus): boolean {
-  //   return (
-  //     status === OrderPaperStatus.NIGHT_SUBMITTED
-  //   );
-  // }
-
   canEditNightEntries(status: OrderPaperStatus): boolean {
     return status === OrderPaperStatus.DRAFT;
   }
@@ -61,13 +55,6 @@ export class WorkflowStateService {
     );
   }
 
-  // canEditTrays(status: OrderPaperStatus): boolean {
-  //   return (
-  //     status === OrderPaperStatus.NIGHT_SUBMITTED ||
-  //     status === OrderPaperStatus.REOPENED
-  //   );
-  // }
-
   canEditClientTrays(status: OrderPaperStatus): boolean {
     return this.canEditCompletionModule(status);
   }
@@ -83,23 +70,12 @@ export class WorkflowStateService {
     );
   }
 
-  // canEditVehicleAllocations(status: OrderPaperStatus): boolean {
-  //   return status === OrderPaperStatus.DRAFT;
-  // }
-
   canEditVehicleAllocations(
     status: OrderPaperStatus,
     session: DeliverySession,
   ): boolean {
     return this.canEditExecutionModule(status, session);
   }
-
-  // canEditPurchases(status: OrderPaperStatus): boolean {
-  //   return (
-  //     status === OrderPaperStatus.NIGHT_SUBMITTED ||
-  //     status === OrderPaperStatus.REOPENED
-  //   );
-  // }
 
   canEditPurchases(status: OrderPaperStatus): boolean {
     return this.canEditCompletionModule(status);
@@ -123,13 +99,6 @@ export class WorkflowStateService {
   canEditBankDeposits(status: OrderPaperStatus): boolean {
     return status === OrderPaperStatus.NIGHT_SUBMITTED;
   }
-
-  // canEditDairyTrayTracking(status: OrderPaperStatus): boolean {
-  //   return (
-  //     status === OrderPaperStatus.NIGHT_SUBMITTED ||
-  //     status === OrderPaperStatus.REOPENED
-  //   );
-  // }
 
   canEditDairyTrays(status: OrderPaperStatus): boolean {
     return this.canEditCompletionModule(status);
@@ -194,7 +163,7 @@ export class WorkflowStateService {
     session: DeliverySession,
   ): boolean {
     if (status === OrderPaperStatus.REOPENED) {
-      return true;
+      return false;
     }
 
     return this.isActiveExecutionSession(status, session);

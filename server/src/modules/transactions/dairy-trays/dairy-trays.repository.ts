@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { Prisma } from '../../../generated/prisma/client.js';
+import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
 
 @Injectable()
 export class DairyTraysRepository {
@@ -223,6 +223,57 @@ export class DairyTraysRepository {
       if (data.length > 0) {
         await tx.dairy_tray_transaction.createMany({
           data,
+        });
+      }
+    });
+  }
+
+  async getNextPaper(currentPaperId: number, saleDate: Date) {
+    return this.prisma.order_paper.findFirst({
+      where: {
+        id: {
+          not: currentPaperId,
+        },
+        sale_date: {
+          gt: saleDate,
+        },
+      },
+      orderBy: {
+        sale_date: 'asc',
+      },
+    });
+  }
+
+  async updateTrayReturns(
+    dairyTrayPaperId: number,
+    entries: {
+      vehicleId: number;
+      deliverySession: DeliverySession;
+      trayTypeId: number;
+      returned: number;
+    }[],
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      for (const entry of entries) {
+        await tx.dairy_tray_transaction.upsert({
+          where: {
+            dairy_tray_paper_id_delivery_session_vehicle_id_tray_type_id: {
+              dairy_tray_paper_id: dairyTrayPaperId,
+              delivery_session: entry.deliverySession,
+              vehicle_id: entry.vehicleId,
+              tray_type_id: entry.trayTypeId,
+            },
+          },
+          update: {
+            trays_returned: entry.returned,
+          },
+          create: {
+            dairy_tray_paper_id: dairyTrayPaperId,
+            vehicle_id: entry.vehicleId,
+            delivery_session: entry.deliverySession,
+            tray_type_id: entry.trayTypeId,
+            trays_returned: entry.returned,
+          },
         });
       }
     });

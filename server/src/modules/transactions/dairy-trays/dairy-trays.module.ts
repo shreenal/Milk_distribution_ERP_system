@@ -6,6 +6,7 @@ import { DairyTraysRepository } from './dairy-trays.repository.js';
 import { DairyTraysService } from './dairy-trays.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
+import { DairyTraysPropagationService } from './services/dairy-trays-propagation.service.js';
 
 @Module({
   imports: [WorkflowModule],
@@ -16,12 +17,14 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
     DairyTraysBuilder,
     DairyTraysValidationService,
     TrayCalculationService,
+    DairyTraysPropagationService,
   ],
   exports: [
     DairyTraysService,
     DairyTraysRepository,
     DairyTraysBuilder,
     DairyTraysValidationService,
+    DairyTraysPropagationService,
   ],
 })
 export class DairyTraysModule {}

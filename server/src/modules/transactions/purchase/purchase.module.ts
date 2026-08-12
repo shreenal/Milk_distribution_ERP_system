@@ -7,6 +7,7 @@ import { PurchaseService } from './purchase.service.js';
 import { PurchaseRepository } from './purchase.repository.js';
 
 import { PurchaseBuilder } from './purchase.builder.js';
+import { DairyTraysModule } from '../dairy-trays/dairy-trays.module.js';
 
 import { ProductColumnsBuilder } from '../../../common/builders/product-columns.builder.js';
 import { PurchaseValidationService } from './services/purchase-validation.service.js';
@@ -17,7 +18,7 @@ import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase
 import { PurchaseBillingService } from './services/purchase-billing.service.js';
 import { PurchaseCommercialService } from './services/purchase-commercial.service.js';
 @Module({
-  imports: [WorkflowModule],
+  imports: [WorkflowModule, DairyTraysModule],
 
   controllers: [PurchaseController],
 

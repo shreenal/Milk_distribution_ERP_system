@@ -12,12 +12,13 @@ import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 import { OrdersValidationService } from './services/orders-validation.service.js';
 
-import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
+import { SupplyCategory } from '../../../generated/prisma/client.js';
+
+import { ClientTraysPropagationService } from '../client-trays/services/client-trays-propagation.service.js';
 
 import {
   TRANSACTION_CONFIG,
   ERROR_MESSAGES,
-  QUANTITY_PRECISION,
   SUCCESS_MESSAGES,
 } from './orders.constants.js';
 
@@ -25,34 +26,8 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { AddProductDto } from './dto/add-product.dto.js';
 import { OrderCommercialService } from './services/order-commercial.service.js';
-import { NightBillingService } from './services/night-billing.service.js';
-import { FinalBillingService } from './services/final-billing.service.js';
+import { BillingService } from './services/billing.service.js';
 
-/**
- * REFACTORING IN PROGRESS: Paper Module Extraction
- *
- * This service historically contained paper workflow operations.
- *
- * EXTRACTED TO PaperService (see src/paper/paper.service.ts):
- * - submitNightEntryService()     → PaperService.submitNightEntryService()
- * - submitMorningEntryService()   → PaperService.submitMorningEntryService()
- * - finalizePaperService()        → PaperService.finalizePaperService()
- * - reopenPaperService()          → PaperService.reopenPaperService()
- *
- * This class now focuses on:
- * - Order entry (saveNightEntriesService, saveMorningEntriesService)
- * - Sheet retrieval (getSheetService, getSheetItemsService)
- * - Paper generation (generateOrderPaperService, getTodayPaperService)
- *
- * Paper workflow logic has been moved to a dedicated Paper module
- * for better separation of concerns and maintainability.
- *
- * Status: Phase 2 (Parallel Implementation) - Paper module is production-ready
- * Timeline: Methods deleted [DATE], Orders endpoints will be removed in v2.0
- *
- * @deprecated Do not add new paper workflow methods here
- * @see PaperService
- */
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -66,15 +41,15 @@ export class OrdersService {
 
     private readonly orderCommercialService: OrderCommercialService,
 
-    private readonly nightBillingService: NightBillingService,
-
-    private readonly finalBillingService: FinalBillingService,
+    private readonly billingService: BillingService,
 
     private readonly prisma: PrismaService,
 
     private readonly workflowState: WorkflowStateService,
 
     private readonly workflowBuilder: WorkflowBuilder,
+
+    private readonly clientTraysPropagationService: ClientTraysPropagationService,
   ) {}
 
   async getAvailableProducts(category: SupplyCategory) {
@@ -132,21 +107,12 @@ export class OrdersService {
         sheet.order_paper.status,
       );
 
-      // const traySheet = await this.traysService.getTraySheetService(sheetId);
-
-      // const collectionGrid =
-      //   await this.collectionsService.getCollectionGrid(sheetId);
-
       return {
         sheet,
 
         workflow,
 
         ...orderBilling,
-
-        // trayBilling: traySheet.trayBilling,
-
-        // collectionBilling: collectionGrid,
       };
     } catch (error) {
       this.logger.error(`Failed to fetch sheet ${sheetId}`, error);
@@ -180,6 +146,11 @@ export class OrdersService {
       throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
+    if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
+      throw new BadRequestException(
+        'Products can only be added while the paper is in DRAFT',
+      );
+    }
     const supplyRules = await this.ordersRepository.getGroupSupplyRules(
       sheet.group_id,
     );
@@ -196,24 +167,43 @@ export class OrdersService {
         const existingItems =
           await this.ordersRepository.getSheetItems(sheetId);
 
-        const uniqueClients = [
-          ...new Map(
-            existingItems.map((item) => [item.client_id, item]),
-          ).values(),
-        ];
+        const product = await tx.master_product.findUnique({
+          where: { id: dto.productId },
+          select: {
+            id: true,
+            master_product_group: {
+              select: {
+                category: true,
+              },
+            },
+          },
+        });
 
-        const rows = uniqueClients
+        if (!product) {
+          throw new BadRequestException(
+            ERROR_MESSAGES.PRODUCT_NOT_FOUND(dto.productId),
+          );
+        }
+
+        const eligibleClients =
+          await this.ordersRepository.getClientsByGroupAndCategory(
+            sheet.group_id,
+            product.master_product_group.category,
+            tx,
+          );
+
+        const rows = eligibleClients
           .filter(
             (client) =>
               !existingItems.some(
                 (item) =>
-                  item.client_id === client.client_id &&
+                  item.client_id === client.id &&
                   item.product_id === dto.productId,
               ),
           )
           .map((client) => ({
             order_sheet_id: sheetId,
-            client_id: client.client_id,
+            client_id: client.id,
             product_id: dto.productId,
             product_link_id: commercialContext.productLinkId,
 
@@ -258,6 +248,12 @@ export class OrdersService {
 
     if (!sheet) {
       throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+    }
+
+    if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
+      throw new BadRequestException(
+        'Products can only be removed while the paper is in DRAFT',
+      );
     }
 
     const product = await this.ordersRepository.getProductWithGroup(productId);
@@ -327,6 +323,12 @@ export class OrdersService {
 
             await this.validationService.validateProduct(entry.productId, tx);
 
+            await this.validationService.validateClientCanBuyProductCategory(
+              entry.clientId,
+              entry.productId,
+              tx,
+            );
+
             if (entry.orderedQty === undefined || entry.orderedQty === null) {
               throw new BadRequestException(
                 ERROR_MESSAGES.MISSING_REQUIRED_FIELD('orderedQty'),
@@ -335,45 +337,13 @@ export class OrdersService {
 
             this.validationService.validateQuantity(Number(entry.orderedQty));
 
-            const commercialContext = await this.orderCommercialService.resolve(
-              sheet.group_id,
-              entry.productId,
-              supplyRules,
+            await this.billingService.saveNightEntry(
               tx,
+              sheet,
+              supplyRules,
+              sheetId,
+              entry,
             );
-
-            const sellingRate =
-              await this.ordersRepository.getSellingRateForDistributor(
-                entry.clientId,
-                entry.productId,
-                commercialContext.distributorId,
-                sheet.order_paper.sale_date,
-                tx,
-              );
-
-            if (sellingRate === null || sellingRate === undefined) {
-              throw new BadRequestException(
-                ERROR_MESSAGES.NO_APPLICABLE_RATE(
-                  entry.productId,
-                  sheet.order_paper.sale_date.toISOString(),
-                ),
-              );
-            }
-            const billing = this.nightBillingService.calculate(
-              Number(entry.orderedQty),
-              Number(sellingRate),
-            );
-
-            await this.ordersRepository.upsertSheetEntryTx(tx, {
-              order_sheet_id: sheetId,
-              client_id: entry.clientId,
-              product_id: entry.productId,
-              product_link_id: commercialContext.productLinkId,
-
-              ordered_qty: entry.orderedQty,
-              night_selling_rate: Number(sellingRate),
-              night_bill_amount: billing.nightBillAmount,
-            });
           }
         },
         {
@@ -381,6 +351,8 @@ export class OrdersService {
           isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
         },
       );
+
+      await this.clientTraysPropagationService.recalculateFromSheet(sheetId);
 
       return {
         success: true,
@@ -452,120 +424,19 @@ export class OrdersService {
 
             await this.validationService.validateProduct(entry.productId, tx);
 
-            const commercialContext = await this.orderCommercialService.resolve(
-              sheet.group_id,
-              entry.productId,
-              supplyRules,
-              tx,
-            );
-
-            const existingItem = await this.ordersRepository.findSheetItem(
-              sheetId,
+            await this.validationService.validateClientCanBuyProductCategory(
               entry.clientId,
-              commercialContext.productLinkId,
+              entry.productId,
               tx,
             );
 
-            if (!existingItem) {
-              throw new BadRequestException(
-                ERROR_MESSAGES.NO_ORDERED_QUANTITY(
-                  entry.clientId,
-                  entry.productId,
-                ),
-              );
-            }
-
-            const product = existingItem.master_product;
-
-            const sellingRate =
-              await this.ordersRepository.getSellingRateForDistributor(
-                entry.clientId,
-                entry.productId,
-                commercialContext.distributorId,
-                sheet.order_paper.sale_date,
-                tx,
-              );
-            if (sellingRate === null || sellingRate === undefined) {
-              throw new BadRequestException(
-                `No rate configured for client ${entry.clientId} product ${entry.productId}`,
-              );
-            }
-
-            //   const litres =
-            //     deliveredQty * QUANTITY_PRECISION.OPERATIONAL_UNIT_LITRES;
-
-            const gstPercentage = Number(product.gst_percentage ?? 0);
-
-            const isGstInclusive = product.is_gst_inclusive;
-
-            //   let taxableAmount = 0;
-
-            //   let gstAmount = 0;
-
-            //   let finalBillAmount = 0;
-
-            // if (!isGstInclusive) {
-            //   taxableAmount = litres * Number(sellingRate);
-
-            //     gstAmount = taxableAmount * (gstPercentage / 100);
-
-            //     finalBillAmount = taxableAmount + gstAmount;
-            //   } else {
-            //     finalBillAmount = litres * Number(sellingRate);
-
-            //     taxableAmount = finalBillAmount / (1 + gstPercentage / 100);
-
-            //     gstAmount = finalBillAmount - taxableAmount;
-            //   }
-
-            //   taxableAmount = Number(taxableAmount.toFixed(2));
-
-            //   gstAmount = Number(gstAmount.toFixed(2));
-
-            //   finalBillAmount = Number(finalBillAmount.toFixed(2));
-
-            //   await tx.order_sheet_items.update({
-            //     where: {
-            //       order_sheet_id_client_id_product_link_id: {
-            //         order_sheet_id: sheetId,
-            //         client_id: entry.clientId,
-            //         product_link_id: commercialContext.productLinkId,
-            //       },
-            //     },
-            //     data: {
-            //       delivered_qty: deliveredQty,
-            //       final_selling_rate: Number(sellingRate),
-            //       final_gst_percentage: gstPercentage,
-            //       final_gst_amount: gstAmount,
-            //       final_taxable_amount: taxableAmount,
-            //       final_bill_amount: finalBillAmount,
-            //     },
-            //   });
-            const billing = this.finalBillingService.calculate(
-              deliveredQty,
-              Number(sellingRate),
-              gstPercentage,
-              isGstInclusive,
+            await this.billingService.saveMorningEntry(
+              tx,
+              sheet,
+              supplyRules,
+              sheetId,
+              entry,
             );
-
-            await tx.order_sheet_items.update({
-              where: {
-                order_sheet_id_client_id_product_link_id: {
-                  order_sheet_id: sheetId,
-                  client_id: entry.clientId,
-                  product_link_id: commercialContext.productLinkId,
-                },
-              },
-              data: {
-                delivered_qty: deliveredQty,
-
-                final_selling_rate: Number(sellingRate),
-                final_gst_percentage: gstPercentage,
-                final_gst_amount: billing.gstAmount,
-                final_taxable_amount: billing.taxableAmount,
-                final_bill_amount: billing.finalBillAmount,
-              },
-            });
           }
         },
         {
@@ -573,6 +444,8 @@ export class OrdersService {
           isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
         },
       );
+
+      await this.clientTraysPropagationService.recalculateFromSheet(sheetId);
 
       return {
         success: true,
