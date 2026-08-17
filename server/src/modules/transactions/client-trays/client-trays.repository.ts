@@ -1,15 +1,21 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { TrayTransactionEntry } from '../../../types/transaction.types.js';
+import {
+  PrismaOrTransaction,
+  TrayTransactionEntry,
+} from '../../../types/transaction.types.js';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 
 @Injectable()
 export class ClientTraysRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getPaperStatusBySheetId(sheetId: number) {
-    const sheet = await this.prisma.order_sheet.findUnique({
+  async getPaperStatusBySheetId(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const sheet = await db.order_sheet.findUnique({
       where: {
         id: sheetId,
       },
@@ -36,8 +42,11 @@ export class ClientTraysRepository {
     return sheet.order_paper.status;
   }
 
-  async getSheetsByPaperId(paperId: number) {
-    return this.prisma.order_sheet.findMany({
+  async getSheetsByPaperId(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.findMany({
       where: {
         order_paper_id: paperId,
       },
@@ -47,8 +56,8 @@ export class ClientTraysRepository {
     });
   }
 
-  async findSheetById(sheetId: number) {
-    return this.prisma.order_sheet.findUnique({
+  async findSheetById(sheetId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_sheet.findUnique({
       where: {
         id: sheetId,
       },
@@ -60,8 +69,11 @@ export class ClientTraysRepository {
     });
   }
 
-  async getClientsByGroupId(groupId: number) {
-    return this.prisma.master_client.findMany({
+  async getClientsByGroupId(
+    groupId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.master_client.findMany({
       where: {
         delivery_group_id: groupId,
 
@@ -77,8 +89,9 @@ export class ClientTraysRepository {
   async getClientsByGroupAndCategory(
     groupId: number,
     category: SupplyCategory,
+    db: PrismaOrTransaction = this.prisma,
   ) {
-    return this.prisma.master_client.findMany({
+    return db.master_client.findMany({
       where: {
         delivery_group_id: groupId,
         is_active: true,
@@ -94,8 +107,8 @@ export class ClientTraysRepository {
     });
   }
 
-  async getSheetItems(sheetId: number) {
-    return this.prisma.order_sheet_items.findMany({
+  async getSheetItems(sheetId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_sheet_items.findMany({
       where: {
         order_sheet_id: sheetId,
       },
@@ -118,8 +131,8 @@ export class ClientTraysRepository {
     });
   }
 
-  async getProductTrayRules() {
-    return this.prisma.product_tray_rule.findMany({
+  async getProductTrayRules(db: PrismaOrTransaction = this.prisma) {
+    return db.product_tray_rule.findMany({
       where: {
         is_active: true,
       },
@@ -142,8 +155,8 @@ export class ClientTraysRepository {
     });
   }
 
-  async getTrayTypes() {
-    return this.prisma.master_tray_type.findMany({
+  async getTrayTypes(db: PrismaOrTransaction = this.prisma) {
+    return db.master_tray_type.findMany({
       where: {
         is_active: true,
       },
@@ -166,8 +179,11 @@ export class ClientTraysRepository {
     });
   }
 
-  async getTrayTransactions(sheetId: number) {
-    return this.prisma.client_tray_transaction.findMany({
+  async getTrayTransactions(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.client_tray_transaction.findMany({
       where: {
         order_sheet_id: sheetId,
       },
@@ -184,8 +200,12 @@ export class ClientTraysRepository {
     });
   }
 
-  async getPreviousSheet(groupId: number, saleDate: Date) {
-    return this.prisma.order_sheet.findFirst({
+  async getPreviousSheet(
+    groupId: number,
+    saleDate: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.findFirst({
       where: {
         group_id: groupId,
         order_paper: {
@@ -202,49 +222,57 @@ export class ClientTraysRepository {
     });
   }
 
-  async getPreviousTrayBalances(orderSheetId: number) {
-    return this.prisma.client_tray_transaction.findMany({
+  async getPreviousTrayBalances(
+    orderSheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.client_tray_transaction.findMany({
       where: {
         order_sheet_id: orderSheetId,
       },
     });
   }
 
-  async replaceTrayTransactions(entries: TrayTransactionEntry[]) {
-    await this.prisma.$transaction(async (tx) => {
-      for (const entry of entries) {
-        await tx.client_tray_transaction.upsert({
-          where: {
-            order_sheet_id_client_id_tray_type_id: {
-              order_sheet_id: entry.order_sheet_id,
-              client_id: entry.client_id,
-              tray_type_id: entry.tray_type_id,
-            },
-          },
-
-          update: {
-            opening_balance: entry.opening_balance,
-            trays_taken: entry.trays_taken,
-            trays_returned: entry.trays_returned,
-            closing_balance: entry.closing_balance,
-          },
-
-          create: {
+  async replaceTrayTransactions(
+    entries: TrayTransactionEntry[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    for (const entry of entries) {
+      await db.client_tray_transaction.upsert({
+        where: {
+          order_sheet_id_client_id_tray_type_id: {
             order_sheet_id: entry.order_sheet_id,
             client_id: entry.client_id,
             tray_type_id: entry.tray_type_id,
-            opening_balance: entry.opening_balance,
-            trays_taken: entry.trays_taken,
-            trays_returned: entry.trays_returned,
-            closing_balance: entry.closing_balance,
           },
-        });
-      }
-    });
+        },
+
+        update: {
+          opening_balance: entry.opening_balance,
+          trays_taken: entry.trays_taken,
+          trays_returned: entry.trays_returned,
+          closing_balance: entry.closing_balance,
+        },
+
+        create: {
+          order_sheet_id: entry.order_sheet_id,
+          client_id: entry.client_id,
+          tray_type_id: entry.tray_type_id,
+          opening_balance: entry.opening_balance,
+          trays_taken: entry.trays_taken,
+          trays_returned: entry.trays_returned,
+          closing_balance: entry.closing_balance,
+        },
+      });
+    }
   }
 
-  async getNextSheet(groupId: number, saleDate: Date) {
-    return this.prisma.order_sheet.findFirst({
+  async getNextSheet(
+    groupId: number,
+    saleDate: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.findFirst({
       where: {
         group_id: groupId,
         order_paper: {

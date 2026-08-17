@@ -2,6 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { CollectionsRepository } from '.././collections.repository.js';
 import { COLLECTION_ERROR_MESSAGES } from '.././collections.constants.js';
 import { SupplyCategory } from '../../../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 @Injectable()
 export class CollectionsValidationService {
@@ -26,9 +27,12 @@ export class CollectionsValidationService {
     }
   }
 
-  async validateNightCollections(sheetId: number): Promise<void> {
+  async validateNightCollections(
+    sheetId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
     const collections =
-      await this.collectionsRepository.getCollectionsForValidation(sheetId);
+      await this.collectionsRepository.getCollectionsForValidation(sheetId, db);
 
     for (const row of collections) {
       if (Number(row.office_amount_given ?? 0) < 0) {
@@ -39,9 +43,12 @@ export class CollectionsValidationService {
     }
   }
 
-  async validateMorningCollections(sheetId: number): Promise<void> {
+  async validateMorningCollections(
+    sheetId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
     const collections =
-      await this.collectionsRepository.getCollectionsForValidation(sheetId);
+      await this.collectionsRepository.getCollectionsForValidation(sheetId, db);
 
     for (const row of collections) {
       if (Number(row.cash_collection ?? 0) < 0) {
@@ -58,9 +65,12 @@ export class CollectionsValidationService {
     }
   }
 
-  async validateAdminCollections(sheetId: number): Promise<void> {
+  async validateAdminCollections(
+    sheetId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
     const collections =
-      await this.collectionsRepository.getCollectionsForValidation(sheetId);
+      await this.collectionsRepository.getCollectionsForValidation(sheetId, db);
 
     for (const row of collections) {
       if (Number(row.online_collection ?? 0) < 0) {

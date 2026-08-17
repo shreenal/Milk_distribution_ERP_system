@@ -58,16 +58,19 @@ export class BillingService {
       Number(sellingRate),
     );
 
-    await this.ordersRepository.upsertSheetEntryTx(tx, {
-      order_sheet_id: sheetId,
-      client_id: entry.clientId,
-      product_id: entry.productId,
-      product_link_id: commercialContext.productLinkId,
+    await this.ordersRepository.upsertSheetEntry(
+      {
+        order_sheet_id: sheetId,
+        client_id: entry.clientId,
+        product_id: entry.productId,
+        product_link_id: commercialContext.productLinkId,
 
-      ordered_qty: entry.orderedQty,
-      night_selling_rate: Number(sellingRate),
-      night_bill_amount: billing.nightBillAmount,
-    });
+        ordered_qty: entry.orderedQty,
+        night_selling_rate: Number(sellingRate),
+        night_bill_amount: billing.nightBillAmount,
+      },
+      tx,
+    );
   }
 
   async saveMorningEntry(

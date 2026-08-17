@@ -10,7 +10,8 @@ import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { SaveDairyTrayEntriesDto } from './dto/save-dairy-tray-entries.dto.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { DairyTraysPropagationService } from './services/dairy-trays-propagation.service.js';
-import { OrderPaperStatus } from '../../../generated/prisma/client.js';
+import { PrismaService } from '../../../prisma/prisma.service.js';
+
 @Injectable()
 export class DairyTraysService {
   constructor(
@@ -20,6 +21,7 @@ export class DairyTraysService {
     private readonly workflowStateService: WorkflowStateService,
     private readonly workflowBuilder: WorkflowBuilder,
     private readonly dairyTraysPropagationService: DairyTraysPropagationService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async getDairyTrayGrid(paperId: number) {
@@ -96,44 +98,52 @@ export class DairyTraysService {
   }
 
   async saveDairyTrayEntries(paperId: number, dto: SaveDairyTrayEntriesDto) {
-    const paper = await this.dairyTraysRepository.findPaperById(paperId);
+    return this.prisma.$transaction(async (tx) => {
+      const paper = await this.dairyTraysRepository.findPaperById(paperId, tx);
 
-    if (!paper) {
-      throw new NotFoundException('Paper not found');
-    }
+      if (!paper) {
+        throw new NotFoundException('Paper not found');
+      }
 
-    if (!this.workflowStateService.canEditDairyTrays(paper.status)) {
-      throw new BadRequestException(
-        'Dairy tray cannot be edited in the current workflow state',
+      if (!this.workflowStateService.canEditDairyTrays(paper.status)) {
+        throw new BadRequestException(
+          'Dairy tray cannot be edited in the current workflow state',
+        );
+      }
+
+      const dairyTrayPaper =
+        await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paperId, tx);
+
+      const [vehicles, trayTypes] = await Promise.all([
+        this.dairyTraysRepository.getVehicles(tx),
+        this.dairyTraysRepository.getTrayTypes(tx),
+      ]);
+
+      this.dairytraysValidationService.validateSaveRequest(
+        dto.entries,
+        vehicles,
+        trayTypes,
       );
-    }
 
-    const dairyTrayPaper =
-      await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paperId);
+      await this.dairyTraysRepository.updateTrayReturns(
+        dairyTrayPaper.id,
+        dto.entries.map((entry) => ({
+          vehicleId: entry.vehicleId,
+          deliverySession: entry.deliverySession,
+          trayTypeId: entry.trayTypeId,
+          returned: entry.returned,
+        })),
+        tx,
+      );
 
-    const [vehicles, trayTypes] = await Promise.all([
-      this.dairyTraysRepository.getVehicles(),
-      this.dairyTraysRepository.getTrayTypes(),
-    ]);
+      await this.dairyTraysPropagationService.recalculateCurrentPaper(
+        paperId,
+        tx,
+      );
 
-    this.dairytraysValidationService.validateSaveRequest(
-      dto.entries,
-      vehicles,
-      trayTypes,
-    );
-
-    await this.dairyTraysRepository.updateTrayReturns(
-      dairyTrayPaper.id,
-      dto.entries.map((entry) => ({
-        vehicleId: entry.vehicleId,
-        deliverySession: entry.deliverySession,
-        trayTypeId: entry.trayTypeId,
-        returned: entry.returned,
-      })),
-    );
-
-    await this.dairyTraysPropagationService.recalculateCurrentPaper(paperId);
-
-    return this.getDairyTrayGrid(paperId);
+      return {
+        success: true,
+      };
+    });
   }
 }

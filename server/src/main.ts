@@ -1,7 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
 import 'dotenv/config';
-console.log('SECRET =', process.env.SECRET);
 import { ValidationPipe } from '@nestjs/common';
 
 async function bootstrap() {

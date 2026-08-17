@@ -15,7 +15,7 @@ import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 
 import { CashSettlementCalculationService } from '../../../../common/calculators/cash-settlement.calculator.js';
 
-import { OrderPaperStatus } from '../../../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 @Injectable()
 export class CashSettlementValidationService {
@@ -25,9 +25,11 @@ export class CashSettlementValidationService {
     private readonly workflowStateService: WorkflowStateService,
   ) {}
 
-  async getCashSettlementPaper(paperId: number) {
-    const paper =
-      await this.cashSettlementRepository.getCashSettlementData(paperId);
+  async getCashSettlementPaper(paperId: number, db?: PrismaOrTransaction) {
+    const paper = await this.cashSettlementRepository.getCashSettlementData(
+      paperId,
+      db,
+    );
 
     if (!paper) {
       throw new NotFoundException(CASH_SETTLEMENT_ERRORS.PAPER_NOT_FOUND);
@@ -76,17 +78,11 @@ export class CashSettlementValidationService {
     return paper;
   }
 
-  async validateMorningSubmitReadiness(paperId: number): Promise<void> {
-    const paper = await this.getCashSettlementPaper(paperId);
-
-    if (paper.status === OrderPaperStatus.REOPENED) {
-      // After reopen, cash settlement is treated as historical.
-      // Route denominations, direct collections, and bank deposits
-      // remain frozen and are not revalidated against revised cash.
-      // Route expenses may still be edited, but re-finalization does
-      // not require cash-settlement reconciliation to match again.
-      return;
-    }
+  async validateMorningSubmitReadiness(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const paper = await this.getCashSettlementPaper(paperId, db);
 
     this.validateRouteDenominationsFromPaper(paper);
 
@@ -101,6 +97,7 @@ export class CashSettlementValidationService {
     for (const sheet of paper.order_sheet) {
       const routeNetCash =
         this.cashSettlementCalculationService.getRouteNetCash(sheet);
+
       const denominationTotal =
         this.cashSettlementCalculationService.getDenominationAmountFromRow(
           sheet.cash_route_settlement,
@@ -179,6 +176,7 @@ export class CashSettlementValidationService {
         routeDenominationTotals,
         directCollectionTotals,
       );
+
     const denominationChecks = [
       ['₹2000', depositTotals.note2000, availableDenominations.note2000],
       ['₹500', depositTotals.note500, availableDenominations.note500],

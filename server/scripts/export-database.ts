@@ -38,8 +38,10 @@ function formatValue(value: unknown): string {
   }
 
   if (value instanceof Date) {
-    return value.toISOString();
-  }
+  return value.toLocaleString('sv-SE', {
+    timeZone: 'Asia/Calcutta',
+  });
+}
 
   if (typeof value === 'object') {
     return JSON.stringify(value);
@@ -206,6 +208,33 @@ async function main(): Promise<void> {
   await client.connect();
 
   console.log('Connected.');
+
+const result = await client.query(`
+  SELECT
+    current_database() AS database,
+    current_user AS user,
+    inet_server_addr() AS host,
+    inet_server_port() AS port,
+    pg_backend_pid() AS backend_pid,
+    current_setting('TimeZone') AS timezone;
+`);
+
+console.log('NODE CONNECTION:', result.rows[0]);
+
+const orderPaper = await client.query(`
+  SELECT
+    id,
+    order_date,
+    sale_date,
+    status,
+    xmin::text,
+    ctid
+  FROM public.order_paper
+  WHERE id = 1;
+`);
+
+console.log('NODE ORDER PAPER:', orderPaper.rows[0]);
+console.log('NODE POSTGRES RESULT:', result.rows);
 
   const tables = await getTables();
 

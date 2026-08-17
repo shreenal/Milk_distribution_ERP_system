@@ -218,7 +218,7 @@ export class CashSettlementBuilder {
       const historicalDirectCollectionCash = directCollectionCash;
 
       const revisedOfficeCash =
-        this.cashSettlementCalculationService.getRevisedOfficeCash(
+        this.cashSettlementCalculationService.getRevisedCashBeforeDeposits(
           totalRouteNetCash,
           historicalDirectCollectionCash,
         );
@@ -230,9 +230,15 @@ export class CashSettlementBuilder {
           totalDeposits,
         );
 
+      const revisedCashOnHand =
+        this.cashSettlementCalculationService.getRevisedCashOnHand(
+          revisedOfficeCash,
+          totalDeposits,
+        );
+
       const reconciliationDifference =
         this.cashSettlementCalculationService.getReconciliationDifference(
-          revisedOfficeCash,
+          revisedCashOnHand,
           historicalCashOnHand,
         );
       return {
@@ -249,6 +255,7 @@ export class CashSettlementBuilder {
           historicalDirectCollectionCash,
           revisedOfficeCash,
           totalDeposits,
+          revisedCashOnHand,
           historicalCashOnHand,
           reconciliationDifference,
         },

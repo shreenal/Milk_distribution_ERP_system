@@ -13,6 +13,7 @@ import { PurchaseModule } from '../purchase/purchase.module.js';
 import { CashSettlementModule } from '../cash-settlement/cash-settlement.module.js';
 import { DairyTraysModule } from '../dairy-trays/dairy-trays.module.js';
 import { DistributorTransferModule } from '../distributor-transfer/distributor-transfer.module.js';
+import { DependencyModule } from '../dependencies/dependency.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { DistributorTransferModule } from '../distributor-transfer/distributor-t
     CashSettlementModule,
     DairyTraysModule,
     DistributorTransferModule,
+    DependencyModule,
   ],
 
   controllers: [PaperController],

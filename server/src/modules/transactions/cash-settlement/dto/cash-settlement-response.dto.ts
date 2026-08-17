@@ -76,8 +76,12 @@ export interface CashSummaryInitialDto extends CashSummaryBaseDto {
 export interface CashSummaryReopenedDto extends CashSummaryBaseDto {
   historicalRouteDenominationCash: number;
   historicalDirectCollectionCash: number;
+
   revisedOfficeCash: number;
+  revisedCashOnHand: number;
+
   historicalCashOnHand: number;
+
   reconciliationDifference: number;
 }
 

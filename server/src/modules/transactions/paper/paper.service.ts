@@ -4,9 +4,12 @@ import { PaperValidationService } from './services/paper-validation.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { PaperRepository } from './paper.repository.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
-import { ClientTraysPropagationService } from '../client-trays/services/client-trays-propagation.service.js';
-import { DairyTraysPropagationService } from '../dairy-trays/services/dairy-trays-propagation.service.js';
-import { DistributorTransferPropagationService } from '../distributor-transfer/services/distributor-transfer-propagation.service.js';
+import { PrismaService } from '../../../prisma/prisma.service.js';
+import { DependencyOrchestratorService } from '../dependencies/dependency-orchestrator.service.js';
+import {
+  DEPENDENCY_MODULES,
+  DEPENDENCY_TRIGGERS,
+} from '../dependencies/dependency.constant.js';
 
 @Injectable()
 export class PaperService {
@@ -15,84 +18,81 @@ export class PaperService {
     private readonly paperRepository: PaperRepository,
     private readonly paperValidationService: PaperValidationService,
     private readonly workflowState: WorkflowStateService,
-    private readonly clientTraysPropagationService: ClientTraysPropagationService,
-    private readonly dairyTraysPropagationService: DairyTraysPropagationService,
-    private readonly distributorTransferPropagationService: DistributorTransferPropagationService,
+    private readonly prisma: PrismaService,
+    private readonly dependencyOrchestrator: DependencyOrchestratorService,
   ) {}
 
   async generatePaperService(date: string) {
-    try {
-      if (!date) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.MISSING_REQUIRED_FIELD('date'),
-        );
-      }
+    if (!date) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.MISSING_REQUIRED_FIELD('date'),
+      );
+    }
 
-      const [year, month, day] = date.split('-').map(Number);
+    const [year, month, day] = date.split('-').map(Number);
 
-      if (!year || !month || !day) {
-        throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
-      }
+    if (!year || !month || !day) {
+      throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
+    }
 
-      const saleDate = new Date(Date.UTC(year, month - 1, day));
-      const orderDate = new Date(saleDate);
-      orderDate.setUTCDate(orderDate.getUTCDate() - 1);
+    const saleDate = new Date(Date.UTC(year, month - 1, day));
+    const orderDate = new Date(saleDate);
+    orderDate.setUTCDate(orderDate.getUTCDate() - 1);
 
-      const tomorrowSale = new Date(saleDate);
-      tomorrowSale.setUTCDate(tomorrowSale.getUTCDate() + 1);
+    const tomorrowSale = new Date(saleDate);
+    tomorrowSale.setUTCDate(tomorrowSale.getUTCDate() + 1);
 
-      const now = new Date();
+    const now = new Date();
 
-      const istDate = new Intl.DateTimeFormat('en-CA', {
-        timeZone: DATE_CONFIG.TIMEZONE,
-      }).format(now); // YYYY-MM-DD
+    const istDate = new Intl.DateTimeFormat('en-CA', {
+      timeZone: DATE_CONFIG.TIMEZONE,
+    }).format(now); // YYYY-MM-DD
 
-      const [istYear, istMonth, istDay] = istDate.split('-').map(Number);
+    const [istYear, istMonth, istDay] = istDate.split('-').map(Number);
 
-      const todayIst = new Date(Date.UTC(istYear, istMonth - 1, istDay));
+    const todayIst = new Date(Date.UTC(istYear, istMonth - 1, istDay));
 
-      if (saleDate < todayIst) {
-        throw new BadRequestException(ERROR_MESSAGES.PAST_DATE_NOT_ALLOWED);
-      }
+    if (saleDate < todayIst) {
+      throw new BadRequestException(ERROR_MESSAGES.PAST_DATE_NOT_ALLOWED);
+    }
 
-      const thirtyDaysAhead = new Date(todayIst);
+    const thirtyDaysAhead = new Date(todayIst);
 
-      thirtyDaysAhead.setUTCDate(
-        thirtyDaysAhead.getUTCDate() + DATE_CONFIG.MAX_FUTURE_DAYS,
+    thirtyDaysAhead.setUTCDate(
+      thirtyDaysAhead.getUTCDate() + DATE_CONFIG.MAX_FUTURE_DAYS,
+    );
+
+    if (saleDate > thirtyDaysAhead) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.FUTURE_DATE_TOO_FAR(DATE_CONFIG.MAX_FUTURE_DAYS),
+      );
+    }
+
+    const existingPaper = await this.paperRepository.findPaperBySaleDate(
+      saleDate,
+      tomorrowSale,
+    );
+
+    if (existingPaper) {
+      return existingPaper;
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const paper = await this.paperRepository.generatePaperFromOrderDate(
+        orderDate,
+        tx,
       );
 
-      if (saleDate > thirtyDaysAhead) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.FUTURE_DATE_TOO_FAR(DATE_CONFIG.MAX_FUTURE_DAYS),
-        );
-      }
-
-      const existingPaper = await this.paperRepository.findPaperBySaleDate(
-        saleDate,
-        tomorrowSale,
-      );
-
-      if (existingPaper) {
-        return existingPaper;
-      }
-
-      const paper =
-        await this.paperRepository.generatePaperFromOrderDate(orderDate);
-
-      const groups = await this.paperRepository.getActiveGroups();
+      const groups = await this.paperRepository.getActiveGroups(tx);
 
       if (!groups || groups.length === 0) {
         throw new BadRequestException(ERROR_MESSAGES.NO_ACTIVE_GROUPS);
       }
 
-      await this.paperRepository.generateOrderSheets(paper.id, groups);
+      await this.paperRepository.generateOrderSheets(paper.id, groups, tx);
 
       return paper;
-    } catch (error) {
-      this.logger.error('Failed to generate paper', error);
-
-      throw error;
-    }
+    });
   }
 
   async getTodayPaperService() {
@@ -178,59 +178,78 @@ export class PaperService {
   }
 
   async submitNightEntryService(paperId: number) {
-    const paper =
-      await this.paperValidationService.validateNightSubmitReadiness(paperId);
+    return this.prisma.$transaction(async (tx) => {
+      const paper =
+        await this.paperValidationService.validateNightSubmitReadiness(
+          paperId,
+          tx,
+        );
 
-    this.workflowState.validateTransition(
-      paper.status,
-      OrderPaperStatus.NIGHT_SUBMITTED,
-    );
+      this.workflowState.validateTransition(
+        paper.status,
+        OrderPaperStatus.NIGHT_SUBMITTED,
+      );
 
-    return this.paperRepository.submitNightEntry(paperId);
+      return this.paperRepository.submitNightEntry(paperId, tx);
+    });
   }
 
   async submitMorningEntryService(paperId: number) {
-    const paper =
-      await this.paperValidationService.validateMorningSubmitReadiness(paperId);
+    return this.prisma.$transaction(async (tx) => {
+      const paper =
+        await this.paperValidationService.validateMorningSubmitReadiness(
+          paperId,
+          tx,
+        );
 
-    this.workflowState.validateTransition(
-      paper.status,
-      OrderPaperStatus.MORNING_SUBMITTED,
-    );
+      this.workflowState.validateTransition(
+        paper.status,
+        OrderPaperStatus.MORNING_SUBMITTED,
+      );
 
-    return this.paperRepository.submitMorningEntry(paperId);
+      return this.paperRepository.submitMorningEntry(paperId, tx);
+    });
   }
 
   async finalizePaperService(paperId: number) {
-    const paper =
-      await this.paperValidationService.validateFinalizeReadiness(paperId);
+    return this.prisma.$transaction(async (tx) => {
+      const paper = await this.paperValidationService.validateFinalizeReadiness(
+        paperId,
+        tx,
+      );
 
-    this.workflowState.validateTransition(
-      paper.status,
-      OrderPaperStatus.FINALIZED,
-    );
+      this.workflowState.validateTransition(
+        paper.status,
+        OrderPaperStatus.FINALIZED,
+      );
 
-    await this.clientTraysPropagationService.propagateFromPaper(paperId);
+      await this.dependencyOrchestrator.execute(
+        DEPENDENCY_MODULES.PAPER,
+        DEPENDENCY_TRIGGERS.ON_FINALIZE,
+        {
+          paperId,
+          tx,
+        },
+      );
 
-    await this.dairyTraysPropagationService.propagateFromPaper(paperId);
-
-    await this.distributorTransferPropagationService.propagate(paperId);
-
-    return this.paperRepository.finalizePaper(paperId);
+      return this.paperRepository.finalizePaper(paperId, tx);
+    });
   }
 
   async reopenPaperService(paperId: number, reason: string) {
-    const paper = await this.paperRepository.findPaperById(paperId);
+    return this.prisma.$transaction(async (tx) => {
+      const paper = await this.paperRepository.findPaperById(paperId, tx);
 
-    if (!paper) {
-      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-    }
+      if (!paper) {
+        throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+      }
 
-    this.workflowState.validateTransition(
-      paper.status,
-      OrderPaperStatus.REOPENED,
-    );
+      this.workflowState.validateTransition(
+        paper.status,
+        OrderPaperStatus.REOPENED,
+      );
 
-    return this.paperRepository.reopenPaper(paperId, reason);
+      return this.paperRepository.reopenPaper(paperId, reason, tx);
+    });
   }
 }

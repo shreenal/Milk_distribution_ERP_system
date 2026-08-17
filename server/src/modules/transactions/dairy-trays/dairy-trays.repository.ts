@@ -1,48 +1,60 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class DairyTraysRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getOrCreateDairyTrayPaper(orderPaperId: number) {
-    let dairyTrayPaper =
-      await this.findDairyTrayPaperByOrderPaperId(orderPaperId);
+  async getOrCreateDairyTrayPaper(
+    orderPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    let dairyTrayPaper = await this.findDairyTrayPaperByOrderPaperId(
+      orderPaperId,
+      db,
+    );
 
     if (!dairyTrayPaper) {
-      dairyTrayPaper = await this.createDairyTrayPaper(orderPaperId);
+      dairyTrayPaper = await this.createDairyTrayPaper(orderPaperId, db);
     }
 
     return dairyTrayPaper;
   }
 
-  async findDairyTrayPaperByOrderPaperId(orderPaperId: number) {
-    return this.prisma.dairy_tray_paper.findUnique({
+  async findDairyTrayPaperByOrderPaperId(
+    orderPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.dairy_tray_paper.findUnique({
       where: {
         order_paper_id: orderPaperId,
       },
     });
   }
 
-  async createDairyTrayPaper(orderPaperId: number) {
-    return this.prisma.dairy_tray_paper.create({
+  async createDairyTrayPaper(
+    orderPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.dairy_tray_paper.create({
       data: {
         order_paper_id: orderPaperId,
       },
     });
   }
 
-  async findPaperById(paperId: number) {
-    return this.prisma.order_paper.findUnique({
+  async findPaperById(paperId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_paper.findUnique({
       where: {
         id: paperId,
       },
     });
   }
 
-  async getTrayTypes() {
-    return this.prisma.master_tray_type.findMany({
+  async getTrayTypes(db: PrismaOrTransaction = this.prisma) {
+    return db.master_tray_type.findMany({
       where: {
         is_active: true,
       },
@@ -65,8 +77,11 @@ export class DairyTraysRepository {
     });
   }
 
-  async getCurrentTrayTransactions(dairyTrayPaperId: number) {
-    return this.prisma.dairy_tray_transaction.findMany({
+  async getCurrentTrayTransactions(
+    dairyTrayPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.dairy_tray_transaction.findMany({
       where: {
         dairy_tray_paper_id: dairyTrayPaperId,
       },
@@ -83,8 +98,12 @@ export class DairyTraysRepository {
     });
   }
 
-  async getPreviousPaper(currentPaperId: number, saleDate: Date) {
-    return this.prisma.order_paper.findFirst({
+  async getPreviousPaper(
+    currentPaperId: number,
+    saleDate: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findFirst({
       where: {
         id: {
           not: currentPaperId,
@@ -99,8 +118,11 @@ export class DairyTraysRepository {
     });
   }
 
-  async getPreviousTrayBalances(dairyTrayPaperId: number) {
-    return this.prisma.dairy_tray_transaction.findMany({
+  async getPreviousTrayBalances(
+    dairyTrayPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.dairy_tray_transaction.findMany({
       where: {
         dairy_tray_paper_id: dairyTrayPaperId,
       },
@@ -116,8 +138,8 @@ export class DairyTraysRepository {
     });
   }
 
-  async getVehicles() {
-    return this.prisma.master_vehicle.findMany({
+  async getVehicles(db: PrismaOrTransaction = this.prisma) {
+    return db.master_vehicle.findMany({
       where: {
         is_active: true,
       },
@@ -155,8 +177,11 @@ export class DairyTraysRepository {
   //   });
   // }
 
-  async getPurchaseEntries(paperId: number) {
-    return this.prisma.purchase_entry.findMany({
+  async getPurchaseEntries(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.purchase_entry.findMany({
       where: {
         purchase_paper: {
           order_paper_id: paperId,
@@ -185,8 +210,8 @@ export class DairyTraysRepository {
     });
   }
 
-  async getProductTrayRules() {
-    return this.prisma.product_tray_rule.findMany({
+  async getProductTrayRules(db: PrismaOrTransaction = this.prisma) {
+    return db.product_tray_rule.findMany({
       where: {
         is_active: true,
       },
@@ -212,24 +237,27 @@ export class DairyTraysRepository {
   async replaceTrayTransactions(
     dairyTrayPaperId: number,
     data: Prisma.dairy_tray_transactionCreateManyInput[],
+    db: PrismaOrTransaction = this.prisma,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.dairy_tray_transaction.deleteMany({
-        where: {
-          dairy_tray_paper_id: dairyTrayPaperId,
-        },
-      });
-
-      if (data.length > 0) {
-        await tx.dairy_tray_transaction.createMany({
-          data,
-        });
-      }
+    await db.dairy_tray_transaction.deleteMany({
+      where: {
+        dairy_tray_paper_id: dairyTrayPaperId,
+      },
     });
+
+    if (data.length > 0) {
+      await db.dairy_tray_transaction.createMany({
+        data,
+      });
+    }
   }
 
-  async getNextPaper(currentPaperId: number, saleDate: Date) {
-    return this.prisma.order_paper.findFirst({
+  async getNextPaper(
+    currentPaperId: number,
+    saleDate: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findFirst({
       where: {
         id: {
           not: currentPaperId,
@@ -252,30 +280,29 @@ export class DairyTraysRepository {
       trayTypeId: number;
       returned: number;
     }[],
+    db: PrismaOrTransaction = this.prisma,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      for (const entry of entries) {
-        await tx.dairy_tray_transaction.upsert({
-          where: {
-            dairy_tray_paper_id_delivery_session_vehicle_id_tray_type_id: {
-              dairy_tray_paper_id: dairyTrayPaperId,
-              delivery_session: entry.deliverySession,
-              vehicle_id: entry.vehicleId,
-              tray_type_id: entry.trayTypeId,
-            },
-          },
-          update: {
-            trays_returned: entry.returned,
-          },
-          create: {
+    for (const entry of entries) {
+      await db.dairy_tray_transaction.upsert({
+        where: {
+          dairy_tray_paper_id_delivery_session_vehicle_id_tray_type_id: {
             dairy_tray_paper_id: dairyTrayPaperId,
-            vehicle_id: entry.vehicleId,
             delivery_session: entry.deliverySession,
+            vehicle_id: entry.vehicleId,
             tray_type_id: entry.trayTypeId,
-            trays_returned: entry.returned,
           },
-        });
-      }
-    });
+        },
+        update: {
+          trays_returned: entry.returned,
+        },
+        create: {
+          dairy_tray_paper_id: dairyTrayPaperId,
+          vehicle_id: entry.vehicleId,
+          delivery_session: entry.deliverySession,
+          tray_type_id: entry.trayTypeId,
+          trays_returned: entry.returned,
+        },
+      });
+    }
   }
 }

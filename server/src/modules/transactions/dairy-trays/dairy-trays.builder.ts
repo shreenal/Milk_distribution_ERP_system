@@ -18,7 +18,7 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
 export class DairyTraysBuilder {
   constructor(
     private readonly trayCalculationService: TrayCalculationService,
-  ) { }
+  ) {}
 
   buildDairyTrayGrid({
     vehicles,
@@ -154,7 +154,6 @@ export class DairyTraysBuilder {
 
     for (const vehicle of vehicles) {
       for (const session of sessions) {
-
         if (!vehicleSessions.has(`${vehicle.id}_${session}`)) {
           continue;
         }

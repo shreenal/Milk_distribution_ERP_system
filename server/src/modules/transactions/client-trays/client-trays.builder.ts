@@ -405,23 +405,6 @@ export class ClientTraysBuilder {
           trayRules,
         );
 
-        console.log('[TRAY TYPE DEBUG]', {
-          productId: item.product_id,
-          clientId: item.client_id,
-          product: {
-            brand_id: item.master_product.brand_id,
-            product_group_id: item.master_product.product_group_id,
-            product_type_id: item.master_product.product_type_id,
-            packaging_type_id: item.master_product.packaging_type_id,
-          },
-          resolvedRule: rule
-            ? {
-                id: rule.id,
-                tray_type_id: rule.tray_type_id,
-              }
-            : null,
-        });
-
         if (!rule) {
           continue;
         }

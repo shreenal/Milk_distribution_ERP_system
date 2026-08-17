@@ -32,6 +32,21 @@ export class WorkflowStateService {
     }
   }
 
+  /**
+   * Business lifecycle invariant:
+   *
+   * ordered_qty is editable only during DRAFT.
+   *
+   * It represents the client's requested quantity and is used for
+   * Vehicle Allocation planning.
+   *
+   * delivered_qty is the actual quantity delivered to the client.
+   * It is recorded during the completion phase and may be corrected
+   * while a finalized paper is REOPENED.
+   *
+   * Reopening therefore permits correction of delivery results without
+   * reopening or recalculating the historical Vehicle Allocation plan.
+   */
   canEditNightEntries(status: OrderPaperStatus): boolean {
     return status === OrderPaperStatus.DRAFT;
   }
