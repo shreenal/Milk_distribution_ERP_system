@@ -1,5 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { OrderPaperStatus } from '../../../../generated/prisma/client.js';
+import {
+  OrderPaperStatus,
+  Prisma,
+} from '../../../../generated/prisma/client.js';
 
 import { ClientTraysRepository } from '../client-trays.repository.js';
 import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
@@ -12,53 +15,74 @@ export class ClientTraysPropagationService {
     private readonly trayCalculationService: TrayCalculationService,
   ) {}
 
-  async recalculateFromSheet(sheetId: number): Promise<void> {
-    await this.recalculateSheet(sheetId);
+  async recalculateFromSheet(
+    sheetId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    await this.recalculateSheet(sheetId, tx);
   }
 
-  async propagateFromPaper(paperId: number): Promise<void> {
-    const sheets = await this.clientTraysRepository.getSheetsByPaperId(paperId);
+  async propagateFromPaper(
+    paperId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const sheets = await this.clientTraysRepository.getSheetsByPaperId(
+      paperId,
+      tx,
+    );
 
     for (const sheet of sheets) {
-      await this.propagateFromSheet(sheet.id);
+      await this.propagateFromSheet(sheet.id, tx);
     }
   }
 
-  async propagateFromSheet(startSheetId: number): Promise<void> {
+  async propagateFromSheet(
+    startSheetId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
     let currentSheetId: number | null = startSheetId;
 
     while (currentSheetId !== null) {
-      const sheet =
-        await this.clientTraysRepository.findSheetById(currentSheetId);
+      const sheet = await this.clientTraysRepository.findSheetById(
+        currentSheetId,
+        tx,
+      );
 
       if (!sheet) {
         throw new NotFoundException(`Order sheet ${currentSheetId} not found`);
       }
 
-      await this.recalculateSheet(currentSheetId);
+      await this.recalculateSheet(currentSheetId, tx);
 
       const nextSheet = await this.clientTraysRepository.getNextSheet(
         sheet.group_id,
         sheet.order_paper.sale_date,
+        tx,
       );
 
       currentSheetId = nextSheet?.id ?? null;
     }
   }
 
-  private async recalculateSheet(sheetId: number): Promise<void> {
-    const sheet = await this.clientTraysRepository.findSheetById(sheetId);
+  private async recalculateSheet(
+    sheetId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const sheet = await this.clientTraysRepository.findSheetById(sheetId, tx);
 
     if (!sheet) {
       throw new NotFoundException(`Order sheet ${sheetId} not found`);
     }
 
-    const sheetItems = await this.clientTraysRepository.getSheetItems(sheetId);
+    const sheetItems = await this.clientTraysRepository.getSheetItems(
+      sheetId,
+      tx,
+    );
 
-    const trayRules = await this.clientTraysRepository.getProductTrayRules();
+    const trayRules = await this.clientTraysRepository.getProductTrayRules(tx);
 
     const existingTransactions =
-      await this.clientTraysRepository.getTrayTransactions(sheetId);
+      await this.clientTraysRepository.getTrayTransactions(sheetId, tx);
 
     /*
      * Opening balance comes from the previous sheet's
@@ -67,6 +91,7 @@ export class ClientTraysPropagationService {
     const previousSheet = await this.clientTraysRepository.getPreviousSheet(
       sheet.group_id,
       sheet.order_paper.sale_date,
+      tx,
     );
 
     const openingBalanceMap = new Map<string, number>();
@@ -75,6 +100,7 @@ export class ClientTraysPropagationService {
       const previousBalances =
         await this.clientTraysRepository.getPreviousTrayBalances(
           previousSheet.id,
+          tx,
         );
 
       for (const balance of previousBalances) {
@@ -206,6 +232,7 @@ export class ClientTraysPropagationService {
 
     await this.clientTraysRepository.replaceTrayTransactions(
       transactionEntries,
+      tx,
     );
   }
 }

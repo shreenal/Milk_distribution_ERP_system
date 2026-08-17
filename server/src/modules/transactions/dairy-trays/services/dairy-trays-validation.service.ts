@@ -4,6 +4,7 @@ import { SaveDairyTrayEntryDto } from '.././dto/save-dairy-tray-entry.dto.js';
 import { DAIRY_TRAYS_ERROR_MESSAGES } from '.././dairy-trays.constants.js';
 import { DairyTraysRepository } from '.././dairy-trays.repository.js';
 import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 @Injectable()
 export class DairyTraysValidationService {
@@ -70,9 +71,12 @@ export class DairyTraysValidationService {
     }
   }
 
-  async validateDairyTraysComplete(paperId: number) {
+  async validateDairyTraysComplete(paperId: number, db: PrismaOrTransaction) {
     const dairyTrayPaper =
-      await this.dairytraysrepository.findDairyTrayPaperByOrderPaperId(paperId);
+      await this.dairytraysrepository.findDairyTrayPaperByOrderPaperId(
+        paperId,
+        db,
+      );
 
     if (!dairyTrayPaper) {
       throw new BadRequestException(
@@ -81,9 +85,12 @@ export class DairyTraysValidationService {
     }
 
     const [transactions, purchaseEntries, trayRules] = await Promise.all([
-      this.dairytraysrepository.getCurrentTrayTransactions(dairyTrayPaper.id),
-      this.dairytraysrepository.getPurchaseEntries(paperId),
-      this.dairytraysrepository.getProductTrayRules(),
+      this.dairytraysrepository.getCurrentTrayTransactions(
+        dairyTrayPaper.id,
+        db,
+      ),
+      this.dairytraysrepository.getPurchaseEntries(paperId, db),
+      this.dairytraysrepository.getProductTrayRules(db),
     ]);
 
     const expected = new Set<string>();

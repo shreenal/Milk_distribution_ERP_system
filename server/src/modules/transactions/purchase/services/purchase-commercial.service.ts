@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { GatepassDatePolicy } from '../../../../generated/prisma/client.js';
 import { PurchaseRepository } from '../purchase.repository.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
+import { PrismaService } from '../../../../prisma/prisma.service.js';
 
 export interface PurchaseCommercialContext {
   productLinkId: number;
@@ -10,17 +12,22 @@ export interface PurchaseCommercialContext {
 
 @Injectable()
 export class PurchaseCommercialService {
-  constructor(private readonly purchaseRepository: PurchaseRepository) {}
+  constructor(
+    private readonly purchaseRepository: PurchaseRepository,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async resolve(
     saleDate: Date,
     distributorId: number,
     productId: number,
     gatepassPolicy: GatepassDatePolicy,
+    db: PrismaOrTransaction = this.prisma,
   ): Promise<PurchaseCommercialContext> {
     const productLink = await this.purchaseRepository.getProductLink(
       distributorId,
       productId,
+      db,
     );
 
     if (!productLink) {
@@ -34,6 +41,7 @@ export class PurchaseCommercialService {
     const rate = await this.purchaseRepository.findProductLinkRateForDate(
       productLink.id,
       gatepassDate,
+      db,
     );
 
     if (!rate) {

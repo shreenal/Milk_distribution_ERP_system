@@ -2,21 +2,26 @@ import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class PaperRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllPapers() {
-    return this.prisma.order_paper.findMany({
+  async findAllPapers(db: PrismaOrTransaction = this.prisma) {
+    return db.order_paper.findMany({
       orderBy: {
         sale_date: 'desc',
       },
     });
   }
 
-  async findPaperBySaleDate(today: Date, tomorrow: Date) {
-    return this.prisma.order_paper.findFirst({
+  async findPaperBySaleDate(
+    today: Date,
+    tomorrow: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findFirst({
       where: {
         sale_date: {
           gte: today,
@@ -30,8 +35,8 @@ export class PaperRepository {
     });
   }
 
-  async findLatestPaper() {
-    return this.prisma.order_paper.findFirst({
+  async findLatestPaper(db: PrismaOrTransaction = this.prisma) {
+    return db.order_paper.findFirst({
       orderBy: {
         order_date: 'desc',
       },
@@ -42,16 +47,20 @@ export class PaperRepository {
     });
   }
 
-  async findPaperById(paperId: number) {
-    return this.prisma.order_paper.findUnique({
+  async findPaperById(paperId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_paper.findUnique({
       where: {
         id: paperId,
       },
     });
   }
 
-  async findPaperByOrderDateRange(today: Date, tomorrow: Date) {
-    return this.prisma.order_paper.findFirst({
+  async findPaperByOrderDateRange(
+    today: Date,
+    tomorrow: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findFirst({
       where: {
         order_date: {
           gte: today,
@@ -61,8 +70,8 @@ export class PaperRepository {
     });
   }
 
-  async getSheetItems(sheetId: number) {
-    return this.prisma.order_sheet_items.findMany({
+  async getSheetItems(sheetId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_sheet_items.findMany({
       where: {
         order_sheet_id: sheetId,
       },
@@ -82,8 +91,8 @@ export class PaperRepository {
     });
   }
 
-  async getPaperSheets(paperId: number) {
-    return this.prisma.order_sheet.findMany({
+  async getPaperSheets(paperId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_sheet.findMany({
       where: {
         order_paper_id: paperId,
       },
@@ -104,16 +113,19 @@ export class PaperRepository {
     });
   }
 
-  async getActiveGroups() {
-    return this.prisma.master_group.findMany({
+  async getActiveGroups(db: PrismaOrTransaction = this.prisma) {
+    return db.master_group.findMany({
       where: {
         is_active: true,
       },
     });
   }
 
-  async generatePaperFromOrderDate(date: Date) {
-    return this.prisma.order_paper.create({
+  async generatePaperFromOrderDate(
+    date: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.create({
       data: {
         order_date: date,
 
@@ -124,8 +136,12 @@ export class PaperRepository {
     });
   }
 
-  async generateOrderSheets(paperId: number, groups: { id: number }[]) {
-    return this.prisma.order_sheet.createMany({
+  async generateOrderSheets(
+    paperId: number,
+    groups: { id: number }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.createMany({
       data: groups.map((group) => ({
         order_paper_id: paperId,
 
@@ -135,8 +151,11 @@ export class PaperRepository {
     });
   }
 
-  async submitNightEntry(paperId: number) {
-    return this.prisma.order_paper.update({
+  async submitNightEntry(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.update({
       where: {
         id: paperId,
       },
@@ -149,8 +168,11 @@ export class PaperRepository {
     });
   }
 
-  async submitMorningEntry(paperId: number) {
-    return this.prisma.order_paper.update({
+  async submitMorningEntry(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.update({
       where: {
         id: paperId,
       },
@@ -163,8 +185,8 @@ export class PaperRepository {
     });
   }
 
-  async finalizePaper(paperId: number) {
-    return this.prisma.order_paper.update({
+  async finalizePaper(paperId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_paper.update({
       where: {
         id: paperId,
       },
@@ -177,8 +199,12 @@ export class PaperRepository {
     });
   }
 
-  async reopenPaper(paperId: number, reason: string) {
-    return this.prisma.order_paper.update({
+  async reopenPaper(
+    paperId: number,
+    reason: string,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.update({
       where: {
         id: paperId,
       },

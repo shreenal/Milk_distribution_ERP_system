@@ -1,56 +1,35 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { ClientTraysService } from '../client-trays.service.js';
-import { ClientTrayRow } from '../../../../types/client-trays.types.js';
 import { CLIENT_TRAY_ERROR_MESSAGES } from '../client-trays.constants.js';
+import { ClientTraysRepository } from '../client-trays.repository.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 @Injectable()
 export class ClientTraysValidationService {
-  constructor(private readonly clienttraysService: ClientTraysService) {}
+  constructor(private readonly clientTraysRepository: ClientTraysRepository) {}
 
-  async validateTrayCompleteness(sheetId: number): Promise<void> {
-    try {
-      const traySheet =
-        await this.clienttraysService.getTraySheetService(sheetId);
-      const rows = [
-        ...traySheet.milkTrayGrid.rows,
-        ...traySheet.nonMilkTrayGrid.rows,
-      ];
-
-      if (rows.length === 0) {
-        return;
-      }
-
-      for (const row of rows) {
-        this.validateTrayRow(row);
-      }
-    } catch (error) {
-      throw new BadRequestException(
-        CLIENT_TRAY_ERROR_MESSAGES.VALIDATION_FAILED(
-          sheetId,
-          error instanceof Error
-            ? error.message
-            : CLIENT_TRAY_ERROR_MESSAGES.UNKNOWN_VALIDATION_ERROR,
-        ),
-      );
-    }
-  }
-
-  private validateTrayRow(row: ClientTrayRow): void {
-    const trayTypeKeys = Object.keys(row).filter((key) =>
-      key.endsWith('_returned'),
+  async validateTrayCompleteness(
+    sheetId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const transactions = await this.clientTraysRepository.getTrayTransactions(
+      sheetId,
+      db,
     );
 
-    for (const key of trayTypeKeys) {
-      const trayPrefix = key.replace('_returned', '');
-      const trays = Number(row[trayPrefix] ?? 0);
-      const opening = Number(row[`${trayPrefix}_opening`] ?? 0);
-      const returned = row[key];
+    if (transactions.length === 0) {
+      return;
+    }
 
-      if (trays > 0 || opening > 0) {
-        if (returned === null || returned === undefined || returned === '') {
+    for (const transaction of transactions) {
+      const traysTaken = Number(transaction.trays_taken ?? 0);
+      const openingBalance = Number(transaction.opening_balance ?? 0);
+      const traysReturned = transaction.trays_returned;
+
+      if (traysTaken > 0 || openingBalance > 0) {
+        if (traysReturned === null || traysReturned === undefined) {
           throw new BadRequestException(
             CLIENT_TRAY_ERROR_MESSAGES.INCOMPLETE_TRAY_RETURNS(
-              String(row.clientName),
+              String(transaction.master_client.name),
             ),
           );
         }
@@ -58,14 +37,16 @@ export class ClientTraysValidationService {
     }
   }
 
-  async validateTrayCalculationExists(sheetId: number): Promise<void> {
-    const traySheet =
-      await this.clienttraysService.getTraySheetService(sheetId);
-    const totalRows =
-      traySheet.milkTrayGrid.rows.length +
-      traySheet.nonMilkTrayGrid.rows.length;
+  async validateTrayCalculationExists(
+    sheetId: number,
+    db: PrismaOrTransaction = this.clientTraysRepository['prisma'],
+  ): Promise<void> {
+    const transactions = await this.clientTraysRepository.getTrayTransactions(
+      sheetId,
+      db,
+    );
 
-    if (totalRows === 0) {
+    if (transactions.length === 0) {
       throw new BadRequestException(
         CLIENT_TRAY_ERROR_MESSAGES.CALCULATION_FAILED,
       );

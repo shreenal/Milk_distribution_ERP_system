@@ -8,6 +8,7 @@ import { VehicleAssignment } from '../../../../types/purchase.types.js';
 
 import { PURCHASE_ERROR_MESSAGES } from '../purchase.constants.js';
 import { PurchaseVarianceCalculator } from '../../../../common/calculators/purchase-variance.calculator.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 @Injectable()
 export class PurchaseValidationService {
@@ -16,11 +17,18 @@ export class PurchaseValidationService {
     private readonly purchaseVarianceCalculator: PurchaseVarianceCalculator,
   ) {}
 
-  async validatePurchases(paperId: number, dto: SavePurchaseDto) {
-    const products = await this.purchaseRepository.findProducts();
+  async validatePurchases(
+    paperId: number,
+    dto: SavePurchaseDto,
+    db: PrismaOrTransaction,
+  ) {
+    const products = await this.purchaseRepository.findProducts(db);
 
     const vehicleAssignments: VehicleAssignment[] =
-      await this.purchaseRepository.findVehicleAssignmentsByPaperId(paperId);
+      await this.purchaseRepository.findVehicleAssignmentsByPaperId(
+        paperId,
+        db,
+      );
 
     const validProductIds = new Set(products.map((product) => product.id));
 
@@ -29,7 +37,10 @@ export class PurchaseValidationService {
     );
 
     const allocations =
-      await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
+      await this.purchaseRepository.findVehicleAllocationsByPaperId(
+        paperId,
+        db,
+      );
 
     const acknowledgementMap = new Map<
       string,
@@ -148,9 +159,12 @@ export class PurchaseValidationService {
     }
   }
 
-  async validatePurchasesComplete(paperId: number) {
+  async validatePurchasesComplete(paperId: number, db: PrismaOrTransaction) {
     const allocations =
-      await this.purchaseRepository.findVehicleAllocationsByPaperId(paperId);
+      await this.purchaseRepository.findVehicleAllocationsByPaperId(
+        paperId,
+        db,
+      );
 
     if (allocations.length === 0) {
       throw new BadRequestException(
@@ -163,7 +177,10 @@ export class PurchaseValidationService {
     );
 
     const vehicleAssignments: VehicleAssignment[] =
-      await this.purchaseRepository.findVehicleAssignmentsByPaperId(paperId);
+      await this.purchaseRepository.findVehicleAssignmentsByPaperId(
+        paperId,
+        db,
+      );
 
     const assignmentMap = new Map<string, VehicleAssignment>();
 
@@ -174,12 +191,12 @@ export class PurchaseValidationService {
       );
     }
 
-    const purchasePaper =
-      await this.purchaseRepository.findPurchasePaper(paperId);
+    const purchasePaper = await this.purchaseRepository.findPurchasePaper(
+      paperId,
+      db,
+    );
 
-    console.log('purchasePaper =', purchasePaper);
     if (!purchasePaper) {
-      console.log('purchasePaper is null -> throwing PURCHASES_NOT_COMPLETED');
       if (requiredAllocations.length === 0) {
         return;
       }
@@ -191,6 +208,7 @@ export class PurchaseValidationService {
 
     const purchaseEntries = await this.purchaseRepository.findPurchaseEntries(
       purchasePaper.id,
+      db,
     );
 
     const purchaseKeys = new Set(
@@ -224,8 +242,6 @@ export class PurchaseValidationService {
 
       const key = `${allocation.distributor_id}_${allocation.category}_${allocation.vehicle_id}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`;
       if (!purchaseKeys.has(key)) {
-        console.log('Expected key:', key);
-        console.log('Purchase keys:', [...purchaseKeys]);
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.PURCHASE_MISSING(
             allocation.vehicle_id,

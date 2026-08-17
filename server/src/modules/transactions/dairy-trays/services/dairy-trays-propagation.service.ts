@@ -14,49 +14,63 @@ export class DairyTraysPropagationService {
     private readonly trayCalculationService: TrayCalculationService,
   ) {}
 
-  async recalculateCurrentPaper(paperId: number): Promise<void> {
-    await this.recalculatePaper(paperId);
+  async recalculateCurrentPaper(
+    paperId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    await this.recalculatePaper(paperId, tx);
   }
 
-  async propagateFromPaper(startPaperId: number): Promise<void> {
+  async propagateFromPaper(
+    startPaperId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
     let currentPaperId: number | null = startPaperId;
 
     while (currentPaperId !== null) {
-      const paper =
-        await this.dairyTraysRepository.findPaperById(currentPaperId);
+      const paper = await this.dairyTraysRepository.findPaperById(
+        currentPaperId,
+        tx,
+      );
 
       if (!paper) {
         throw new NotFoundException(`Order paper ${currentPaperId} not found`);
       }
 
-      await this.recalculatePaper(currentPaperId);
+      await this.recalculatePaper(currentPaperId, tx);
 
       const nextPaper = await this.dairyTraysRepository.getNextPaper(
         paper.id,
         paper.sale_date,
+        tx,
       );
 
       currentPaperId = nextPaper?.id ?? null;
     }
   }
 
-  private async recalculatePaper(paperId: number): Promise<void> {
-    const paper = await this.dairyTraysRepository.findPaperById(paperId);
+  private async recalculatePaper(
+    paperId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const paper = await this.dairyTraysRepository.findPaperById(paperId, tx);
 
     if (!paper) {
       throw new NotFoundException(`Order paper ${paperId} not found`);
     }
 
     const dairyTrayPaper =
-      await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paperId);
+      await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paperId, tx);
 
     /*
      * Purchase entries are the source of trays_taken.
      */
-    const purchaseEntries =
-      await this.dairyTraysRepository.getPurchaseEntries(paperId);
+    const purchaseEntries = await this.dairyTraysRepository.getPurchaseEntries(
+      paperId,
+      tx,
+    );
 
-    const trayRules = await this.dairyTraysRepository.getProductTrayRules();
+    const trayRules = await this.dairyTraysRepository.getProductTrayRules(tx);
 
     /*
      * Existing transactions contain the manually entered
@@ -67,6 +81,7 @@ export class DairyTraysPropagationService {
     const existingTransactions =
       await this.dairyTraysRepository.getCurrentTrayTransactions(
         dairyTrayPaper.id,
+        tx,
       );
 
     const existingTransactionMap = new Map<
@@ -88,6 +103,7 @@ export class DairyTraysPropagationService {
     const previousPaper = await this.dairyTraysRepository.getPreviousPaper(
       paper.id,
       paper.sale_date,
+      tx,
     );
 
     const previousClosingMap = new Map<string, number>();
@@ -102,12 +118,14 @@ export class DairyTraysPropagationService {
       const previousDairyTrayPaper =
         await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
           previousPaper.id,
+          tx,
         );
 
       if (previousDairyTrayPaper) {
         const previousTransactions =
           await this.dairyTraysRepository.getPreviousTrayBalances(
             previousDairyTrayPaper.id,
+            tx,
           );
 
         for (const transaction of previousTransactions) {
@@ -183,8 +201,6 @@ export class DairyTraysPropagationService {
 
       const vehicleId = Number(vehicleIdString);
       const trayTypeId = Number(trayTypeIdString);
-
-      const inventoryKey = `${vehicleId}_${trayTypeId}`;
 
       /*
        * Previous paper's NIGHT closing becomes current
@@ -266,6 +282,7 @@ export class DairyTraysPropagationService {
     await this.dairyTraysRepository.replaceTrayTransactions(
       dairyTrayPaper.id,
       transactions,
+      tx,
     );
   }
 }

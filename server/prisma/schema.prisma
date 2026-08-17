@@ -445,7 +445,7 @@ model order_paper {
   reopen_reason              String?
   created_at                 DateTime                  @default(now())
   updated_at                 DateTime                  @default(now()) @updatedAt
-  sale_date                  DateTime                  @db.Date
+  sale_date                  DateTime                  @unique @db.Date
   cash_bank_deposits         cash_bank_deposit[]
   cash_direct_collections    cash_direct_collection[]
   order_sheet                order_sheet[]

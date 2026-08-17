@@ -3,6 +3,7 @@ import { TransferSummaryBuilder } from '../../../../types/distributor-transfer.t
 import { Prisma } from '../../../../generated/prisma/client.js';
 import { DistributorTransferRepository } from '../distributor-transfer.repository.js';
 import { DistributorTransferBuilder } from '../distributor-transfer.builder.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 type DistributorTransferRule = Prisma.distributor_transfer_ruleGetPayload<{}>;
 
@@ -34,12 +35,15 @@ export class DistributorTransferValidationService {
     }
   }
 
-  async validateGenerationReadiness(paperId: number) {
-    const sourceItems = await this.repository.getTransferSourceItems(paperId);
+  async validateGenerationReadiness(paperId: number, db: PrismaOrTransaction) {
+    const sourceItems = await this.repository.getTransferSourceItems(
+      paperId,
+      db,
+    );
 
     const summaries = this.builder.buildTransferSummary(sourceItems);
 
-    const transferRules = await this.repository.findTransferRules();
+    const transferRules = await this.repository.findTransferRules(db);
 
     this.validateTransferRules(summaries, transferRules);
   }

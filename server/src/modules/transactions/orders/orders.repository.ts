@@ -8,16 +8,20 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 export class OrdersRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getActiveGroups() {
-    return this.prisma.master_group.findMany({
+  async getActiveGroups(db: PrismaOrTransaction = this.prisma) {
+    return db.master_group.findMany({
       where: {
         is_active: true,
       },
     });
   }
 
-  async generateOrderSheets(paperId: number, groups: { id: number }[]) {
-    return this.prisma.order_sheet.createMany({
+  async generateOrderSheets(
+    paperId: number,
+    groups: { id: number }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.createMany({
       data: groups.map((group) => ({
         order_paper_id: paperId,
 
@@ -27,8 +31,8 @@ export class OrdersRepository {
     });
   }
 
-  async findSheetById(sheetId: number) {
-    return this.prisma.order_sheet.findUnique({
+  async findSheetById(sheetId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_sheet.findUnique({
       where: {
         id: sheetId,
       },
@@ -40,8 +44,11 @@ export class OrdersRepository {
     });
   }
 
-  async getSheetItemsByPaperId(paperId: number) {
-    return this.prisma.order_sheet_items.findMany({
+  async getSheetItemsByPaperId(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_items.findMany({
       where: {
         order_sheet: {
           order_paper_id: paperId,
@@ -50,8 +57,11 @@ export class OrdersRepository {
     });
   }
 
-  async getClientsByGroupId(groupId: number) {
-    return this.prisma.master_client.findMany({
+  async getClientsByGroupId(
+    groupId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.master_client.findMany({
       where: {
         delivery_group_id: groupId,
 
@@ -87,7 +97,7 @@ export class OrdersRepository {
 
   async createSheetItems(
     data: Prisma.order_sheet_itemsCreateManyInput[],
-    tx: Prisma.TransactionClient = this.prisma,
+    tx: PrismaOrTransaction = this.prisma,
   ) {
     const result = await tx.order_sheet_items.createMany({
       data,
@@ -100,7 +110,7 @@ export class OrdersRepository {
   async deleteSheetItems(
     sheetId: number,
     productId: number,
-    tx: Prisma.TransactionClient = this.prisma,
+    tx: PrismaOrTransaction = this.prisma,
   ) {
     return tx.order_sheet_items.deleteMany({
       where: {
@@ -110,8 +120,11 @@ export class OrdersRepository {
     });
   }
 
-  async findAvailableProducts(category?: SupplyCategory) {
-    return this.prisma.master_product.findMany({
+  async findAvailableProducts(
+    category?: SupplyCategory,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.master_product.findMany({
       where: {
         is_active: true,
         ...(category && {
@@ -141,8 +154,12 @@ export class OrdersRepository {
     });
   }
 
-  async getProductsForSheet(sheetId: number, category: SupplyCategory) {
-    return this.prisma.master_product.findMany({
+  async getProductsForSheet(
+    sheetId: number,
+    category: SupplyCategory,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.master_product.findMany({
       where: {
         is_active: true,
         master_product_group: {
@@ -186,8 +203,8 @@ export class OrdersRepository {
     });
   }
 
-  async getSheetItems(sheetId: number) {
-    return this.prisma.order_sheet_items.findMany({
+  async getSheetItems(sheetId: number, db: PrismaOrTransaction = this.prisma) {
+    return db.order_sheet_items.findMany({
       where: {
         order_sheet_id: sheetId,
       },
@@ -233,8 +250,11 @@ export class OrdersRepository {
     });
   }
 
-  async getMorningValidationItems(sheetId: number) {
-    return this.prisma.order_sheet_items.findMany({
+  async getMorningValidationItems(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_items.findMany({
       where: {
         order_sheet_id: sheetId,
       },
@@ -252,8 +272,11 @@ export class OrdersRepository {
     });
   }
 
-  async getQuantityValidationItems(sheetId: number) {
-    return this.prisma.order_sheet_items.findMany({
+  async getQuantityValidationItems(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_items.findMany({
       where: {
         order_sheet_id: sheetId,
       },
@@ -272,22 +295,25 @@ export class OrdersRepository {
     });
   }
 
-  async upsertSheetEntry(data: {
-    order_sheet_id: number;
-    client_id: number;
-    product_id: number;
-    product_link_id: number;
-    ordered_qty?: number;
-    delivered_qty?: number;
-    night_selling_rate?: number;
-    night_bill_amount?: number;
-    final_selling_rate?: number;
-    final_gst_percentage?: number;
-    final_gst_amount?: number;
-    final_taxable_amount?: number;
-    final_bill_amount?: number;
-  }) {
-    return this.prisma.order_sheet_items.upsert({
+  async upsertSheetEntry(
+    data: {
+      order_sheet_id: number;
+      client_id: number;
+      product_id: number;
+      product_link_id: number;
+      ordered_qty?: number;
+      delivered_qty?: number;
+      night_selling_rate?: number;
+      night_bill_amount?: number;
+      final_selling_rate?: number;
+      final_gst_percentage?: number;
+      final_gst_amount?: number;
+      final_taxable_amount?: number;
+      final_bill_amount?: number;
+    },
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_items.upsert({
       where: {
         order_sheet_id_client_id_product_link_id: {
           order_sheet_id: data.order_sheet_id,
@@ -364,82 +390,82 @@ export class OrdersRepository {
     });
   }
 
-  async upsertSheetEntryTx(
-    tx: Prisma.TransactionClient,
-    data: {
-      order_sheet_id: number;
+  // async upsertSheetEntryTx(
+  //   tx: PrismaOrTransaction,
+  //   data: {
+  //     order_sheet_id: number;
 
-      client_id: number;
+  //     client_id: number;
 
-      product_id: number;
+  //     product_id: number;
 
-      product_link_id: number;
+  //     product_link_id: number;
 
-      ordered_qty?: number;
+  //     ordered_qty?: number;
 
-      delivered_qty?: number;
+  //     delivered_qty?: number;
 
-      night_selling_rate?: number;
+  //     night_selling_rate?: number;
 
-      night_bill_amount?: number;
+  //     night_bill_amount?: number;
 
-      final_selling_rate?: number;
+  //     final_selling_rate?: number;
 
-      final_gst_percentage?: number;
+  //     final_gst_percentage?: number;
 
-      final_gst_amount?: number;
+  //     final_gst_amount?: number;
 
-      final_taxable_amount?: number;
+  //     final_taxable_amount?: number;
 
-      final_bill_amount?: number;
-    },
-  ) {
-    return tx.order_sheet_items.upsert({
-      where: {
-        order_sheet_id_client_id_product_link_id: {
-          order_sheet_id: data.order_sheet_id,
-          client_id: data.client_id,
-          product_link_id: data.product_link_id,
-        },
-      },
+  //     final_bill_amount?: number;
+  //   },
+  // ) {
+  //   return tx.order_sheet_items.upsert({
+  //     where: {
+  //       order_sheet_id_client_id_product_link_id: {
+  //         order_sheet_id: data.order_sheet_id,
+  //         client_id: data.client_id,
+  //         product_link_id: data.product_link_id,
+  //       },
+  //     },
 
-      update: {
-        ordered_qty: data.ordered_qty,
+  //     update: {
+  //       ordered_qty: data.ordered_qty,
 
-        night_selling_rate: Number(data.night_selling_rate),
+  //       night_selling_rate: Number(data.night_selling_rate),
 
-        night_bill_amount: Number(data.night_bill_amount?.toFixed(2)),
-      },
+  //       night_bill_amount: Number(data.night_bill_amount?.toFixed(2)),
+  //     },
 
-      create: {
-        order_sheet_id: data.order_sheet_id,
+  //     create: {
+  //       order_sheet_id: data.order_sheet_id,
 
-        client_id: data.client_id,
+  //       client_id: data.client_id,
 
-        product_id: data.product_id,
+  //       product_id: data.product_id,
 
-        product_link_id: data.product_link_id,
+  //       product_link_id: data.product_link_id,
 
-        ordered_qty: data.ordered_qty,
+  //       ordered_qty: data.ordered_qty,
 
-        night_selling_rate: Number(data.night_selling_rate),
+  //       night_selling_rate: Number(data.night_selling_rate),
 
-        night_bill_amount: Number(data.night_bill_amount?.toFixed(2)),
+  //       night_bill_amount: Number(data.night_bill_amount?.toFixed(2)),
 
-        delivered_qty: null,
+  //       delivered_qty: null,
 
-        final_selling_rate: 0,
+  //       final_selling_rate: 0,
 
-        final_gst_percentage: 0,
+  //       final_gst_percentage: 0,
 
-        final_gst_amount: 0,
+  //       final_gst_amount: 0,
 
-        final_taxable_amount: 0,
+  //       final_taxable_amount: 0,
 
-        final_bill_amount: 0,
-      },
-    });
-  }
+  //       final_bill_amount: 0,
+  //     },
+  //   });
+  // }
 
   async getProductCategory(
     productId: number,
@@ -463,8 +489,11 @@ export class OrdersRepository {
     return product.master_product_group.category;
   }
 
-  async getGroupSupplyRules(groupId: number) {
-    const rules = await this.prisma.master_group_supply_rule.findMany({
+  async getGroupSupplyRules(
+    groupId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const rules = await db.master_group_supply_rule.findMany({
       where: {
         group_id: groupId,
         is_active: true,
@@ -586,8 +615,11 @@ export class OrdersRepository {
     );
   }
 
-  async getOrderItemsWithSupplyContextByPaperId(paperId: number) {
-    const items = await this.prisma.order_sheet_items.findMany({
+  async getOrderItemsWithSupplyContextByPaperId(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ) {
+    const items = await db.order_sheet_items.findMany({
       where: {
         order_sheet: {
           order_paper_id: paperId,
@@ -620,7 +652,7 @@ export class OrdersRepository {
       ...new Set(items.map((item) => item.order_sheet.group_id)),
     ];
 
-    const rules = await this.prisma.master_group_supply_rule.findMany({
+    const rules = await db.master_group_supply_rule.findMany({
       where: {
         group_id: { in: groupIds },
         is_active: true,

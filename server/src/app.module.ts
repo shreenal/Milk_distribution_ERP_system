@@ -40,7 +40,8 @@ import { ProcurementRulesModule } from './modules/masters/distribution/procureme
 import { TransferRulesModule } from './modules/masters/distribution/transfer-rules/transfer-rules.module.js';
 import { ConfigModule } from '@nestjs/config';
 import { GroupSupplyRulesModule } from './modules/masters/distribution/group-supply-rules/group-supply-rules.module.js';
-
+import { ReportModule } from './modules/reports/report.module.js';
+import { DependencyModule } from './modules/transactions/dependencies/dependency.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -84,6 +85,8 @@ import { GroupSupplyRulesModule } from './modules/masters/distribution/group-sup
     ProcurementRulesModule,
     TransferRulesModule,
     GroupSupplyRulesModule,
+    ReportModule,
+    DependencyModule,
   ],
   controllers: [AppController],
   providers: [AppService],

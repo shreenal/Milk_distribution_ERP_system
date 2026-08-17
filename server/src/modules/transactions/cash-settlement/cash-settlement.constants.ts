@@ -14,4 +14,15 @@ export const CASH_SETTLEMENT_VALIDATION_ERRORS = {
 
   BANK_DEPOSIT_EXCEEDS_CASH: (officeCash: number, totalDeposits: number) =>
     `Bank deposits exceed available office cash. Available: ${officeCash}, Deposited: ${totalDeposits}`,
+
+  RECONCILIATION_MISMATCH: (
+    revisedCashOnHand: number,
+    historicalCashOnHand: number,
+    difference: number,
+  ) =>
+    `Cash settlement reconciliation mismatch. Revised cash on hand: ₹${revisedCashOnHand.toFixed(
+      2,
+    )}, historical cash on hand: ₹${historicalCashOnHand.toFixed(
+      2,
+    )}, difference: ₹${difference.toFixed(2)}`,
 };

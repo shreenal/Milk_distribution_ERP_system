@@ -14,8 +14,6 @@ import { OrdersValidationService } from './services/orders-validation.service.js
 
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 
-import { ClientTraysPropagationService } from '../client-trays/services/client-trays-propagation.service.js';
-
 import {
   TRANSACTION_CONFIG,
   ERROR_MESSAGES,
@@ -27,6 +25,11 @@ import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { AddProductDto } from './dto/add-product.dto.js';
 import { OrderCommercialService } from './services/order-commercial.service.js';
 import { BillingService } from './services/billing.service.js';
+import { DependencyOrchestratorService } from '../dependencies/dependency-orchestrator.service.js';
+import {
+  DEPENDENCY_MODULES,
+  DEPENDENCY_TRIGGERS,
+} from '../dependencies/dependency.constant.js';
 
 @Injectable()
 export class OrdersService {
@@ -49,7 +52,7 @@ export class OrdersService {
 
     private readonly workflowBuilder: WorkflowBuilder,
 
-    private readonly clientTraysPropagationService: ClientTraysPropagationService,
+    private readonly dependencyOrchestrator: DependencyOrchestratorService,
   ) {}
 
   async getAvailableProducts(category: SupplyCategory) {
@@ -151,12 +154,14 @@ export class OrdersService {
         'Products can only be added while the paper is in DRAFT',
       );
     }
-    const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-      sheet.group_id,
-    );
 
     await this.prisma.$transaction(
       async (tx) => {
+        const supplyRules = await this.ordersRepository.getGroupSupplyRules(
+          sheet.group_id,
+          tx,
+        );
+
         const commercialContext = await this.orderCommercialService.resolve(
           sheet.group_id,
           dto.productId,
@@ -164,8 +169,10 @@ export class OrdersService {
           tx,
         );
 
-        const existingItems =
-          await this.ordersRepository.getSheetItems(sheetId);
+        const existingItems = await this.ordersRepository.getSheetItems(
+          sheetId,
+          tx,
+        );
 
         const product = await tx.master_product.findUnique({
           where: { id: dto.productId },
@@ -298,10 +305,6 @@ export class OrdersService {
         throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
       }
 
-      const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-        sheet.group_id,
-      );
-
       if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
         throw new BadRequestException(
           ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
@@ -337,6 +340,11 @@ export class OrdersService {
 
             this.validationService.validateQuantity(Number(entry.orderedQty));
 
+            const supplyRules = await this.ordersRepository.getGroupSupplyRules(
+              sheet.group_id,
+              tx,
+            );
+
             await this.billingService.saveNightEntry(
               tx,
               sheet,
@@ -345,14 +353,22 @@ export class OrdersService {
               entry,
             );
           }
+
+          await this.dependencyOrchestrator.execute(
+            DEPENDENCY_MODULES.ORDERS,
+            DEPENDENCY_TRIGGERS.ON_SAVE,
+            {
+              paperId: sheet.order_paper_id,
+              sheetId,
+              tx,
+            },
+          );
         },
         {
           timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
           isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
         },
       );
-
-      await this.clientTraysPropagationService.recalculateFromSheet(sheetId);
 
       return {
         success: true,
@@ -383,10 +399,6 @@ export class OrdersService {
       if (!sheet) {
         throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
       }
-
-      const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-        sheet.group_id,
-      );
 
       const status = sheet.order_paper.status;
 
@@ -430,6 +442,11 @@ export class OrdersService {
               tx,
             );
 
+            const supplyRules = await this.ordersRepository.getGroupSupplyRules(
+              sheet.group_id,
+              tx,
+            );
+
             await this.billingService.saveMorningEntry(
               tx,
               sheet,
@@ -438,14 +455,21 @@ export class OrdersService {
               entry,
             );
           }
+          await this.dependencyOrchestrator.execute(
+            DEPENDENCY_MODULES.ORDERS,
+            DEPENDENCY_TRIGGERS.ON_SAVE,
+            {
+              paperId: sheet.order_paper_id,
+              sheetId,
+              tx,
+            },
+          );
         },
         {
           timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
           isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
         },
       );
-
-      await this.clientTraysPropagationService.recalculateFromSheet(sheetId);
 
       return {
         success: true,

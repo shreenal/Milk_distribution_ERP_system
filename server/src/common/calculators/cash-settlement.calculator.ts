@@ -73,10 +73,7 @@ export class CashSettlementCalculationService {
 
   getRouteCash(sheet: RouteCashSheet): number {
     return sheet.client_collection.reduce(
-      (sum, collection) =>
-        sum +
-        Number(collection.office_amount_given) +
-        Number(collection.cash_collection),
+      (sum, collection) => sum + Number(collection.cash_collection ?? 0),
       0,
     );
   }
@@ -148,7 +145,7 @@ export class CashSettlementCalculationService {
     return rows.reduce((sum, row) => sum + row.depositAmount, 0);
   }
 
-  getRevisedOfficeCash(
+  getRevisedCashBeforeDeposits(
     totalRouteNetCash: number,
     historicalDirectCollectionCash: number,
   ): number {
@@ -168,10 +165,10 @@ export class CashSettlementCalculationService {
   }
 
   getReconciliationDifference(
-    revisedOfficeCash: number,
+    revisedCashOnHand: number,
     historicalCashOnHand: number,
   ): number {
-    return revisedOfficeCash - historicalCashOnHand;
+    return revisedCashOnHand - historicalCashOnHand;
   }
 
   getCashInHandAfterDeposits(
@@ -179,5 +176,34 @@ export class CashSettlementCalculationService {
     totalDeposits: number,
   ): number {
     return officeCash - totalDeposits;
+  }
+
+  getRouteCashFromCollections(
+    collections: {
+      cash_collection: unknown;
+    }[],
+  ): number {
+    return collections.reduce(
+      (sum, collection) => sum + Number(collection.cash_collection ?? 0),
+      0,
+    );
+  }
+
+  getRouteExpenseTotalFromExpenses(
+    expenses: {
+      amount: unknown;
+    }[],
+  ): number {
+    return expenses.reduce(
+      (sum, expense) => sum + Number(expense.amount ?? 0),
+      0,
+    );
+  }
+
+  getRevisedCashOnHand(
+    revisedOfficeCash: number,
+    historicalDeposits: number,
+  ): number {
+    return revisedOfficeCash - historicalDeposits;
   }
 }

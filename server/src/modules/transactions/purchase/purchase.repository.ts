@@ -4,29 +4,39 @@ import {
   PurchaseVarianceReason,
   Prisma,
 } from '../../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class PurchaseRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findOrderPaperById(paperId: number) {
-    return this.prisma.order_paper.findUnique({
+  async findOrderPaperById(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findUnique({
       where: {
         id: paperId,
       },
     });
   }
 
-  async findPurchasePaper(orderPaperId: number) {
-    return this.prisma.purchase_paper.findUnique({
+  async findPurchasePaper(
+    orderPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.purchase_paper.findUnique({
       where: {
         order_paper_id: orderPaperId,
       },
     });
   }
 
-  async getOrCreatePurchasePaper(orderPaperId: number) {
-    return this.prisma.purchase_paper.upsert({
+  async getOrCreatePurchasePaper(
+    orderPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.purchase_paper.upsert({
       where: {
         order_paper_id: orderPaperId,
       },
@@ -37,8 +47,11 @@ export class PurchaseRepository {
     });
   }
 
-  async findVehicleAssignmentsByPaperId(paperId: number) {
-    return this.prisma.vehicle_distribution_assignment.findMany({
+  async findVehicleAssignmentsByPaperId(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.vehicle_distribution_assignment.findMany({
       where: {
         vehicle_allocation_paper: {
           order_paper_id: paperId,
@@ -67,8 +80,11 @@ export class PurchaseRepository {
     });
   }
 
-  async findPurchaseEntries(purchasePaperId: number) {
-    return this.prisma.purchase_entry.findMany({
+  async findPurchaseEntries(
+    purchasePaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.purchase_entry.findMany({
       where: {
         purchase_paper_id: purchasePaperId,
       },
@@ -88,24 +104,23 @@ export class PurchaseRepository {
   async replacePurchaseEntries(
     purchasePaperId: number,
     data: Prisma.purchase_entryCreateManyInput[],
+    db: PrismaOrTransaction = this.prisma,
   ) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.purchase_entry.deleteMany({
-        where: {
-          purchase_paper_id: purchasePaperId,
-        },
-      });
-
-      if (data.length > 0) {
-        await tx.purchase_entry.createMany({
-          data,
-        });
-      }
+    await db.purchase_entry.deleteMany({
+      where: {
+        purchase_paper_id: purchasePaperId,
+      },
     });
+
+    if (data.length > 0) {
+      await db.purchase_entry.createMany({
+        data,
+      });
+    }
   }
 
-  async findVehicles() {
-    return this.prisma.master_vehicle.findMany({
+  async findVehicles(db: PrismaOrTransaction = this.prisma) {
+    return db.master_vehicle.findMany({
       where: {
         is_active: true,
       },
@@ -116,8 +131,8 @@ export class PurchaseRepository {
     });
   }
 
-  async findProducts() {
-    return this.prisma.master_product.findMany({
+  async findProducts(db: PrismaOrTransaction = this.prisma) {
+    return db.master_product.findMany({
       include: {
         master_brand: true,
 
@@ -134,8 +149,8 @@ export class PurchaseRepository {
     });
   }
 
-  async findDistributorProcurementRules() {
-    return this.prisma.distributor_procurement_rule.findMany({
+  async findDistributorProcurementRules(db: PrismaOrTransaction = this.prisma) {
+    return db.distributor_procurement_rule.findMany({
       where: {
         is_active: true,
       },
@@ -157,8 +172,11 @@ export class PurchaseRepository {
     });
   }
 
-  async findVehicleAllocationsByPaperId(paperId: number) {
-    return this.prisma.vehicle_allocation.findMany({
+  async findVehicleAllocationsByPaperId(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.vehicle_allocation.findMany({
       where: {
         vehicle_allocation_paper: {
           order_paper_id: paperId,
@@ -192,16 +210,23 @@ export class PurchaseRepository {
     });
   }
 
-  async findVehicleAllocationPaper(orderPaperId: number) {
-    return this.prisma.vehicle_allocation_paper.findMany({
+  async findVehicleAllocationPaper(
+    orderPaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.vehicle_allocation_paper.findMany({
       where: {
         order_paper_id: orderPaperId,
       },
     });
   }
 
-  async findProductLinkRateForDate(productLinkId: number, effectiveDate: Date) {
-    return this.prisma.distributor_product_rate.findFirst({
+  async findProductLinkRateForDate(
+    productLinkId: number,
+    effectiveDate: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.distributor_product_rate.findFirst({
       where: {
         product_link_id: productLinkId,
         is_active: true,
@@ -216,8 +241,12 @@ export class PurchaseRepository {
     });
   }
 
-  async getProductLink(distributorId: number, productId: number) {
-    return this.prisma.master_product_link.findUnique({
+  async getProductLink(
+    distributorId: number,
+    productId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.master_product_link.findUnique({
       where: {
         distributor_id_product_id: {
           distributor_id: distributorId,
@@ -236,18 +265,22 @@ export class PurchaseRepository {
     distributorId: number,
     productId: number,
     effectiveDate: Date,
+    db: PrismaOrTransaction = this.prisma,
   ) {
-    const productLink = await this.getProductLink(distributorId, productId);
+    const productLink = await this.getProductLink(distributorId, productId, db);
 
     if (!productLink) {
       return null;
     }
 
-    return this.findProductLinkRateForDate(productLink.id, effectiveDate);
+    return this.findProductLinkRateForDate(productLink.id, effectiveDate, db);
   }
 
-  async findVarianceAcknowledgements(purchasePaperId: number) {
-    return this.prisma.purchase_variance_acknowledgement.findMany({
+  async findVarianceAcknowledgements(
+    purchasePaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.purchase_variance_acknowledgement.findMany({
       where: {
         purchase_entry: {
           purchase_paper_id: purchasePaperId,
@@ -283,8 +316,9 @@ export class PurchaseRepository {
     acknowledgedBy: number,
     reason: PurchaseVarianceReason,
     remarks: string | null,
+    db: PrismaOrTransaction = this.prisma,
   ) {
-    return this.prisma.purchase_variance_acknowledgement.upsert({
+    return db.purchase_variance_acknowledgement.upsert({
       where: {
         purchase_entry_id: purchaseEntryId,
       },

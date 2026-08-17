@@ -5,6 +5,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
@@ -13,6 +14,7 @@ import { SaveVehicleAllocationDto } from './dto/save-vehicle-allocation.dto.js';
 import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { DeliverySession } from '../../../generated/prisma/client.js';
 
 @Controller('vehicle-allocations')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -25,9 +27,14 @@ export class VehicleAllocationController {
   @Roles('EMPLOYEE')
   async getVehicleAllocations(
     @Param('paperId', ParseIntPipe)
+    @Query('session')
+    session: DeliverySession,
     paperId: number,
   ) {
-    return this.vehicleAllocationService.getVehicleAllocations(paperId);
+    return this.vehicleAllocationService.getVehicleAllocations(
+      paperId,
+      session,
+    );
   }
 
   @Post(':paperId/vehicle-allocations')

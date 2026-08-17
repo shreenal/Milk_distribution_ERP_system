@@ -1,13 +1,10 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 
 import { CollectionBuilder } from './collections.builder.js';
-
 import { CollectionsRepository } from './collections.repository.js';
 
 import { SaveAdminCollectionsDto } from './dto/save-admin-collection.dto.js';
-
 import { SaveNightCollectionsDto } from './dto/save-night-collection.dto.js';
-
 import { SaveMorningCollectionsDto } from './dto/save-morning-collection.dto.js';
 
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
@@ -18,17 +15,16 @@ import {
 
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { CollectionsValidationService } from './services/collections-validation.service.js';
+import { PrismaService } from '../../../prisma/prisma.service.js';
 
 @Injectable()
 export class CollectionsService {
   constructor(
     private readonly collectionsRepository: CollectionsRepository,
-
     private readonly collectionBuilder: CollectionBuilder,
-
     private readonly collectionsValidationService: CollectionsValidationService,
-
     private readonly workflowState: WorkflowStateService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async getCollectionGrid(sheetId: number) {
@@ -92,15 +88,18 @@ export class CollectionsService {
       category,
     );
 
-    await this.collectionsRepository.replaceNightCollections(
-      sheetId,
-      category,
-      dto.entries,
-    );
+    return this.prisma.$transaction(async (tx) => {
+      await this.collectionsRepository.replaceNightCollections(
+        sheetId,
+        category,
+        dto.entries,
+        tx,
+      );
 
-    return {
-      message: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED,
-    };
+      return {
+        message: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED,
+      };
+    });
   }
 
   async saveMorningCollections(
@@ -134,15 +133,18 @@ export class CollectionsService {
       category,
     );
 
-    await this.collectionsRepository.replaceMorningCollections(
-      sheetId,
-      category,
-      dto.entries,
-    );
+    return this.prisma.$transaction(async (tx) => {
+      await this.collectionsRepository.replaceMorningCollections(
+        sheetId,
+        category,
+        dto.entries,
+        tx,
+      );
 
-    return {
-      message: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED,
-    };
+      return {
+        message: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED,
+      };
+    });
   }
 
   async saveAdminCollections(
@@ -164,14 +166,17 @@ export class CollectionsService {
       );
     }
 
-    await this.collectionsRepository.replaceAdminCollections(
-      sheetId,
-      category,
-      dto.entries,
-    );
+    return this.prisma.$transaction(async (tx) => {
+      await this.collectionsRepository.replaceAdminCollections(
+        sheetId,
+        category,
+        dto.entries,
+        tx,
+      );
 
-    return {
-      message: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED,
-    };
+      return {
+        message: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED,
+      };
+    });
   }
 }

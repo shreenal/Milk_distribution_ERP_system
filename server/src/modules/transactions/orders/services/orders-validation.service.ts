@@ -1,21 +1,15 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { PrismaService } from '../../../../prisma/prisma.service.js';
 import { OrdersRepository } from '.././orders.repository.js';
 import { ERROR_MESSAGES, QUANTITY_PRECISION } from './../orders.constants.js';
-import { TransactionClient } from '../../../../types/transaction.types.js';
+import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersValidationService {
   private readonly logger = new Logger(OrdersValidationService.name);
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly ordersRepository: OrdersRepository,
-  ) {}
+  constructor(private readonly ordersRepository: OrdersRepository) {}
 
-  async validateProduct(productId: number, txClient?: TransactionClient) {
-    const prisma = txClient || this.prisma;
-
-    const product = await prisma.master_product.findUnique({
+  async validateProduct(productId: number, db: PrismaOrTransaction) {
+    const product = await db.master_product.findUnique({
       where: { id: productId },
       select: {
         id: true,
@@ -38,10 +32,8 @@ export class OrdersValidationService {
     return product;
   }
 
-  async validateClient(clientId: number, txClient?: TransactionClient) {
-    const prisma = txClient || this.prisma;
-
-    const client = await prisma.master_client.findUnique({
+  async validateClient(clientId: number, db: PrismaOrTransaction) {
+    const client = await db.master_client.findUnique({
       where: { id: clientId },
       select: {
         id: true,
@@ -66,11 +58,9 @@ export class OrdersValidationService {
   async validateClientInGroup(
     clientId: number,
     groupId: number,
-    txClient?: TransactionClient,
+    db: PrismaOrTransaction,
   ) {
-    const prisma = txClient || this.prisma;
-
-    const client = await prisma.master_client.findUnique({
+    const client = await db.master_client.findUnique({
       where: { id: clientId },
       select: {
         id: true,
@@ -94,11 +84,9 @@ export class OrdersValidationService {
   async validateClientCanBuyProductCategory(
     clientId: number,
     productId: number,
-    txClient?: TransactionClient,
+    db: PrismaOrTransaction,
   ) {
-    const prisma = txClient || this.prisma;
-
-    const client = await prisma.master_client.findUnique({
+    const client = await db.master_client.findUnique({
       where: { id: clientId },
       select: {
         id: true,
@@ -115,7 +103,7 @@ export class OrdersValidationService {
       throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
     }
 
-    const product = await prisma.master_product.findUnique({
+    const product = await db.master_product.findUnique({
       where: { id: productId },
       select: {
         id: true,
@@ -190,8 +178,12 @@ export class OrdersValidationService {
     }
   }
 
-  async validateNightEntriesComplete(sheetId: number, groupName: string) {
-    const entries = await this.ordersRepository.getSheetItems(sheetId);
+  async validateNightEntriesComplete(
+    sheetId: number,
+    groupName: string,
+    db: PrismaOrTransaction,
+  ) {
+    const entries = await this.ordersRepository.getSheetItems(sheetId, db);
 
     if (entries.length === 0) {
       throw new BadRequestException(
@@ -210,9 +202,14 @@ export class OrdersValidationService {
     }
   }
 
-  async validateMorningEntriesComplete(sheetId: number): Promise<void> {
-    const items =
-      await this.ordersRepository.getMorningValidationItems(sheetId);
+  async validateMorningEntriesComplete(
+    sheetId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const items = await this.ordersRepository.getMorningValidationItems(
+      sheetId,
+      db,
+    );
 
     if (items.length === 0) return; // Empty OK
 
@@ -226,9 +223,14 @@ export class OrdersValidationService {
     }
   }
 
-  async validateQuantitySanity(sheetId: number): Promise<void> {
-    const items =
-      await this.ordersRepository.getQuantityValidationItems(sheetId);
+  async validateQuantitySanity(
+    sheetId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const items = await this.ordersRepository.getQuantityValidationItems(
+      sheetId,
+      db,
+    );
 
     // Check no negative quantities
     const negative = items.filter((i) => Number(i.delivered_qty) < 0);

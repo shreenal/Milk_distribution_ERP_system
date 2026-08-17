@@ -1,11 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service.js';
+import { PrismaOrTransaction } from '../../types/transaction.types.js';
 
 @Injectable()
 export class OrderItemsRepository {
   constructor(private readonly prisma: PrismaService) {}
-  async findOrderItemsWithSupplyContextByPaperId(paperId: number) {
-    const items = await this.prisma.order_sheet_items.findMany({
+
+  async findOrderItemsWithSupplyContextByPaperId(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const items = await db.order_sheet_items.findMany({
       where: {
         order_sheet: {
           order_paper_id: paperId,
@@ -37,6 +42,7 @@ export class OrderItemsRepository {
 
     return items.map((item) => {
       const category = item.master_product.master_product_group.category;
+
       const supplyRule = item.order_sheet.master_group.supply_rules.find(
         (rule) => rule.category === category,
       );

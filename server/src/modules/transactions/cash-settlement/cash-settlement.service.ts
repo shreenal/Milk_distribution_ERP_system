@@ -1,31 +1,25 @@
 import { Injectable } from '@nestjs/common';
 
 import { CashSettlementRepository } from './cash-settlement.repository.js';
-
 import { CashSettlementBuilder } from './cash-settlement.builder.js';
 
 import { SaveRouteExpensesDto } from './dto/save-route-expense.dto.js';
 import { SaveRouteDenominationsDto } from './dto/save-route-denominations.dto.js';
-
 import { SaveDirectCollectionsDto } from './dto/save-direct-collections.dto.js';
 import { SaveBankDepositsDto } from './dto/save-bank-deposit.dto.js';
 
-import { CASH_SETTLEMENT_ERRORS } from './cash-settlement.constants.js';
-
 import { CashSettlementValidationService } from './services/cash-settlement-validation.service.js';
-
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
+import { PrismaService } from '../../../prisma/prisma.service.js';
 
 @Injectable()
 export class CashSettlementService {
   constructor(
     private readonly repository: CashSettlementRepository,
-
     private readonly cashSettlementValidationService: CashSettlementValidationService,
-
     private readonly builder: CashSettlementBuilder,
-
     private readonly workflowBuilder: WorkflowBuilder,
+    private readonly prisma: PrismaService,
   ) {}
 
   async getCashSettlementService(paperId: number) {
@@ -64,22 +58,25 @@ export class CashSettlementService {
       paperId,
     );
 
-    const expensesBySheet = new Map<number, typeof dto.expenses>();
+    return this.prisma.$transaction(async (tx) => {
+      const expensesBySheet = new Map<number, typeof dto.expenses>();
 
-    for (const expense of dto.expenses) {
-      const existing = expensesBySheet.get(expense.sheetId) ?? [];
+      for (const expense of dto.expenses) {
+        const existing = expensesBySheet.get(expense.sheetId) ?? [];
 
-      existing.push(expense);
+        existing.push(expense);
 
-      expensesBySheet.set(expense.sheetId, existing);
-    }
+        expensesBySheet.set(expense.sheetId, existing);
+      }
 
-    for (const [sheetId, expenses] of expensesBySheet) {
-      await this.repository.replaceRouteExpenses(sheetId, expenses);
-    }
-    return {
-      success: true,
-    };
+      for (const [sheetId, expenses] of expensesBySheet) {
+        await this.repository.replaceRouteExpenses(sheetId, expenses, tx);
+      }
+
+      return {
+        success: true,
+      };
+    });
   }
 
   async saveRouteDenominationsService(
@@ -90,13 +87,15 @@ export class CashSettlementService {
       paperId,
     );
 
-    for (const denomination of dto.denominations) {
-      await this.repository.saveRouteDenomination(denomination);
-    }
+    return this.prisma.$transaction(async (tx) => {
+      for (const denomination of dto.denominations) {
+        await this.repository.saveRouteDenomination(denomination, tx);
+      }
 
-    return {
-      success: true,
-    };
+      return {
+        success: true,
+      };
+    });
   }
 
   async saveDirectCollectionsService(
@@ -107,14 +106,17 @@ export class CashSettlementService {
       paperId,
     );
 
-    await this.repository.replaceDirectCollections(
-      paperId,
-      dto.directCollections,
-    );
+    return this.prisma.$transaction(async (tx) => {
+      await this.repository.replaceDirectCollections(
+        paperId,
+        dto.directCollections,
+        tx,
+      );
 
-    return {
-      success: true,
-    };
+      return {
+        success: true,
+      };
+    });
   }
 
   async saveBankDepositsService(paperId: number, dto: SaveBankDepositsDto) {
@@ -122,10 +124,12 @@ export class CashSettlementService {
       paperId,
     );
 
-    await this.repository.replaceBankDeposits(paperId, dto.bankDeposits);
+    return this.prisma.$transaction(async (tx) => {
+      await this.repository.replaceBankDeposits(paperId, dto.bankDeposits, tx);
 
-    return {
-      success: true,
-    };
+      return {
+        success: true,
+      };
+    });
   }
 }
