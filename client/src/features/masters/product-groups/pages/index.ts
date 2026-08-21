@@ -1,0 +1,1 @@
+export { default as ProductGroupsPage } from "./ProductGroupsPage";
