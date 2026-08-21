@@ -86,13 +86,11 @@ model master_client {
   is_active                  Boolean                      @default(true)
   created_at                 DateTime                     @default(now())
   updated_at                 DateTime                     @default(now()) @updatedAt
-  billing_group_id           Int
   delivery_group_id          Int
   owner_distributor_id       Int
   client_collection          client_collection[]
   client_tray_transaction    client_tray_transaction[]
   categories                 master_client_category[]
-  billing_group              master_group                 @relation("BillingGroup", fields: [billing_group_id], references: [id])
   delivery_group             master_group                 @relation("DeliveryGroup", fields: [delivery_group_id], references: [id])
   owner_distributor          master_distributor           @relation(fields: [owner_distributor_id], references: [id])
   master_client_rate_product master_client_rate_product[]
@@ -116,7 +114,6 @@ model distributor_transfer {
   supplier_distributor_id Int
   owner_distributor_id    Int
 
-  billing_group_id Int
   product_id       Int
 
   transfer_qty Decimal @db.Decimal(10, 2)
@@ -130,15 +127,13 @@ model distributor_transfer {
 
   owner_distributor master_distributor @relation("SavedTransferOwner", fields: [owner_distributor_id], references: [id])
 
-  billing_group master_group @relation(fields: [billing_group_id], references: [id])
 
   master_product master_product @relation(fields: [product_id], references: [id])
 
-  @@unique([order_paper_id, supplier_distributor_id, owner_distributor_id, billing_group_id, product_id])
+  @@unique([order_paper_id, supplier_distributor_id, owner_distributor_id, product_id])
   @@index([order_paper_id])
   @@index([supplier_distributor_id])
   @@index([owner_distributor_id])
-  @@index([billing_group_id])
   @@index([product_id])
   @@index([order_paper_id, supplier_distributor_id])
   @@index([order_paper_id, owner_distributor_id])
@@ -243,12 +238,10 @@ model master_group {
   created_at            DateTime                   @default(now())
   updated_at            DateTime                   @default(now()) @updatedAt
   delivery_session      DeliverySession            @default(NIGHT)
-  billing_clients       master_client[]            @relation("BillingGroup")
   delivery_clients      master_client[]            @relation("DeliveryGroup")
   master_vehicle        master_vehicle?            @relation(fields: [vehicle_id], references: [id])
   supply_rules          master_group_supply_rule[]
   order_sheet           order_sheet[]
-  distributor_transfers distributor_transfer[]
 }
 
 model master_group_supply_rule {

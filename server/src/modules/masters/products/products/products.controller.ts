@@ -22,7 +22,7 @@ import { UpdateProductDto } from './dto/update-product.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(private readonly productsService: ProductsService) { }
 
   @Get()
   findAll() {
@@ -32,6 +32,11 @@ export class ProductsController {
   @Get('active')
   findActive() {
     return this.productsService.findActive();
+  }
+
+  @Get(':id/configuration')
+  findConfiguration(@Param('id', ParseIntPipe) id: number) {
+    return this.productsService.findConfigurationById(id);
   }
 
   @Get(':id')

@@ -18,7 +18,6 @@ export type TransferSourceItem = Prisma.order_sheet_itemsGetPayload<{
     };
     master_client: {
       include: {
-        billing_group: true;
         owner_distributor: true;
       };
     };
@@ -34,9 +33,7 @@ export type TransferSourceItem = Prisma.order_sheet_itemsGetPayload<{
 }>;
 
 export type TransferRow = {
-  billingGroupId: number;
-  billingGroupName: string;
-  [key: string]: string | number;
+  [key: string]: number;
 };
 
 export type TransferSummary = {

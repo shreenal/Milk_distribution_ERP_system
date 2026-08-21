@@ -2,8 +2,9 @@ import { ProductColumnNode } from '../common/builders/product-columns.builder.js
 import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
 
 export type DeliveredItemWithSupplyContext = {
-  billingGroupId: number;
-  billingGroupName: string;
+  deliveryGroupId: number;
+  deliveryGroupName: string;
+
   productId: number;
   deliveredQty: number;
   distributorId: number;

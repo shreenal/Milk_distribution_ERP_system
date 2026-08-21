@@ -611,18 +611,11 @@ export class DayReportService {
       const quantity = Number(transfer.transfer_qty);
 
       group.rows.push({
-        billingGroupId: transfer.billing_group_id,
-
-        billingGroupName: transfer.billing_group.name,
-
-        productId: transfer.master_product.id,
-
-        productCode: transfer.master_product.code,
-
-        productName: this.buildProductName(transfer.master_product),
-
-        transferQty: quantity,
-      });
+  productId: transfer.master_product.id,
+  productCode: transfer.master_product.code,
+  productName: this.buildProductName(transfer.master_product),
+  transferQty: quantity,
+});
 
       group.totalTransferQty += quantity;
       totalTransferQty += quantity;
