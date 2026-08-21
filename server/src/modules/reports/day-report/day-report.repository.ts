@@ -249,7 +249,6 @@ export class DayReportRepository {
       select: {
         supplier_distributor_id: true,
         owner_distributor_id: true,
-        billing_group_id: true,
         product_id: true,
         transfer_qty: true,
 
@@ -261,13 +260,6 @@ export class DayReportRepository {
         },
 
         owner_distributor: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-
-        billing_group: {
           select: {
             id: true,
             name: true,

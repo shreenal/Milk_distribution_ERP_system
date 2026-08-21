@@ -88,18 +88,12 @@ export class DistributorTransferBuilder {
         summary.products.push(product);
       }
 
-      let row = summary.rows.find(
-        (r) => r.billingGroupId === item.master_client.billing_group_id,
-      );
+      let row = summary.rows[0];
 
-      if (!row) {
-        row = {
-          billingGroupId: item.master_client.billing_group_id,
-          billingGroupName: item.master_client.billing_group.name,
-        };
-
-        summary.rows.push(row);
-      }
+if (!row) {
+  row = {};
+  summary.rows.push(row);
+}
 
       const field = `product_${product.id}`;
 
@@ -181,9 +175,6 @@ export class DistributorTransferBuilder {
     for (const summary of summaries) {
       for (const row of summary.rows) {
         for (const [field, value] of Object.entries(row)) {
-          if (field === 'billingGroupId' || field === 'billingGroupName') {
-            continue;
-          }
 
           if (!field.startsWith('product_')) {
             continue;
@@ -201,7 +192,6 @@ export class DistributorTransferBuilder {
             order_paper_id: orderPaperId,
             supplier_distributor_id: summary.supplierDistributor.id,
             owner_distributor_id: summary.ownerDistributor.id,
-            billing_group_id: row.billingGroupId,
             product_id: productId,
             transfer_qty: qty,
           });

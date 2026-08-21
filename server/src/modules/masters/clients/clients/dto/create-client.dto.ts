@@ -19,8 +19,6 @@ export class CreateClientDto {
   @IsString()
   shop_name?: string;
 
-  @IsInt()
-  billing_group_id!: number;
 
   @IsInt()
   delivery_group_id!: number;

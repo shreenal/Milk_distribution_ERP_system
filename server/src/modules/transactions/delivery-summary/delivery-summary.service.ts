@@ -11,7 +11,7 @@ export class DeliverySummaryService {
     private readonly deliverySummaryRepository: DeliverySummaryRepository,
 
     private readonly deliverySummaryBuilder: DeliverySummaryBuilder,
-  ) {}
+  ) { }
 
   async getBillingGroupSummary(paperId: number) {
     const paper =

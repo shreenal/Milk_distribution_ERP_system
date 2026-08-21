@@ -1,9 +1,11 @@
 import { Injectable } from '@nestjs/common';
+
 import { Prisma } from '../../../../generated/prisma/client.js';
 
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 
 import { CreateDistributorProductRatesDto } from './dto/create-distributor-product-rates.dto.js';
+
 import { UpdateDistributorProductRatesDto } from './dto/update-distributor-product-rates.dto.js';
 
 const distributorProductRateInclude = {
@@ -55,7 +57,29 @@ export class DistributorProductRatesRepository {
 
   create(dto: CreateDistributorProductRatesDto) {
     return this.prisma.distributor_product_rate.create({
-      data: dto,
+      data: {
+        product_link_id: dto.product_link_id,
+        purchase_rate: dto.purchase_rate,
+        selling_rate: dto.selling_rate,
+
+        ...(dto.effective_from !== undefined && {
+          effective_from: new Date(
+            `${dto.effective_from}T00:00:00.000Z`,
+          ),
+        }),
+
+        ...(dto.effective_to !== undefined && {
+          effective_to: dto.effective_to
+            ? new Date(
+                `${dto.effective_to}T00:00:00.000Z`,
+              )
+            : null,
+        }),
+
+        ...(dto.is_active !== undefined && {
+          is_active: dto.is_active,
+        }),
+      },
       include: distributorProductRateInclude,
     });
   }
@@ -63,7 +87,37 @@ export class DistributorProductRatesRepository {
   update(id: number, dto: UpdateDistributorProductRatesDto) {
     return this.prisma.distributor_product_rate.update({
       where: { id },
-      data: dto,
+      data: {
+        ...(dto.product_link_id !== undefined && {
+          product_link_id: dto.product_link_id,
+        }),
+
+        ...(dto.purchase_rate !== undefined && {
+          purchase_rate: dto.purchase_rate,
+        }),
+
+        ...(dto.selling_rate !== undefined && {
+          selling_rate: dto.selling_rate,
+        }),
+
+        ...(dto.effective_from !== undefined && {
+          effective_from: new Date(
+            `${dto.effective_from}T00:00:00.000Z`,
+          ),
+        }),
+
+        ...(dto.effective_to !== undefined && {
+          effective_to: dto.effective_to
+            ? new Date(
+                `${dto.effective_to}T00:00:00.000Z`,
+              )
+            : null,
+        }),
+
+        ...(dto.is_active !== undefined && {
+          is_active: dto.is_active,
+        }),
+      },
       include: distributorProductRateInclude,
     });
   }

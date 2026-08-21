@@ -57,16 +57,18 @@ export class DeliverySummaryBuilder {
         summary.products.push(product);
       }
 
-      let row = summary.rows.find((r) => r.groupId === item.billingGroupId);
+      let row = summary.rows.find(
+  (r) => r.groupId === item.deliveryGroupId,
+);
 
-      if (!row) {
-        row = {
-          groupId: item.billingGroupId,
-          groupName: item.billingGroupName,
-        };
+if (!row) {
+  row = {
+    groupId: item.deliveryGroupId,
+    groupName: item.deliveryGroupName,
+  };
 
-        summary.rows.push(row);
-      }
+  summary.rows.push(row);
+}
 
       const field = `product_${item.productId}`;
 

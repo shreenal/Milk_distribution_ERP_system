@@ -7,7 +7,6 @@ import { CreateClientDto } from './dto/create-client.dto.js';
 import { UpdateClientDto } from './dto/update-client.dto.js';
 
 const clientInclude = {
-  billing_group: true,
   delivery_group: true,
   owner_distributor: true,
 } satisfies Prisma.master_clientInclude;

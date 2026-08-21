@@ -8,7 +8,7 @@ import { UpdateProductDto } from './dto/update-product.dto.js';
 
 @Injectable()
 export class ProductsRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findAll() {
     return this.prisma.master_product.findMany({
@@ -127,5 +127,134 @@ export class ProductsRepository {
     return this.prisma.master_product.delete({
       where: { id },
     });
+  }
+
+  async findConfigurationById(id: number) {
+    const product = await this.prisma.master_product.findUnique({
+      where: { id },
+      include: {
+        master_brand: true,
+
+        master_product_group: true,
+
+        master_product_type: true,
+        master_packaging_type: true,
+
+        product_links: {
+          where: {
+            is_active: true,
+          },
+          include: {
+            distributor: true,
+
+            distributor_rates: {
+              where: {
+                is_active: true,
+              },
+              orderBy: {
+                effective_from: 'desc',
+              },
+            },
+
+            client_rates: {
+              where: {
+                is_active: true,
+              },
+              include: {
+                master_client: true,
+              },
+              orderBy: {
+                effective_from: 'desc',
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!product) {
+      return null;
+    }
+
+    const [trayRules, procurementRules] = await Promise.all([
+      this.prisma.product_tray_rule.findMany({
+        where: {
+          is_active: true,
+
+          OR: [
+            {
+              brand_id: null,
+            },
+            {
+              brand_id: product.brand_id,
+            },
+          ],
+
+          AND: [
+            {
+              OR: [
+                { product_group_id: null },
+                { product_group_id: product.product_group_id },
+              ],
+            },
+            {
+              OR: [
+                { product_type_id: null },
+                { product_type_id: product.product_type_id },
+              ],
+            },
+            {
+              OR: [
+                { packaging_type_id: null },
+                { packaging_type_id: product.packaging_type_id },
+              ],
+            },
+          ],
+        },
+
+        include: {
+          master_brand: true,
+          master_product_group: true,
+          master_product_type: true,
+          master_packaging_type: true,
+
+          master_tray_type: {
+            include: {
+              master_brand: true,
+            },
+          },
+        },
+      }),
+
+      this.prisma.distributor_procurement_rule.findMany({
+        where: {
+          is_active: true,
+          brand_id: product.brand_id,
+          product_group_id: product.product_group_id,
+          category: product.master_product_group.category,
+        },
+
+        include: {
+          master_distributor: true,
+          master_brand: true,
+          master_product_group: true,
+        },
+
+        orderBy: {
+          distributor_id: 'asc',
+        },
+      }),
+    ]);
+
+    return {
+      ...product,
+
+      procurement_rules: procurementRules,
+
+      master_product_group: {
+        ...product.master_product_group,
+        product_tray_rule: trayRules,
+      },
+    };
   }
 }

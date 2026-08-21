@@ -16,7 +16,7 @@ export class DeliverySummaryRepository {
       include: {
         master_client: {
           include: {
-            billing_group: true,
+            delivery_group: true,
           },
         },
 
@@ -85,7 +85,7 @@ export class DeliverySummaryRepository {
 
         master_client: {
           include: {
-            billing_group: true,
+            delivery_group: true,
           },
         },
 
@@ -114,8 +114,8 @@ export class DeliverySummaryRepository {
       }
 
       return {
-        billingGroupId: item.master_client.billing_group.id,
-        billingGroupName: item.master_client.billing_group.name,
+        deliveryGroupId: item.master_client.delivery_group.id,
+        deliveryGroupName: item.master_client.delivery_group.name,
 
         deliverySession: item.order_sheet.master_group.delivery_session,
 

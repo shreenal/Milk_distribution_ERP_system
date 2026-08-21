@@ -51,7 +51,6 @@ export class DistributorTransferRepository {
 
         master_client: {
           include: {
-            billing_group: true,
             owner_distributor: true,
           },
         },
@@ -107,7 +106,6 @@ export class DistributorTransferRepository {
       include: {
         supplier_distributor: true,
         owner_distributor: true,
-        billing_group: true,
 
         master_product: {
           include: {
@@ -122,7 +120,6 @@ export class DistributorTransferRepository {
       orderBy: [
         { supplier_distributor_id: 'asc' },
         { owner_distributor_id: 'asc' },
-        { billing_group_id: 'asc' },
         { product_id: 'asc' },
       ],
     });

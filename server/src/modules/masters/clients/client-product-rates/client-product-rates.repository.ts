@@ -13,7 +13,7 @@ const clientProductRateInclude = {
 
 @Injectable()
 export class ClientProductRatesRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   findAll() {
     return this.prisma.master_client_rate_product.findMany({
@@ -57,7 +57,29 @@ export class ClientProductRatesRepository {
 
   create(dto: CreateClientProductRateDto) {
     return this.prisma.master_client_rate_product.create({
-      data: dto,
+      data: {
+        client_id: dto.client_id,
+        product_link_id: dto.product_link_id,
+        selling_rate: dto.selling_rate,
+
+        ...(dto.effective_from !== undefined && {
+          effective_from: new Date(
+            `${dto.effective_from}T00:00:00.000Z`,
+          ),
+        }),
+
+        ...(dto.effective_to !== undefined && {
+          effective_to: dto.effective_to
+            ? new Date(
+              `${dto.effective_to}T00:00:00.000Z`,
+            )
+            : null,
+        }),
+
+        ...(dto.is_active !== undefined && {
+          is_active: dto.is_active,
+        }),
+      },
       include: clientProductRateInclude,
     });
   }
@@ -65,7 +87,39 @@ export class ClientProductRatesRepository {
   update(id: number, dto: UpdateClientProductRateDto) {
     return this.prisma.master_client_rate_product.update({
       where: { id },
-      data: dto,
+
+      data: {
+        ...(dto.client_id !== undefined && {
+          client_id: dto.client_id,
+        }),
+
+        ...(dto.product_link_id !== undefined && {
+          product_link_id: dto.product_link_id,
+        }),
+
+        ...(dto.selling_rate !== undefined && {
+          selling_rate: dto.selling_rate,
+        }),
+
+        ...(dto.effective_from !== undefined && {
+          effective_from: new Date(
+            `${dto.effective_from}T00:00:00.000Z`,
+          ),
+        }),
+
+        ...(dto.effective_to !== undefined && {
+          effective_to: dto.effective_to
+            ? new Date(
+              `${dto.effective_to}T00:00:00.000Z`,
+            )
+            : null,
+        }),
+
+        ...(dto.is_active !== undefined && {
+          is_active: dto.is_active,
+        }),
+      },
+
       include: clientProductRateInclude,
     });
   }

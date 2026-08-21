@@ -1,4 +1,5 @@
 import { Type } from 'class-transformer';
+
 import {
   IsBoolean,
   IsInt,
@@ -54,4 +55,13 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  show_by_default?: boolean;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  display_order?: number | null;
 }

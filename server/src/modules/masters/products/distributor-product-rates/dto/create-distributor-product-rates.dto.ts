@@ -26,7 +26,7 @@ export class CreateDistributorProductRatesDto {
 
   @IsOptional()
   @IsDateString()
-  effective_to?: string;
+  effective_to?: string | null;
 
   @IsOptional()
   @IsBoolean()

@@ -40,13 +40,6 @@ export class ClientsService {
   }
 
   async create(dto: CreateClientDto) {
-    const billingGroup = await this.groupsRepository.findById(
-      dto.billing_group_id,
-    );
-
-    if (!billingGroup) {
-      throw new NotFoundException('Billing group not found');
-    }
 
     const deliveryGroup = await this.groupsRepository.findById(
       dto.delivery_group_id,
@@ -78,16 +71,6 @@ export class ClientsService {
 
   async update(id: number, dto: UpdateClientDto) {
     await this.findById(id);
-
-    if (dto.billing_group_id !== undefined) {
-      const billingGroup = await this.groupsRepository.findById(
-        dto.billing_group_id,
-      );
-
-      if (!billingGroup) {
-        throw new NotFoundException('Billing group not found');
-      }
-    }
 
     if (dto.delivery_group_id !== undefined) {
       const deliveryGroup = await this.groupsRepository.findById(

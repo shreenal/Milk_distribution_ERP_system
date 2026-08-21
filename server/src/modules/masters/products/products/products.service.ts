@@ -7,6 +7,7 @@ import {
 import {
   PRODUCT_CODE_LENGTH,
   PRODUCT_CODE_PREFIX,
+  ProductConfigurationStatus,
 } from './products.constants.js';
 
 import { ProductsRepository } from './products.repository.js';
@@ -14,7 +15,7 @@ import { BrandsRepository } from '../brands/brands.repository.js';
 import { ProductGroupRepository } from '../product-groups/product-group.repository.js';
 import { ProductTypesRepository } from '../product-types/product-types.repository.js';
 import { PackagingTypesRepository } from '../packaging-types/packaging-types.repository.js';
-
+import type { ProductConfigurationStatusDetail } from '../../../../types/product.types.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 
@@ -26,7 +27,7 @@ export class ProductsService {
     private readonly productGroupRepository: ProductGroupRepository,
     private readonly productTypesRepository: ProductTypesRepository,
     private readonly packagingTypesRepository: PackagingTypesRepository,
-  ) {}
+  ) { }
 
   async findAll() {
     return this.productsRepository.findAll();
@@ -193,6 +194,75 @@ export class ProductsService {
     await this.findById(id);
 
     return this.productsRepository.delete(id);
+  }
+
+  async findConfigurationById(id: number) {
+    const configuration =
+      await this.productsRepository.findConfigurationById(id);
+
+    if (!configuration) {
+      throw new NotFoundException(`Product with ID ${id} not found.`);
+    }
+
+    const activeProductLinks = configuration.product_links.filter(
+      (link) => link.is_active,
+    );
+
+    const missingDistributorRates = activeProductLinks.filter(
+      (link) =>
+        !link.distributor_rates.some((rate) => rate.is_active),
+    ).length;
+
+    const distributorConfigured = activeProductLinks.length > 0;
+
+    const distributorRatesConfigured =
+      distributorConfigured && missingDistributorRates === 0;
+
+    const clientRatesConfigured = activeProductLinks.some((link) =>
+      link.client_rates.some((rate) => rate.is_active),
+    );
+
+    const issues: string[] = [];
+
+    let status: ProductConfigurationStatus;
+
+    if (!distributorConfigured) {
+      status = ProductConfigurationStatus.UNCONFIGURED;
+
+      issues.push(
+        'No active distributor is configured for this product.',
+      );
+    } else if (!distributorRatesConfigured) {
+      status = ProductConfigurationStatus.PARTIAL;
+
+      issues.push(
+        `${missingDistributorRates} active distributor link(s) have no active distributor rate.`,
+      );
+    } else {
+      status = ProductConfigurationStatus.READY;
+    }
+
+    if (!clientRatesConfigured) {
+      issues.push(
+        'No active client product rate is configured.',
+      );
+    }
+
+    const configurationStatus: ProductConfigurationStatusDetail = {
+      status,
+      distributorConfigured,
+      distributorRatesConfigured,
+      clientRatesConfigured,
+      activeDistributorCount: activeProductLinks.length,
+      missingDistributorRates,
+      missingClientRates: 0,
+      issues,
+    };
+
+    return {
+      ...configuration,
+      configurationStatus,
+    };
   }
 
   private generateProductCode(id: number): string {

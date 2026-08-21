@@ -1019,7 +1019,6 @@ async function main() {
 
                     owner_distributor_id: ownerDistributorId,
 
-                    billing_group_id: group.id,
                     delivery_group_id: group.id,
                 },
             });

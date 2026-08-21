@@ -43,6 +43,19 @@ export class ProductLinksRepository {
     });
   }
 
+  findByProductId(productId: number) {
+  return this.prisma.master_product_link.findMany({
+    where: {
+      product_id: productId,
+    },
+    include: productLinkInclude,
+    orderBy: {
+      id: 'asc',
+    },
+  });
+}
+
+
   findDuplicate(distributorId: number, productId: number) {
     return this.prisma.master_product_link.findUnique({
       where: {

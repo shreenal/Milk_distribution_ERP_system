@@ -158,9 +158,6 @@ export interface DayReportDairyTrayMovement {
 }
 
 export interface DayReportDistributorTransferRow {
-  billingGroupId: number;
-  billingGroupName: string;
-
   productId: number;
   productCode: string | null;
   productName: string;
