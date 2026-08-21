@@ -17,11 +17,17 @@
     "outDir": "./dist",
     "baseUrl": "./",
     "incremental": true,
+    "tsBuildInfoFile": "./dist/.tsbuildinfo", 
     "skipLibCheck": true,
     "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true,
     "noImplicitAny": false,
     "strictBindCallApply": false,
     "noFallthroughCasesInSwitch": false
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.spec.ts"
+  ]
 }
