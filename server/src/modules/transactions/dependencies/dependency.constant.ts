@@ -103,6 +103,16 @@ export interface BusinessDependency {
    * remains the responsibility of the implementation.
    */
   sessionAware: boolean;
+  /**
+   * DependencyOrchestratorService.execute() only dispatches
+   * PROPAGATION-type entries where source !== target (cross-module).
+   * VALIDATION and CONSUMPTION entries document a real dependency but
+   * are not wired to runtime dispatch — the actual gating/reads happen
+   * via direct calls (see PaperValidationService, OrdersRepository).
+   * Same-module propagation (e.g. Client Trays recalculating its own
+   * state after its own save) is also called directly, not through
+   * this register, and won't appear here.
+   */
 }
 
 export const DEPENDENCY_SCOPES = {

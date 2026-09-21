@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import {
   BusinessDependency,
@@ -13,12 +13,13 @@ import { ClientTraysPropagationService } from '../client-trays/services/client-t
 import { DairyTraysPropagationService } from '../dairy-trays/services/dairy-trays-propagation.service.js';
 import { DistributorTransferPropagationService } from '../distributor-transfer/services/distributor-transfer-propagation.service.js';
 
-import { Prisma } from '../../../generated/prisma/client.js';
+import { OrderPaperStatus, Prisma } from '../../../generated/prisma/client.js';
 import { BUSINESS_DEPENDENCY_REGISTER } from './dependency-register.js';
 
 export interface DependencyExecutionContext {
   paperId: number;
   sheetId?: number;
+  paperStatus?: OrderPaperStatus; // NEW
   tx: Prisma.TransactionClient;
 }
 
@@ -73,7 +74,7 @@ export class DependencyOrchestratorService {
         break;
 
       default:
-        throw new Error(
+        throw new BadRequestException(
           `No propagation handler registered for dependency ${dependency.id}`,
         );
     }
@@ -92,13 +93,20 @@ export class DependencyOrchestratorService {
         'sheetId is required for Orders → Client Trays propagation',
       );
     }
-    // Internal Client Trays recalculation.
-    // This is not an inter-module dependency because the changed
-    // data and the derived state both belong to Client Trays.
-    await this.clientTraysPropagationService.recalculateFromSheet(
-      context.sheetId,
-      context.tx,
-    );
+    if (context.paperStatus === OrderPaperStatus.REOPENED) {
+      // A correction made while REOPENED must also push the shifted
+      // closing balance forward — otherwise later sheets keep showing a
+      // stale opening balance until the next successful finalize.
+      await this.clientTraysPropagationService.propagateFromSheet(
+        context.sheetId,
+        context.tx,
+      );
+    } else {
+      await this.clientTraysPropagationService.recalculateFromSheet(
+        context.sheetId,
+        context.tx,
+      );
+    }
   }
 
   private async executePurchaseToDairyTrays(

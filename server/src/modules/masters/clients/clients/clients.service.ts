@@ -1,8 +1,4 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { CLIENT_CODE_PREFIX, CLIENT_CODE_LENGTH } from './clients.constants.js';
 
@@ -40,7 +36,6 @@ export class ClientsService {
   }
 
   async create(dto: CreateClientDto) {
-
     const deliveryGroup = await this.groupsRepository.findById(
       dto.delivery_group_id,
     );

@@ -16,6 +16,8 @@ import {
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { CollectionsValidationService } from './services/collections-validation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
+import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
+import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 
 @Injectable()
 export class CollectionsService {
@@ -28,33 +30,42 @@ export class CollectionsService {
   ) {}
 
   async getCollectionGrid(sheetId: number) {
-    const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
+    return this.prisma.$transaction(async (tx) => {
+      const sheet = await this.collectionsRepository.getOrderSheetById(
+        sheetId,
+        tx,
+      );
+      if (!sheet) {
+        throw new BadRequestException(
+          COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
+        );
+      }
 
-    if (!sheet) {
-      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
-    }
-
-    const milkClients =
-      await this.collectionsRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        SupplyCategory.MILK,
+      const [milkClients, nonMilkClients, savedCollections] = await Promise.all(
+        [
+          this.collectionsRepository.getClientsForCollectionDisplay(
+            sheetId,
+            sheet.group_id,
+            SupplyCategory.MILK,
+            tx,
+          ),
+          this.collectionsRepository.getClientsForCollectionDisplay(
+            sheetId,
+            sheet.group_id,
+            SupplyCategory.NON_MILK,
+            tx,
+          ),
+          this.collectionsRepository.getCollectionEntries(sheetId, tx),
+        ],
       );
 
-    const nonMilkClients =
-      await this.collectionsRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        SupplyCategory.NON_MILK,
+      return this.collectionBuilder.buildCollectionSection(
+        sheet,
+        milkClients,
+        nonMilkClients,
+        savedCollections,
       );
-
-    const savedCollections =
-      await this.collectionsRepository.getCollectionEntries(sheetId);
-
-    return this.collectionBuilder.buildCollectionSection(
-      sheet,
-      milkClients,
-      nonMilkClients,
-      savedCollections,
-    );
+    });
   }
 
   async saveNightCollections(
@@ -63,14 +74,11 @@ export class CollectionsService {
     dto: SaveNightCollectionsDto,
   ) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
-
     if (!sheet) {
       throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
-    const status = sheet.order_paper.status;
-
-    if (!this.workflowState.canEditNightCollections(status)) {
+    if (!this.workflowState.canEditNightCollections(sheet.order_paper.status)) {
       throw new BadRequestException(
         COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
       );
@@ -88,18 +96,43 @@ export class CollectionsService {
       category,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.collectionsRepository.replaceNightCollections(
-        sheetId,
-        category,
-        dto.entries,
-        tx,
-      );
+    this.collectionsValidationService.validateNoDuplicateClients(dto.entries);
 
-      return {
-        message: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED,
-      };
-    });
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const currentSheet =
+            await this.collectionsRepository.getOrderSheetById(sheetId, tx);
+          if (!currentSheet) {
+            throw new BadRequestException(
+              COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
+            );
+          }
+          if (
+            !this.workflowState.canEditNightCollections(
+              currentSheet.order_paper.status,
+            )
+          ) {
+            throw new BadRequestException(
+              COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
+            );
+          }
+
+          await this.collectionsRepository.replaceNightCollections(
+            sheetId,
+            category,
+            dto.entries,
+            tx,
+          );
+
+          return { message: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async saveMorningCollections(
@@ -108,14 +141,13 @@ export class CollectionsService {
     dto: SaveMorningCollectionsDto,
   ) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
-
     if (!sheet) {
       throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
-    const status = sheet.order_paper.status;
-
-    if (!this.workflowState.canEditMorningCollections(status)) {
+    if (
+      !this.workflowState.canEditMorningCollections(sheet.order_paper.status)
+    ) {
       throw new BadRequestException(
         COLLECTION_ERROR_MESSAGES.MORNING_EDIT_NOT_ALLOWED,
       );
@@ -133,18 +165,43 @@ export class CollectionsService {
       category,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.collectionsRepository.replaceMorningCollections(
-        sheetId,
-        category,
-        dto.entries,
-        tx,
-      );
+    this.collectionsValidationService.validateNoDuplicateClients(dto.entries);
 
-      return {
-        message: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED,
-      };
-    });
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const currentSheet =
+            await this.collectionsRepository.getOrderSheetById(sheetId, tx);
+          if (!currentSheet) {
+            throw new BadRequestException(
+              COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
+            );
+          }
+          if (
+            !this.workflowState.canEditMorningCollections(
+              currentSheet.order_paper.status,
+            )
+          ) {
+            throw new BadRequestException(
+              COLLECTION_ERROR_MESSAGES.MORNING_EDIT_NOT_ALLOWED,
+            );
+          }
+
+          await this.collectionsRepository.replaceMorningCollections(
+            sheetId,
+            category,
+            dto.entries,
+            tx,
+          );
+
+          return { message: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async saveAdminCollections(
@@ -153,30 +210,65 @@ export class CollectionsService {
     dto: SaveAdminCollectionsDto,
   ) {
     const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
-
     if (!sheet) {
       throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
     }
 
     const status = sheet.order_paper.status;
-
     if (!this.workflowState.canAdminEditCollections(status)) {
       throw new BadRequestException(
         COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.collectionsRepository.replaceAdminCollections(
-        sheetId,
+    const validClients =
+      await this.collectionsRepository.getClientsByGroupAndCategory(
+        sheet.group_id,
         category,
-        dto.entries,
-        tx,
       );
 
-      return {
-        message: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED,
-      };
-    });
+    this.collectionsValidationService.validateClientsForCategory(
+      dto.entries,
+      validClients,
+      category,
+    );
+
+    this.collectionsValidationService.validateNoDuplicateClients(dto.entries);
+
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const currentSheet =
+            await this.collectionsRepository.getOrderSheetById(sheetId, tx);
+          if (!currentSheet) {
+            throw new BadRequestException(
+              COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
+            );
+          }
+          if (
+            !this.workflowState.canAdminEditCollections(
+              currentSheet.order_paper.status,
+            )
+          ) {
+            throw new BadRequestException(
+              COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
+            );
+          }
+
+          await this.collectionsRepository.replaceAdminCollections(
+            sheetId,
+            category,
+            dto.entries,
+            tx,
+          );
+
+          return { message: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 }

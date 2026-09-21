@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { Prisma, SupplyCategory } from '../../../../generated/prisma/client.js';
 import { OrdersRepository } from '../orders.repository.js';
 
@@ -8,10 +8,12 @@ export interface CommercialContext {
 
   gstPercentage: number;
   gstInclusive: boolean;
+  resolvedViaFallback: boolean;
 }
 
 @Injectable()
 export class OrderCommercialService {
+  private readonly logger = new Logger(OrderCommercialService.name);
   constructor(private readonly ordersRepository: OrdersRepository) {}
 
   async resolve(
@@ -27,51 +29,78 @@ export class OrderCommercialService {
       productId,
       tx,
     );
+
     const category = product.master_product_group.category;
 
-    const distributorId =
+    const primaryDistributorId =
       category === SupplyCategory.MILK
         ? supplyRules.milkDistributorId
         : supplyRules.nonMilkDistributorId;
 
-    if (!distributorId) {
+    if (!primaryDistributorId) {
       throw new BadRequestException(
         `Missing ${category} distributor supply rule for group ${sheetGroupId}`,
       );
     }
 
-    const canProcure = await this.ordersRepository.canDistributorProcureProduct(
-      distributorId,
-      product.brand_id,
-      product.product_group_id,
-      category,
-      tx,
-    );
+    const eligibleDistributors =
+      await this.ordersRepository.getEligibleDistributorsForProduct(
+        sheetGroupId,
+        productId,
+        product.brand_id,
+        product.product_group_id,
+        category,
+        primaryDistributorId,
+        tx,
+      );
 
-    if (!canProcure) {
+    if (eligibleDistributors.length === 0) {
       throw new BadRequestException(
-        `Distributor ${distributorId} cannot procure product ${productId}`,
+        `No eligible distributor found for product ${productId} in group ${sheetGroupId}`,
       );
     }
 
-    const productLink = await this.ordersRepository.getProductLink(
-      distributorId,
+    const linkByDistributor = await this.ordersRepository.getProductLinksBatch(
+      eligibleDistributors.map((d) => d.distributorId),
       productId,
       tx,
+      true,
     );
 
-    if (!productLink) {
+    let selectedDistributor: (typeof eligibleDistributors)[number] | null =
+      null;
+    let productLink: Awaited<ReturnType<OrdersRepository['getProductLink']>> =
+      null;
+    let resolvedViaFallback = false;
+    for (const candidate of eligibleDistributors) {
+      const link = linkByDistributor.get(candidate.distributorId);
+
+      if (link) {
+        if (candidate.distributorId !== primaryDistributorId) {
+          resolvedViaFallback = true;
+          this.logger.warn(
+            `Product ${productId} in group ${sheetGroupId}: primary distributor ${primaryDistributorId} has no product link, falling back to distributor ${candidate.distributorId} (priority ${candidate.priority})`,
+          );
+        }
+        selectedDistributor = candidate;
+        productLink = link;
+        break;
+      }
+    }
+
+    if (!selectedDistributor || !productLink) {
       throw new BadRequestException(
-        `No product link found for distributor ${distributorId} and product ${productId}`,
+        `No product link found for any eligible distributor for product ${productId} in group ${sheetGroupId}`,
       );
     }
 
     return {
-      distributorId,
+      distributorId: selectedDistributor.distributorId,
       productLinkId: productLink.id,
 
       gstPercentage: Number(product.gst_percentage ?? 0),
       gstInclusive: product.is_gst_inclusive,
+      resolvedViaFallback,
     };
   }
 }

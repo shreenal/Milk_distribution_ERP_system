@@ -1,11 +1,10 @@
 import { DeliverySession, Prisma } from '../generated/prisma/client.js';
-import type {
-  ProductTrayRule,
-  TrayRuleProduct,
-  TrayType,
-} from './tray.types.js';
+import type { ProductTrayRule, TrayType } from './tray.types.js';
 
-export type Vehicle = Prisma.master_vehicleGetPayload<{}>;
+export type Vehicle = {
+  id: number;
+  vehicle_name: string | null;
+};
 
 export type BuildDairyTrayGridParams = {
   vehicles: Vehicle[];

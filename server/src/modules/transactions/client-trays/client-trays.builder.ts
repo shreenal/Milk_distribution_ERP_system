@@ -16,6 +16,7 @@ import {
 
 import type { ProductTrayRule, TrayType } from '../../../types/tray.types.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
 @Injectable()
 export class ClientTraysBuilder {
@@ -23,6 +24,7 @@ export class ClientTraysBuilder {
 
   constructor(
     private readonly trayCalculationService: TrayCalculationService,
+    private readonly workflowState: WorkflowStateService,
   ) {}
   buildTrayBilling(
     data: {
@@ -35,6 +37,7 @@ export class ClientTraysBuilder {
       openingBalanceMap: Map<string, number>;
     },
     paperStatus: OrderPaperStatus,
+    morningEntrySaved: boolean,
   ) {
     const milkSheetItems = data.sheetItems.filter(
       (item) =>
@@ -80,7 +83,10 @@ export class ClientTraysBuilder {
       )}`,
     );
 
-    const useOrderedQuantity = paperStatus === OrderPaperStatus.DRAFT;
+    const useOrderedQuantity = this.workflowState.resolveUseOrderedQuantity(
+      paperStatus,
+      morningEntrySaved,
+    );
 
     const milkTrayGrid = this.buildGrid({
       ...data,
@@ -227,56 +233,16 @@ export class ClientTraysBuilder {
         const trayCountMap = new Map<number, number>();
 
         for (const item of clientItems) {
-          for (const item of clientItems) {
-            this.logger.debug(
-              `[TRAY DEBUG] sheetItem=${item.id} client=${item.client_id} product=${item.product_id}`,
-            );
-
-            this.logger.debug(
-              `[TRAY DEBUG] product fields: ${JSON.stringify({
-                id: item.master_product.id,
-                brand_id: item.master_product.brand_id,
-                product_group_id: item.master_product.product_group_id,
-                product_type_id: item.master_product.product_type_id,
-                packaging_type_id: item.master_product.packaging_type_id,
-                ordered_qty: item.ordered_qty,
-                delivered_qty: item.delivered_qty,
-              })}`,
-            );
-
-            const rule = this.trayCalculationService.resolveTrayRule(
-              item.master_product,
+          const trayTypeId =
+            this.trayCalculationService.resolveFrozenTrayTypeId(
+              item,
               trayRules,
             );
 
-            this.logger.debug(
-              `[TRAY DEBUG] resolved rule: ${JSON.stringify(
-                rule
-                  ? {
-                      id: rule.id,
-                      tray_type_id: rule.tray_type_id,
-                      brand_id: rule.brand_id,
-                      product_group_id: rule.product_group_id,
-                      product_type_id: rule.product_type_id,
-                      packaging_type_id: rule.packaging_type_id,
-                    }
-                  : null,
-              )}`,
-            );
-
-            // existing code...
-          }
-
-          const rule = this.trayCalculationService.resolveTrayRule(
-            item.master_product,
-            trayRules,
-          );
-
-          if (!rule) {
+          if (trayTypeId === null) {
             continue;
           }
 
-          const trayTypeId = rule.tray_type_id;
           const orderedQty = Number(item.ordered_qty ?? 0);
 
           const deliveredQty = Number(item.delivered_qty ?? 0);
@@ -286,9 +252,6 @@ export class ClientTraysBuilder {
             data.useOrderedQuantity,
           );
 
-          // ========================= // TRAY CALCULATION // ========================= // ordered_qty already represents // tray shorthand count
-          // const expectedTraysTaken = orderedQty;// delivered_qty may contain // fractional tray shorthand // because of leakage
-          // const traysTaken = Math.round(deliveredQty);
           const existing = trayCountMap.get(trayTypeId) ?? 0;
 
           trayCountMap.set(trayTypeId, existing + trays);
@@ -399,29 +362,16 @@ export class ClientTraysBuilder {
     const trayTypeIds = new Set<number>();
 
     for (const item of sheetItems) {
-      for (const item of sheetItems) {
-        const rule = this.trayCalculationService.resolveTrayRule(
-          item.master_product,
-          trayRules,
-        );
-
-        if (!rule) {
-          continue;
-        }
-
-        trayTypeIds.add(rule.tray_type_id);
-      }
-
-      const rule = this.trayCalculationService.resolveTrayRule(
-        item.master_product,
+      const trayTypeId = this.trayCalculationService.resolveFrozenTrayTypeId(
+        item,
         trayRules,
       );
 
-      if (!rule) {
+      if (trayTypeId === null) {
         continue;
       }
 
-      trayTypeIds.add(rule.tray_type_id);
+      trayTypeIds.add(trayTypeId);
     }
 
     return trayTypes.filter((trayType) => trayTypeIds.has(trayType.id));

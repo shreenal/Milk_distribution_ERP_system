@@ -12,7 +12,6 @@ import {
   PurchaseGridItem,
   PurchaseRateDefault,
   VehicleAllocation,
-  PurchaseVarianceAcknowledgement,
 } from '../../../types/purchase.types.js';
 import {
   DeliverySession,
@@ -26,13 +25,33 @@ import {
 import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 import { PurchaseBillingService } from './services/purchase-billing.service.js';
 
+/**
+ * FIX F5: a purchase_entry that no longer maps onto any row in the current
+ * grid (vehicle reassigned to a different distributor, product removed from
+ * the allocation, etc). These must never be silently dropped — they're real,
+ * previously-saved purchase records. Surfaced to the caller so the API and
+ * UI can warn about them instead of quietly deleting them on the next save.
+ */
+export type OrphanedPurchaseEntry = {
+  vehicleId: number;
+  distributorId: number;
+  category: SupplyCategory;
+  productId: number;
+  deliverySession: DeliverySession;
+  purchasedQty: number;
+};
+
+export type PurchaseGridWithMeta = PurchaseGrid & {
+  orphanedEntries: OrphanedPurchaseEntry[];
+};
+
 @Injectable()
 export class PurchaseBuilder {
   constructor(
     private readonly productColumnsBuilder: ProductColumnsBuilder,
     private readonly purchaseVarianceCalculator: PurchaseVarianceCalculator,
     private readonly purchaseBillingService: PurchaseBillingService,
-  ) {}
+  ) { }
 
   buildPurchaseGrids(
     summaries: AllocationSummary[],
@@ -156,8 +175,10 @@ export class PurchaseBuilder {
     const result = structuredClone(purchaseGrids);
 
     for (const allocation of allocations) {
-      // const allocatedField = `product_${allocation.product_id}_allocated`;
-      // const purchasedField = `product_${allocation.product_id}_purchased`;
+      if (allocation.vehicle_id == null || allocation.product_id == null) {
+        continue;
+      }
+
       const quantityField = `product_${allocation.product_id}`;
 
       const row = this.findPurchaseRow(
@@ -182,13 +203,35 @@ export class PurchaseBuilder {
   applyPurchaseEntries(
     purchaseGrids: PurchaseGrid,
     purchaseEntries: PurchaseEntry[],
-  ) {
-    const result = structuredClone(purchaseGrids);
+    currentAllocations: VehicleAllocation[],
+  ): PurchaseGridWithMeta {
+    const result = structuredClone(purchaseGrids) as PurchaseGridWithMeta;
+    result.orphanedEntries = [];
+
+    const currentAllocationMap = new Map<string, VehicleAllocation>();
+
+    for (const allocation of currentAllocations) {
+      if (allocation.vehicle_id == null || allocation.product_id == null) {
+        continue;
+      }
+
+      currentAllocationMap.set(
+        this.buildRowKey(
+          allocation.vehicle_id,
+          allocation.distributor_id,
+          allocation.category,
+          allocation.product_id,
+          allocation.vehicle_allocation_paper.delivery_session,
+        ),
+        allocation,
+      );
+    }
 
     for (const entry of purchaseEntries) {
       const quantityField = `product_${entry.product_id}`;
       const rateField = `product_${entry.product_id}_rate`;
       const amountField = `product_${entry.product_id}_amount`;
+      const staleField = `product_${entry.product_id}_stale`;
 
       const row = this.findPurchaseRow(
         result,
@@ -200,14 +243,44 @@ export class PurchaseBuilder {
       );
 
       if (!row) {
+        result.orphanedEntries.push({
+          vehicleId: entry.vehicle_id,
+          distributorId: entry.distributor_id,
+          category: entry.category,
+          productId: entry.product_id,
+          deliverySession: entry.delivery_session,
+          purchasedQty: Number(entry.purchased_qty),
+        });
         continue;
       }
 
-      // row[purchasedField] = Number(entry.purchased_qty);
+      const key = this.buildRowKey(
+        entry.vehicle_id,
+        entry.distributor_id,
+        entry.category,
+        entry.product_id,
+        entry.delivery_session,
+      );
+
+      const currentAllocation = currentAllocationMap.get(key);
+
+      const sourceAllocationId = (
+        entry as { source_allocation_id?: number | null }
+      ).source_allocation_id;
+      const sourceAllocatedQty = (entry as { source_allocated_qty?: unknown })
+        .source_allocated_qty;
+
+      const isStale =
+        !currentAllocation ||
+        sourceAllocationId == null ||
+        currentAllocation.id !== sourceAllocationId ||
+        Number(currentAllocation.allocated_qty) !==
+        Number(sourceAllocatedQty ?? NaN);
 
       row[quantityField] = Number(entry.purchased_qty);
       row[rateField] = Number(entry.purchase_rate);
       row[amountField] = Number(entry.purchase_amount);
+      row[staleField] = isStale;
     }
 
     return result;
@@ -242,6 +315,7 @@ export class PurchaseBuilder {
       const { purchaseAmount } = this.purchaseBillingService.calculate(
         Number(row[quantityField] ?? 0),
         Number(rate.purchaseRate),
+        rate.pricingQuantity,
       );
 
       row[amountField] = purchaseAmount;
@@ -254,7 +328,6 @@ export class PurchaseBuilder {
     purchaseGrids: PurchaseGrid,
     allocations: VehicleAllocation[],
     purchaseEntries: PurchaseEntry[],
-    acknowledgements: PurchaseVarianceAcknowledgement[],
   ) {
     const result = structuredClone(purchaseGrids);
 
@@ -262,7 +335,7 @@ export class PurchaseBuilder {
 
     for (const allocation of allocations) {
       allocationMap.set(
-        this.buildVarianceKey(
+        this.buildRowKey(
           allocation.vehicle_id,
           allocation.distributor_id,
           allocation.category,
@@ -273,20 +346,8 @@ export class PurchaseBuilder {
       );
     }
 
-    const acknowledgementMap = new Map<
-      number,
-      PurchaseVarianceAcknowledgement
-    >();
-
-    for (const acknowledgement of acknowledgements) {
-      acknowledgementMap.set(
-        acknowledgement.purchase_entry.id,
-        acknowledgement,
-      );
-    }
-
     for (const entry of purchaseEntries) {
-      const key = this.buildVarianceKey(
+      const key = this.buildRowKey(
         entry.vehicle_id,
         entry.distributor_id,
         entry.category,
@@ -299,8 +360,6 @@ export class PurchaseBuilder {
       if (!allocation) {
         continue;
       }
-
-      const acknowledgement = acknowledgementMap.get(entry.id) ?? null;
 
       const quantityField = `product_${entry.product_id}`;
 
@@ -332,7 +391,6 @@ export class PurchaseBuilder {
         variance: variance.variance,
         variancePercentage: variance.variancePercentage,
         severity: variance.severity,
-        acknowledgement,
       };
     }
 
@@ -371,7 +429,7 @@ export class PurchaseBuilder {
     return row;
   }
 
-  private buildVarianceKey(
+  private buildRowKey(
     vehicleId: number,
     distributorId: number,
     category: SupplyCategory,

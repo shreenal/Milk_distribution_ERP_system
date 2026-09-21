@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
+import { PricingUnit, Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async getActiveGroups(db: PrismaOrTransaction = this.prisma) {
     return db.master_group.findMany({
@@ -72,6 +72,33 @@ export class OrdersRepository {
         name: 'asc',
       },
     });
+  }
+
+  async getClientsForSheetDisplay(
+    sheetId: number,
+    groupId: number,
+    category: SupplyCategory,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const [eligible, historicallyReferenced] = await Promise.all([
+      this.getClientsByGroupAndCategory(groupId, category, db),
+      db.master_client.findMany({
+        where: {
+          order_sheet_items: {
+            some: {
+              order_sheet_id: sheetId,
+              master_product: { master_product_group: { category } },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const byId = new Map(eligible.map((c) => [c.id, c]));
+    for (const c of historicallyReferenced) byId.set(c.id, c);
+    return Array.from(byId.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
   }
 
   async getClientsByGroupAndCategory(
@@ -159,47 +186,48 @@ export class OrdersRepository {
     category: SupplyCategory,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return db.master_product.findMany({
-      where: {
-        is_active: true,
-        master_product_group: {
-          category,
+    const [eligible, historicallyReferenced] = await Promise.all([
+      db.master_product.findMany({
+        where: {
+          is_active: true,
+          master_product_group: { category },
+          OR: [
+            { show_by_default: true },
+            { order_sheet_product: { some: { order_sheet_id: sheetId } } },
+          ],
         },
+        include: {
+          master_brand: true,
+          master_product_type: true,
+          master_packaging_type: true,
+          master_product_group: true,
+        },
+      }),
+      // Anything actually billed on this sheet, even if since deactivated
+      // or reclassified — a finalized paper's numbers must never change
+      // because of unrelated later catalog maintenance.
+      db.master_product.findMany({
+        where: {
+          master_product_group: { category },
+          order_sheet_items: { some: { order_sheet_id: sheetId } },
+        },
+        include: {
+          master_brand: true,
+          master_product_type: true,
+          master_packaging_type: true,
+          master_product_group: true,
+        },
+      }),
+    ]);
 
-        OR: [
-          {
-            show_by_default: true,
-          },
-          {
-            order_sheet_items: {
-              some: {
-                order_sheet_id: sheetId,
-              },
-            },
-          },
-        ],
-      },
+    const byId = new Map(eligible.map((p) => [p.id, p]));
+    for (const p of historicallyReferenced) byId.set(p.id, p);
 
-      include: {
-        master_brand: true,
-        master_product_type: true,
-        master_packaging_type: true,
-        master_product_group: true,
-      },
-
-      orderBy: [
-        {
-          display_order: 'asc',
-        },
-        {
-          master_brand: {
-            name: 'asc',
-          },
-        },
-        {
-          packaging_size: 'asc',
-        },
-      ],
+    return Array.from(byId.values()).sort((a, b) => {
+      if ((a.display_order ?? Infinity) !== (b.display_order ?? Infinity)) {
+        return (a.display_order ?? Infinity) - (b.display_order ?? Infinity);
+      }
+      return a.master_brand.name.localeCompare(b.master_brand.name);
     });
   }
 
@@ -226,6 +254,57 @@ export class OrdersRepository {
           },
         },
       },
+    });
+  }
+
+  async getSheetProductLink(
+    sheetId: number,
+    productId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_product.findUnique({
+      where: {
+        order_sheet_id_product_id: {
+          order_sheet_id: sheetId,
+          product_id: productId,
+        },
+      },
+    });
+  }
+
+  async createSheetProduct(
+    data: {
+      order_sheet_id: number;
+      product_id: number;
+      product_link_id: number;
+      resolvedViaFallback?: boolean;
+    },
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_product.upsert({
+      where: {
+        order_sheet_id_product_id: {
+          order_sheet_id: data.order_sheet_id,
+          product_id: data.product_id,
+        },
+      },
+      update: {},
+      create: {
+        order_sheet_id: data.order_sheet_id,
+        product_id: data.product_id,
+        product_link_id: data.product_link_id,
+        resolved_via_fallback: data.resolvedViaFallback ?? false,
+      },
+    });
+  }
+
+  async deleteSheetProduct(
+    sheetId: number,
+    productId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_product.deleteMany({
+      where: { order_sheet_id: sheetId, product_id: productId },
     });
   }
 
@@ -296,176 +375,139 @@ export class OrdersRepository {
   }
 
   async upsertSheetEntry(
-    data: {
-      order_sheet_id: number;
-      client_id: number;
-      product_id: number;
-      product_link_id: number;
-      ordered_qty?: number;
-      delivered_qty?: number;
-      night_selling_rate?: number;
-      night_bill_amount?: number;
-      final_selling_rate?: number;
-      final_gst_percentage?: number;
-      final_gst_amount?: number;
-      final_taxable_amount?: number;
-      final_bill_amount?: number;
-    },
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet_items.upsert({
-      where: {
-        order_sheet_id_client_id_product_link_id: {
-          order_sheet_id: data.order_sheet_id,
-          client_id: data.client_id,
-          product_link_id: data.product_link_id,
-        },
-      },
+  data: {
+    order_sheet_id: number;
+    client_id: number;
+    product_id: number;
+    product_link_id: number;
 
-      update: {
-        ...(data.ordered_qty !== undefined && {
-          ordered_qty: data.ordered_qty,
-        }),
+    ordered_qty?: number;
+    delivered_qty?: number;
 
-        ...(data.delivered_qty !== undefined && {
-          delivered_qty: data.delivered_qty,
-        }),
+    night_selling_rate?: number;
+    night_bill_amount?: number;
 
-        ...(data.night_selling_rate !== undefined && {
-          night_selling_rate: data.night_selling_rate,
-        }),
+    final_selling_rate?: number;
+    final_gst_percentage?: number;
+    final_gst_amount?: number;
+    final_taxable_amount?: number;
+    final_bill_amount?: number;
 
-        ...(data.night_bill_amount !== undefined && {
-          night_bill_amount: data.night_bill_amount,
-        }),
+    tray_type_id?: number | null;
 
-        ...(data.final_selling_rate !== undefined && {
-          final_selling_rate: data.final_selling_rate,
-        }),
-
-        ...(data.final_gst_percentage !== undefined && {
-          final_gst_percentage: data.final_gst_percentage,
-        }),
-
-        ...(data.final_gst_amount !== undefined && {
-          final_gst_amount: data.final_gst_amount,
-        }),
-
-        ...(data.final_taxable_amount !== undefined && {
-          final_taxable_amount: data.final_taxable_amount,
-        }),
-
-        ...(data.final_bill_amount !== undefined && {
-          final_bill_amount: data.final_bill_amount,
-        }),
-      },
-
-      create: {
+    // Required for creation; frozen after creation.
+    units_per_order_unit: number;
+    pricing_quantity: number;
+    pricing_unit: PricingUnit;
+  },
+  db: PrismaOrTransaction = this.prisma,
+) {
+  return db.order_sheet_items.upsert({
+    where: {
+      order_sheet_id_client_id_product_link_id: {
         order_sheet_id: data.order_sheet_id,
-
         client_id: data.client_id,
-
-        product_id: data.product_id,
-
         product_link_id: data.product_link_id,
-
-        ordered_qty: data.ordered_qty ?? 0,
-
-        delivered_qty: data.delivered_qty ?? 0,
-
-        night_selling_rate: data.night_selling_rate ?? 0,
-
-        night_bill_amount: data.night_bill_amount ?? 0,
-
-        final_selling_rate: data.final_selling_rate ?? 0,
-
-        final_gst_percentage: data.final_gst_percentage ?? 0,
-
-        final_gst_amount: data.final_gst_amount ?? 0,
-
-        final_taxable_amount: data.final_taxable_amount ?? 0,
-
-        final_bill_amount: data.final_bill_amount ?? 0,
       },
-    });
-  }
+    },
 
-  // async upsertSheetEntryTx(
-  //   tx: PrismaOrTransaction,
-  //   data: {
-  //     order_sheet_id: number;
+    update: {
+      ...(data.ordered_qty !== undefined && {
+        ordered_qty: data.ordered_qty,
+      }),
 
-  //     client_id: number;
+      ...(data.delivered_qty !== undefined && {
+        delivered_qty: data.delivered_qty,
+      }),
 
-  //     product_id: number;
+      ...(data.night_selling_rate !== undefined && {
+        night_selling_rate: data.night_selling_rate,
+      }),
 
-  //     product_link_id: number;
+      ...(data.night_bill_amount !== undefined && {
+        night_bill_amount: data.night_bill_amount,
+      }),
 
-  //     ordered_qty?: number;
+      ...(data.final_selling_rate !== undefined && {
+        final_selling_rate: data.final_selling_rate,
+      }),
 
-  //     delivered_qty?: number;
+      ...(data.final_gst_percentage !== undefined && {
+        final_gst_percentage: data.final_gst_percentage,
+      }),
 
-  //     night_selling_rate?: number;
+      ...(data.final_gst_amount !== undefined && {
+        final_gst_amount: data.final_gst_amount,
+      }),
 
-  //     night_bill_amount?: number;
+      ...(data.final_taxable_amount !== undefined && {
+        final_taxable_amount: data.final_taxable_amount,
+      }),
 
-  //     final_selling_rate?: number;
+      ...(data.final_bill_amount !== undefined && {
+        final_bill_amount: data.final_bill_amount,
+      }),
 
-  //     final_gst_percentage?: number;
+      // Intentionally NOT updated:
+      // tray_type_id
+      // units_per_order_unit
+      // pricing_quantity
+      // pricing_unit
+    },
 
-  //     final_gst_amount?: number;
+    create: {
+      order_sheet_id: data.order_sheet_id,
+      client_id: data.client_id,
+      product_id: data.product_id,
+      product_link_id: data.product_link_id,
 
-  //     final_taxable_amount?: number;
+      ...(data.ordered_qty !== undefined && {
+        ordered_qty: data.ordered_qty,
+      }),
 
-  //     final_bill_amount?: number;
-  //   },
-  // ) {
-  //   return tx.order_sheet_items.upsert({
-  //     where: {
-  //       order_sheet_id_client_id_product_link_id: {
-  //         order_sheet_id: data.order_sheet_id,
-  //         client_id: data.client_id,
-  //         product_link_id: data.product_link_id,
-  //       },
-  //     },
+      ...(data.delivered_qty !== undefined && {
+        delivered_qty: data.delivered_qty,
+      }),
 
-  //     update: {
-  //       ordered_qty: data.ordered_qty,
+      ...(data.night_selling_rate !== undefined && {
+        night_selling_rate: data.night_selling_rate,
+      }),
 
-  //       night_selling_rate: Number(data.night_selling_rate),
+      ...(data.night_bill_amount !== undefined && {
+        night_bill_amount: data.night_bill_amount,
+      }),
 
-  //       night_bill_amount: Number(data.night_bill_amount?.toFixed(2)),
-  //     },
+      ...(data.final_selling_rate !== undefined && {
+        final_selling_rate: data.final_selling_rate,
+      }),
 
-  //     create: {
-  //       order_sheet_id: data.order_sheet_id,
+      ...(data.final_gst_percentage !== undefined && {
+        final_gst_percentage: data.final_gst_percentage,
+      }),
 
-  //       client_id: data.client_id,
+      ...(data.final_gst_amount !== undefined && {
+        final_gst_amount: data.final_gst_amount,
+      }),
 
-  //       product_id: data.product_id,
+      ...(data.final_taxable_amount !== undefined && {
+        final_taxable_amount: data.final_taxable_amount,
+      }),
 
-  //       product_link_id: data.product_link_id,
+      ...(data.final_bill_amount !== undefined && {
+        final_bill_amount: data.final_bill_amount,
+      }),
 
-  //       ordered_qty: data.ordered_qty,
+      ...(data.tray_type_id !== undefined && {
+        tray_type_id: data.tray_type_id,
+      }),
 
-  //       night_selling_rate: Number(data.night_selling_rate),
-
-  //       night_bill_amount: Number(data.night_bill_amount?.toFixed(2)),
-
-  //       delivered_qty: null,
-
-  //       final_selling_rate: 0,
-
-  //       final_gst_percentage: 0,
-
-  //       final_gst_amount: 0,
-
-  //       final_taxable_amount: 0,
-
-  //       final_bill_amount: 0,
-  //     },
-  //   });
-  // }
+      // Required snapshot fields.
+      units_per_order_unit: data.units_per_order_unit,
+      pricing_quantity: data.pricing_quantity,
+      pricing_unit: data.pricing_unit,
+    },
+  });
+}
 
   async getProductCategory(
     productId: number,
@@ -615,103 +657,11 @@ export class OrdersRepository {
     );
   }
 
-  async getOrderItemsWithSupplyContextByPaperId(
-    paperId: number,
-    db: PrismaOrTransaction,
-  ) {
-    const items = await db.order_sheet_items.findMany({
-      where: {
-        order_sheet: {
-          order_paper_id: paperId,
-        },
-      },
-      include: {
-        order_sheet: {
-          include: {
-            master_group: {
-              select: {
-                id: true,
-                name: true,
-                delivery_session: true,
-              },
-            },
-          },
-        },
-        master_product: {
-          include: {
-            master_brand: true,
-            master_product_group: true,
-            master_product_type: true,
-            master_packaging_type: true,
-          },
-        },
-      },
-    });
-
-    const groupIds = [
-      ...new Set(items.map((item) => item.order_sheet.group_id)),
-    ];
-
-    const rules = await db.master_group_supply_rule.findMany({
-      where: {
-        group_id: { in: groupIds },
-        is_active: true,
-      },
-    });
-
-    const rulesMap = new Map<string, number>();
-
-    for (const rule of rules) {
-      rulesMap.set(`${rule.group_id}_${rule.category}`, rule.distributor_id);
-    }
-
-    return items.map((item) => {
-      const category = item.master_product.master_product_group.category;
-
-      const distributorId = rulesMap.get(
-        `${item.order_sheet.group_id}_${category}`,
-      );
-
-      if (!distributorId) {
-        throw new BadRequestException(
-          `Supply rule missing for group ${item.order_sheet.group_id} category ${category}`,
-        );
-      }
-
-      return {
-        sheetId: item.order_sheet_id,
-        groupId: item.order_sheet.group_id,
-        groupName: item.order_sheet.master_group.name,
-        deliverySession: item.order_sheet.master_group.delivery_session,
-
-        clientId: item.client_id,
-
-        distributorId,
-        category,
-
-        productId: item.product_id,
-        orderedQty: Number(item.ordered_qty ?? 0),
-
-        brandId: item.master_product.master_brand.id,
-        brandName: item.master_product.master_brand.name,
-
-        productGroupId: item.master_product.master_product_group.id,
-        productGroupName: item.master_product.master_product_group.name,
-
-        productTypeId: item.master_product.master_product_type?.id ?? null,
-        productTypeName: item.master_product.master_product_type?.name ?? null,
-
-        packagingTypeId: item.master_product.master_packaging_type?.id ?? null,
-        packagingTypeName:
-          item.master_product.master_packaging_type?.name ?? null,
-      };
-    });
-  }
-
   async getProductLink(
     distributorId: number,
     productId: number,
     prismaClient: PrismaOrTransaction = this.prisma,
+    activeOnly = false,
   ) {
     return prismaClient.master_product_link.findUnique({
       where: {
@@ -719,32 +669,12 @@ export class OrdersRepository {
           distributor_id: distributorId,
           product_id: productId,
         },
+        ...(activeOnly ? { is_active: true } : {}),
       },
       select: {
         id: true,
         distributor_id: true,
         product_id: true,
-      },
-    });
-  }
-
-  async canDistributorProcureProduct(
-    distributorId: number,
-    brandId: number,
-    productGroupId: number,
-    category: SupplyCategory,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ) {
-    return prismaClient.distributor_procurement_rule.findFirst({
-      where: {
-        distributor_id: distributorId,
-        brand_id: brandId,
-        product_group_id: productGroupId,
-        category,
-        is_active: true,
-      },
-      select: {
-        id: true,
       },
     });
   }
@@ -772,5 +702,257 @@ export class OrdersRepository {
         },
       },
     });
+  }
+
+  async getEligibleDistributorsForProduct(
+    groupId: number,
+    productId: number,
+    brandId: number,
+    productGroupId: number,
+    category: SupplyCategory,
+    primaryDistributorId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+  ) {
+    const procurementRules =
+      await prismaClient.distributor_procurement_rule.findMany({
+        where: {
+          brand_id: brandId,
+          product_group_id: productGroupId,
+          category,
+          is_active: true,
+        },
+        select: {
+          distributor_id: true,
+        },
+      });
+
+    const eligibleDistributorIds = procurementRules.map(
+      (rule) => rule.distributor_id,
+    );
+
+    if (eligibleDistributorIds.length === 0) {
+      return [];
+    }
+
+    const priorities = await prismaClient.distributor_product_priority.findMany(
+      {
+        where: {
+          group_id: groupId,
+          product_id: productId,
+          distributor_id: {
+            in: eligibleDistributorIds,
+          },
+          is_active: true,
+        },
+        orderBy: {
+          priority: 'asc',
+        },
+        select: {
+          distributor_id: true,
+          priority: true,
+        },
+      },
+    );
+
+    const priorityMap = new Map(
+      priorities.map((item) => [item.distributor_id, item.priority]),
+    );
+
+    return eligibleDistributorIds
+      .filter(
+        (distributorId) =>
+          distributorId === primaryDistributorId ||
+          priorityMap.has(distributorId),
+      )
+      .map((distributorId) => ({
+        distributorId,
+        priority:
+          distributorId === primaryDistributorId
+            ? 0
+            : priorityMap.get(distributorId)!,
+      }))
+      .sort((a, b) => a.priority - b.priority);
+  }
+
+  async findSheetItemByProduct(
+    sheetId: number,
+    clientId: number,
+    productId: number,
+    tx: Prisma.TransactionClient,
+  ) {
+    return tx.order_sheet_items.findFirst({
+      where: {
+        order_sheet_id: sheetId,
+        client_id: clientId,
+        product_id: productId,
+      },
+      include: {
+        master_product: { include: { master_packaging_type: true } },
+        product_link: true,
+      },
+    });
+  }
+
+  async getProductWithPackaging(
+    productId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const product = await db.master_product.findUnique({
+      where: { id: productId },
+      include: { master_packaging_type: true },
+    });
+    if (!product)
+      throw new BadRequestException(`Product ${productId} not found`);
+    return product;
+  }
+
+  async findSheetItemsByProductBatch(
+    sheetId: number,
+    pairs: { clientId: number; productId: number }[],
+    tx: Prisma.TransactionClient,
+  ) {
+    const items = await tx.order_sheet_items.findMany({
+      where: {
+        order_sheet_id: sheetId,
+        OR: pairs.map((p) => ({
+          client_id: p.clientId,
+          product_id: p.productId,
+        })),
+      },
+      include: {
+        master_product: { include: { master_packaging_type: true } },
+        product_link: true,
+      },
+    });
+
+    const map = new Map<string, (typeof items)[number]>();
+    for (const item of items) {
+      map.set(`${item.client_id}_${item.product_id}`, item);
+    }
+    return map;
+  }
+
+  async getSheetProductLinksBatch(
+    sheetId: number,
+    productIds: number[],
+    tx: Prisma.TransactionClient,
+  ) {
+    const links = await tx.order_sheet_product.findMany({
+      where: { order_sheet_id: sheetId, product_id: { in: productIds } },
+    });
+    return new Map(links.map((l) => [l.product_id, l]));
+  }
+
+   async getProductsWithPackagingBatch(
+  productIds: number[],
+  db: PrismaOrTransaction,
+) {
+  const products = await db.master_product.findMany({
+    where: { id: { in: productIds } },
+    include: {
+      master_packaging_type: true,
+      product_order_unit: {
+        select: {
+          units_per_order_unit: true,
+          pricing_quantity: true,
+          pricing_unit: true,
+        },
+      },
+    },
+  });
+ 
+  return new Map(products.map((p) => [p.id, p]));
+}
+
+  async getSellingRatesBatch(
+    pairs: { clientId: number; productLinkId: number }[],
+    effectiveDate: Date,
+    db: PrismaOrTransaction,
+  ) {
+    const clientIds = [...new Set(pairs.map((p) => p.clientId))];
+    const linkIds = [...new Set(pairs.map((p) => p.productLinkId))];
+
+    const [clientRates, distributorRates] = await Promise.all([
+      db.master_client_rate_product.findMany({
+        where: {
+          client_id: { in: clientIds },
+          product_link_id: { in: linkIds },
+          is_active: true,
+          effective_from: { lte: effectiveDate },
+          OR: [
+            { effective_to: null },
+            { effective_to: { gte: effectiveDate } },
+          ],
+        },
+        orderBy: { effective_from: 'desc' },
+      }),
+      db.distributor_product_rate.findMany({
+        where: {
+          product_link_id: { in: linkIds },
+          is_active: true,
+          effective_from: { lte: effectiveDate },
+          OR: [
+            { effective_to: null },
+            { effective_to: { gte: effectiveDate } },
+          ],
+        },
+        orderBy: { effective_from: 'desc' },
+      }),
+    ]);
+
+    // most-recent-first ordering means first match per key wins
+    const clientRateMap = new Map<string, Prisma.Decimal>();
+    for (const r of clientRates) {
+      const key = `${r.client_id}_${r.product_link_id}`;
+      if (!clientRateMap.has(key)) clientRateMap.set(key, r.selling_rate);
+    }
+
+    const distributorRateMap = new Map<number, Prisma.Decimal>();
+    for (const r of distributorRates) {
+      if (!distributorRateMap.has(r.product_link_id)) {
+        distributorRateMap.set(r.product_link_id, r.selling_rate);
+      }
+    }
+
+    const resolved = new Map<string, Prisma.Decimal | null>();
+    for (const { clientId, productLinkId } of pairs) {
+      const key = `${clientId}_${productLinkId}`;
+      resolved.set(
+        key,
+        clientRateMap.get(key) ?? distributorRateMap.get(productLinkId) ?? null,
+      );
+    }
+    return resolved;
+  }
+
+  async markOrderMorningEntrySaved(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.update({
+      where: {
+        id: sheetId,
+      },
+      data: {
+        order_morning_entry_saved_at: new Date(),
+      },
+    });
+  }
+
+  async getProductLinksBatch(
+    distributorIds: number[],
+    productId: number,
+    prismaClient: PrismaOrTransaction = this.prisma,
+    activeOnly = false,
+  ) {
+    const links = await prismaClient.master_product_link.findMany({
+      where: {
+        product_id: productId,
+        distributor_id: { in: distributorIds },
+        ...(activeOnly ? { is_active: true } : {}),
+      },
+      select: { id: true, distributor_id: true, product_id: true },
+    });
+    return new Map(links.map((l) => [l.distributor_id, l]));
   }
 }

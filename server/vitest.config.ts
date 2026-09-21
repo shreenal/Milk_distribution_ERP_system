@@ -1,14 +1,14 @@
 import { defineConfig } from 'vitest/config';
 import { resolve } from 'path';
-import dotenv from 'dotenv';
 
-dotenv.config();
 
 export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.spec.ts', 'test/**/*.spec.ts'],
+    setupFiles: ['./test/helper/test-environment.ts'],
+    include: ['src/**/*.spec.ts', 'test/**/*.spec.ts','test/**/*.e2e-spec.ts'],
+    fileParallelism: false,
   },
   resolve: {
     alias: {

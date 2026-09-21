@@ -1,4 +1,6 @@
 import { IsNumber, Min, Max } from 'class-validator';
+// save-night-entries.dto.ts / save-morning-entries.dto.ts
+import { QUANTITY_PRECISION } from '../orders.constants.js';
 
 export class SaveMorningEntriesDto {
   @IsNumber()
@@ -11,6 +13,6 @@ export class SaveMorningEntriesDto {
 
   @IsNumber()
   @Min(0)
-  @Max(10000)
+  @Max(QUANTITY_PRECISION.MAX_DELIVERED_QTY)
   deliveredQty!: number;
 }

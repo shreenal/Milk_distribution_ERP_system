@@ -1,16 +1,6 @@
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 
-export const TRANSACTION_CONFIG = {
-  TIMEOUT_MS: 10000,
-  ISOLATION_LEVEL: 'Serializable' as const,
-  MAX_RETRIES: 3,
-  RETRY_DELAY_MS: 100,
-} as const;
-
 export const QUANTITY_PRECISION = {
-  OPERATIONAL_UNIT_LITRES: 10,
-
-  MIN_UNIT_PRECISION: 0.5,
 
   MAX_ORDERED_QTY: 10000,
   MAX_DELIVERED_QTY: 10000,
@@ -52,18 +42,16 @@ export const ERROR_MESSAGES = {
     `Client ${clientId} does not belong to group ${groupId}`,
 
   CANNOT_EDIT_NIGHT: (status: OrderPaperStatus) =>
-    `Cannot edit night entries when paper is ${status}. ` +
-    `Allowed statuses: DRAFT, REOPENED`,
+    `Cannot edit night entries when paper is ${status}. Allowed status: DRAFT`,
   CANNOT_EDIT_MORNING: (status: OrderPaperStatus) =>
     `Cannot edit morning entries when paper is ${status}. ` +
     `Allowed statuses: NIGHT_SUBMITTED, REOPENED`,
   NIGHT_ENTRY_INCOMPLETE: (groupName: string) =>
     `Night entry incomplete for sheet "${groupName}"`,
 
-  INVALID_QUANTITY_PRECISION: (qty: number, precision: number) =>
-    `Invalid quantity: ${qty}. ` +
-    `Quantities must be in increments of ${precision} ` +
-    `(e.g., 10, 10.5, 11, 11.5, etc.)`,
+  INVALID_QUANTITY_PRECISION: (qty: number) =>
+  `Invalid quantity: ${qty}. ` +
+  `Quantity must be specified to at most 2 decimal places.`,
   QUANTITY_NEGATIVE: (fieldName: string, value: number) =>
     `${fieldName} cannot be negative: ${value}`,
   QUANTITY_EXCEEDS_MAX: (fieldName: string, value: number, max: number) =>

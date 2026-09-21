@@ -96,17 +96,17 @@ export class DairyTraysValidationService {
     const expected = new Set<string>();
 
     for (const purchase of purchaseEntries) {
-      const rule = this.trayCalculationService.resolveTrayRule(
-        purchase.master_product,
+      const trayTypeId = this.trayCalculationService.resolveFrozenTrayTypeId(
+        purchase,
         trayRules,
       );
 
-      if (!rule) {
+      if (trayTypeId === null) {
         continue;
       }
 
       expected.add(
-        `${purchase.vehicle_id}_${purchase.delivery_session}_${rule.tray_type_id}`,
+        `${purchase.vehicle_id}_${purchase.delivery_session}_${trayTypeId}`,
       );
     }
 
@@ -119,7 +119,7 @@ export class DairyTraysValidationService {
 
     for (const key of expected) {
       if (!existing.has(key)) {
-        const [vehicleId, deliverySession, trayTypeId] = key.split('_');
+        const [vehicleId, trayTypeId] = key.split('_');
 
         throw new BadRequestException(
           DAIRY_TRAYS_ERROR_MESSAGES.MISSING_ENTRY(

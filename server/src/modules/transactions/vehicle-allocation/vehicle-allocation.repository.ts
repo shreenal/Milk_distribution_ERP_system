@@ -5,7 +5,7 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class VehicleAllocationRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService) { }
 
   async findOrderPaperById(
     paperId: number,
@@ -215,16 +215,59 @@ export class VehicleAllocationRepository {
     data: Prisma.vehicle_allocationCreateManyInput[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    await db.vehicle_allocation.deleteMany({
-      where: {
-        vehicle_allocation_paper_id: vehicleAllocationPaperId,
-      },
+    const existing = await db.vehicle_allocation.findMany({
+      where: { vehicle_allocation_paper_id: vehicleAllocationPaperId },
     });
 
-    if (data.length > 0) {
-      await db.vehicle_allocation.createMany({
-        data,
+    const keyOf = (
+      row: Pick<
+        Prisma.vehicle_allocationCreateManyInput,
+        'vehicle_id' | 'distributor_id' | 'category' | 'product_id'
+      >,
+    ) =>
+      `${row.vehicle_id}_${row.distributor_id}_${row.category}_${row.product_id}`;
+
+    const existingByKey = new Map(existing.map((r) => [keyOf(r), r]));
+    const incomingByKey = new Map(data.map((r) => [keyOf(r), r]));
+
+    const toDelete = existing.filter((r) => !incomingByKey.has(keyOf(r)));
+    const toInsert = data.filter((r) => !existingByKey.has(keyOf(r)));
+    const toUpdate = data.filter((r) => {
+      const match = existingByKey.get(keyOf(r));
+      return (
+        match !== undefined &&
+        Number(match.allocated_qty) !== Number(r.allocated_qty)
+      );
+    });
+
+    // Rows genuinely removed from this session's plan. Any purchase_entry
+    // pointing at these via source_allocation_id will be SetNull'd by the
+    // FK — correct, because the source genuinely no longer exists. Purchase's
+    // own read path (F5, orphanedEntries) already surfaces this case.
+    if (toDelete.length > 0) {
+      await db.vehicle_allocation.deleteMany({
+        where: { id: { in: toDelete.map((r) => r.id) } },
       });
+    }
+
+    // Rows that still represent the same (vehicle, distributor, category,
+    // product) but with a changed quantity — update in place, preserving
+    // `id`, so any purchase_entry.source_allocation_id pointing here stays
+    // valid. Purchase's staleness check will correctly flag these (their
+    // allocated_qty now differs from what was purchased against), which is
+    // the accurate, intended signal — not a side effect of an unrelated
+    // row being touched.
+    for (const row of toUpdate) {
+      const existingRow = existingByKey.get(keyOf(row))!;
+      await db.vehicle_allocation.update({
+        where: { id: existingRow.id },
+        data: { allocated_qty: row.allocated_qty },
+      });
+    }
+
+    // Genuinely new (vehicle, distributor, category, product) combinations.
+    if (toInsert.length > 0) {
+      await db.vehicle_allocation.createMany({ data: toInsert });
     }
   }
 
@@ -248,6 +291,7 @@ export class VehicleAllocationRepository {
     distributorId: number,
     productId: number,
     db: PrismaOrTransaction = this.prisma,
+    activeOnly = false,
   ) {
     return db.master_product_link.findUnique({
       where: {
@@ -255,11 +299,13 @@ export class VehicleAllocationRepository {
           distributor_id: distributorId,
           product_id: productId,
         },
+        ...(activeOnly ? { is_active: true } : {}),
       },
       select: {
         id: true,
         distributor_id: true,
         product_id: true,
+        is_active: true,
       },
     });
   }
@@ -300,5 +346,21 @@ export class VehicleAllocationRepository {
         data,
       });
     }
+  }
+
+  async touchVehicleAllocationPaperIfUnchanged(
+    vehicleAllocationPaperId: number,
+    expectedUpdatedAt: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.vehicle_allocation_paper.updateMany({
+      where: {
+        id: vehicleAllocationPaperId,
+        updated_at: expectedUpdatedAt,
+      },
+      data: {
+        updated_at: new Date(),
+      },
+    });
   }
 }

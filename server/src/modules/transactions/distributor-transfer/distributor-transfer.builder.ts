@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import {
   ProductColumnNode,
@@ -26,26 +26,15 @@ export class DistributorTransferBuilder {
         continue;
       }
 
-      const category = item.master_product.master_product_group.category;
+      const product = item.master_product;
 
-      const supplyRule = item.order_sheet.master_group.supply_rules.find(
-        (rule) => rule.category === category,
-      );
-
-      if (!supplyRule) {
-        throw new BadRequestException(
-          `Missing supply rule for group ${item.order_sheet.master_group.name} and category ${category}`,
-        );
-      }
-
-      const supplierDistributorId = supplyRule.distributor_id;
+      const supplierDistributorId = item.product_link.distributor_id;
+      const supplierDistributorName = item.product_link.distributor.name;
       const ownerDistributorId = item.master_client.owner_distributor_id;
 
       if (supplierDistributorId === ownerDistributorId) {
         continue;
       }
-
-      const product = item.master_product;
 
       const transferKey =
         `${supplierDistributorId}_` +
@@ -59,7 +48,7 @@ export class DistributorTransferBuilder {
         summary = {
           supplierDistributor: {
             id: supplierDistributorId,
-            name: supplyRule.distributor.name,
+            name: supplierDistributorName,
           },
 
           ownerDistributor: {
@@ -90,10 +79,10 @@ export class DistributorTransferBuilder {
 
       let row = summary.rows[0];
 
-if (!row) {
-  row = {};
-  summary.rows.push(row);
-}
+      if (!row) {
+        row = {};
+        summary.rows.push(row);
+      }
 
       const field = `product_${product.id}`;
 
@@ -175,7 +164,6 @@ if (!row) {
     for (const summary of summaries) {
       for (const row of summary.rows) {
         for (const [field, value] of Object.entries(row)) {
-
           if (!field.startsWith('product_')) {
             continue;
           }

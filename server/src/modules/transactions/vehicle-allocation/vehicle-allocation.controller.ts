@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseEnumPipe,
   ParseIntPipe,
   Post,
   Query,
@@ -26,10 +27,9 @@ export class VehicleAllocationController {
   @Get(':paperId/vehicle-allocations')
   @Roles('EMPLOYEE')
   async getVehicleAllocations(
-    @Param('paperId', ParseIntPipe)
-    @Query('session')
+    @Param('paperId', ParseIntPipe) paperId: number,
+    @Query('session', new ParseEnumPipe(DeliverySession))
     session: DeliverySession,
-    paperId: number,
   ) {
     return this.vehicleAllocationService.getVehicleAllocations(
       paperId,

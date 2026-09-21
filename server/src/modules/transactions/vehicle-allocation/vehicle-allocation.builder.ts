@@ -16,6 +16,7 @@ import {
   AllocationGrid,
   AllocationGridResult,
   Product,
+  VehicleAllocationRequirementGrid,
 } from '../../../types/vehicle-allocation.types.js';
 
 import { AllocationSummary } from '../../../common/builders/allocation-summary.builder.js';
@@ -28,26 +29,47 @@ export class VehicleAllocationBuilder {
     products: Product[],
     includePackagingType: boolean,
   ): ProductColumnNode[] {
-    const columns = this.productColumnsBuilder.buildGroupedColumns(
+    return this.productColumnsBuilder.buildGroupedColumns(
       products,
       includePackagingType,
     );
+  }
 
-    const updateFields = (nodes: ProductColumnNode[]) => {
-      for (const node of nodes) {
-        if (node.field && node.productId) {
-          node.field = `product_${node.productId}`;
-        }
+  buildVehicleRequirementGrids(
+    summaries: AllocationSummary[],
+  ): VehicleAllocationRequirementGrid[] {
+    return summaries.map((summary) => {
+      const columns = this.buildVehicleCapacityColumns(
+        summary.products,
+        summary.category === SupplyCategory.NON_MILK,
+      );
 
-        if (node.children) {
-          updateFields(node.children);
+      const totals: Record<string, number> = {};
+
+      for (const row of summary.rows) {
+        for (const [key, value] of Object.entries(row)) {
+          if (key === 'groupId' || key === 'groupName') {
+            continue;
+          }
+
+          totals[key] = (totals[key] ?? 0) + Number(value ?? 0);
         }
       }
-    };
 
-    updateFields(columns);
-
-    return columns;
+      return {
+        distributor: {
+          id: summary.distributorId,
+        },
+        category: summary.category,
+        brand: {
+          id: summary.brandId,
+          name: summary.brandName,
+        },
+        columns,
+        rows: summary.rows,
+        totals,
+      };
+    });
   }
 
   buildVehicleAllocationGrids(

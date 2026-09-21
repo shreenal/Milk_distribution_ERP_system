@@ -6,7 +6,7 @@ import { NightCollectionEntryDto } from './dto/save-night-collection.dto.js';
 import { MorningCollectionEntryDto } from './dto/save-morning-collection.dto.js';
 import { AdminCollectionEntryDto } from './dto/save-admin-collection.dto.js';
 
-import { SupplyCategory } from '../../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
@@ -103,28 +103,23 @@ export class CollectionsRepository {
     entries: NightCollectionEntryDto[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    for (const entry of entries) {
-      await db.client_collection.upsert({
-        where: {
-          order_sheet_id_client_id_category: {
-            order_sheet_id: sheetId,
-            client_id: entry.clientId,
-            category,
-          },
-        },
+    if (entries.length === 0) return;
 
-        create: {
-          order_sheet_id: sheetId,
-          client_id: entry.clientId,
-          category,
-          office_amount_given: entry.officeAmountGiven,
-        },
+    const values = Prisma.join(
+      entries.map(
+        (e) =>
+          Prisma.sql`(${sheetId}, ${e.clientId}, ${category}::"SupplyCategory", ${e.officeAmountGiven}, now(), now())`,
+      ),
+    );
 
-        update: {
-          office_amount_given: entry.officeAmountGiven,
-        },
-      });
-    }
+    await db.$executeRaw(Prisma.sql`
+    INSERT INTO client_collection
+      (order_sheet_id, client_id, category, office_amount_given, created_at, updated_at)
+    VALUES ${values}
+    ON CONFLICT (order_sheet_id, client_id, category)
+    DO UPDATE SET office_amount_given = EXCLUDED.office_amount_given,
+                  updated_at = EXCLUDED.updated_at
+  `);
   }
 
   async replaceMorningCollections(
@@ -133,32 +128,25 @@ export class CollectionsRepository {
     entries: MorningCollectionEntryDto[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    for (const entry of entries) {
-      await db.client_collection.upsert({
-        where: {
-          order_sheet_id_client_id_category: {
-            order_sheet_id: sheetId,
-            client_id: entry.clientId,
-            category,
-          },
-        },
+    if (entries.length === 0) return;
 
-        create: {
-          order_sheet_id: sheetId,
-          client_id: entry.clientId,
-          category,
-          cash_collection: entry.cashCollection,
-          cheque_collection: entry.chequeCollection,
-          employee_remarks: entry.employeeRemarks,
-        },
+    const values = Prisma.join(
+      entries.map(
+        (e) =>
+          Prisma.sql`(${sheetId}, ${e.clientId}, ${category}::"SupplyCategory", ${e.cashCollection}, ${e.chequeCollection}, ${e.employeeRemarks ?? null}, now(), now())`,
+      ),
+    );
 
-        update: {
-          cash_collection: entry.cashCollection,
-          cheque_collection: entry.chequeCollection,
-          employee_remarks: entry.employeeRemarks,
-        },
-      });
-    }
+    await db.$executeRaw(Prisma.sql`
+    INSERT INTO client_collection
+      (order_sheet_id, client_id, category, cash_collection, cheque_collection, employee_remarks, created_at, updated_at)
+    VALUES ${values}
+    ON CONFLICT (order_sheet_id, client_id, category)
+    DO UPDATE SET cash_collection = EXCLUDED.cash_collection,
+                  cheque_collection = EXCLUDED.cheque_collection,
+                  employee_remarks = EXCLUDED.employee_remarks,
+                  updated_at = EXCLUDED.updated_at
+  `);
   }
 
   async replaceAdminCollections(
@@ -167,31 +155,48 @@ export class CollectionsRepository {
     entries: AdminCollectionEntryDto[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    for (const entry of entries) {
-      await db.client_collection.upsert({
+    if (entries.length === 0) return;
+
+    const values = Prisma.join(
+      entries.map(
+        (e) =>
+          Prisma.sql`(${sheetId}, ${e.clientId}, ${category}::"SupplyCategory", ${e.onlineCollection}, ${e.bankDeposit}, ${e.adminRemarks ?? null}, now(), now())`,
+      ),
+    );
+
+    await db.$executeRaw(Prisma.sql`
+    INSERT INTO client_collection
+      (order_sheet_id, client_id, category, online_collection, bank_deposit, admin_remarks, created_at, updated_at)
+    VALUES ${values}
+    ON CONFLICT (order_sheet_id, client_id, category)
+    DO UPDATE SET online_collection = EXCLUDED.online_collection,
+                  bank_deposit = EXCLUDED.bank_deposit,
+                  admin_remarks = EXCLUDED.admin_remarks,
+                  updated_at = EXCLUDED.updated_at
+  `);
+  }
+
+  async getClientsForCollectionDisplay(
+    sheetId: number,
+    groupId: number,
+    category: SupplyCategory,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const [eligible, historicallyReferenced] = await Promise.all([
+      this.getClientsByGroupAndCategory(groupId, category, db),
+      db.master_client.findMany({
         where: {
-          order_sheet_id_client_id_category: {
-            order_sheet_id: sheetId,
-            client_id: entry.clientId,
-            category,
+          client_collection: {
+            some: { order_sheet_id: sheetId, category },
           },
         },
+      }),
+    ]);
 
-        create: {
-          order_sheet_id: sheetId,
-          client_id: entry.clientId,
-          category,
-          online_collection: entry.onlineCollection,
-          bank_deposit: entry.bankDeposit,
-          admin_remarks: entry.adminRemarks,
-        },
-
-        update: {
-          online_collection: entry.onlineCollection,
-          bank_deposit: entry.bankDeposit,
-          admin_remarks: entry.adminRemarks,
-        },
-      });
-    }
+    const byId = new Map(eligible.map((c) => [c.id, c]));
+    for (const c of historicallyReferenced) byId.set(c.id, c);
+    return Array.from(byId.values()).sort(
+      (a, b) => a.code?.localeCompare(b.code ?? '') ?? 0,
+    );
   }
 }

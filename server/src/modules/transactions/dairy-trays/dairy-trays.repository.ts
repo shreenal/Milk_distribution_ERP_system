@@ -11,16 +11,11 @@ export class DairyTraysRepository {
     orderPaperId: number,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    let dairyTrayPaper = await this.findDairyTrayPaperByOrderPaperId(
-      orderPaperId,
-      db,
-    );
-
-    if (!dairyTrayPaper) {
-      dairyTrayPaper = await this.createDairyTrayPaper(orderPaperId, db);
-    }
-
-    return dairyTrayPaper;
+    return db.dairy_tray_paper.upsert({
+      where: { order_paper_id: orderPaperId },
+      update: {},
+      create: { order_paper_id: orderPaperId },
+    });
   }
 
   async findDairyTrayPaperByOrderPaperId(
@@ -149,34 +144,6 @@ export class DairyTraysRepository {
     });
   }
 
-  // async getVehicleAllocations(paperId: number) {
-  //   return this.prisma.vehicle_allocation.findMany({
-  //     where: {
-  //       vehicle_allocation_paper: {
-  //         order_paper_id: paperId,
-  //       },
-  //     },
-
-  //     include: {
-  //       master_product: {
-  //         include: {
-  //           master_brand: true,
-  //           master_product_group: true,
-  //           master_product_type: true,
-  //           master_packaging_type: true,
-  //         },
-  //       },
-  //       master_vehicle: true,
-  //     },
-  //     orderBy: [
-  //       { vehicle_id: 'asc' },
-  //       { distributor_id: 'asc' },
-  //       { category: 'asc' },
-  //       { product_id: 'asc' },
-  //     ],
-  //   });
-  // }
-
   async getPurchaseEntries(
     paperId: number,
     db: PrismaOrTransaction = this.prisma,
@@ -239,17 +206,59 @@ export class DairyTraysRepository {
     data: Prisma.dairy_tray_transactionCreateManyInput[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    await db.dairy_tray_transaction.deleteMany({
-      where: {
-        dairy_tray_paper_id: dairyTrayPaperId,
+    // Delete rows no longer represented (vehicle/session/tray-type
+    // combination that no longer applies) — same as before.
+    const incomingKeys = new Set(
+      data.map(
+        (d) => `${d.vehicle_id}_${d.delivery_session}_${d.tray_type_id}`,
+      ),
+    );
+
+    const existing = await db.dairy_tray_transaction.findMany({
+      where: { dairy_tray_paper_id: dairyTrayPaperId },
+      select: {
+        id: true,
+        vehicle_id: true,
+        delivery_session: true,
+        tray_type_id: true,
       },
     });
 
-    if (data.length > 0) {
-      await db.dairy_tray_transaction.createMany({
-        data,
+    const toDeleteIds = existing
+      .filter(
+        (e) =>
+          !incomingKeys.has(
+            `${e.vehicle_id}_${e.delivery_session}_${e.tray_type_id}`,
+          ),
+      )
+      .map((e) => e.id);
+
+    if (toDeleteIds.length > 0) {
+      await db.dairy_tray_transaction.deleteMany({
+        where: { id: { in: toDeleteIds } },
       });
     }
+
+    if (data.length === 0) return;
+
+    const values = Prisma.join(
+      data.map(
+        (d) =>
+          Prisma.sql`(${d.dairy_tray_paper_id}, ${d.vehicle_id}, ${d.tray_type_id}, ${d.delivery_session}::"DeliverySession", ${d.opening_balance}, ${d.trays_taken}, ${d.trays_returned}, ${d.closing_balance}, now())`,
+      ),
+    );
+
+    await db.$executeRaw(Prisma.sql`
+    INSERT INTO dairy_tray_transaction
+      (dairy_tray_paper_id, vehicle_id, tray_type_id, delivery_session, opening_balance, trays_taken, trays_returned, closing_balance, updated_at)
+    VALUES ${values}
+    ON CONFLICT (dairy_tray_paper_id, delivery_session, vehicle_id, tray_type_id)
+    DO UPDATE SET opening_balance = EXCLUDED.opening_balance,
+                  trays_taken = EXCLUDED.trays_taken,
+                  trays_returned = EXCLUDED.trays_returned,
+                  closing_balance = EXCLUDED.closing_balance,
+                  updated_at = EXCLUDED.updated_at
+  `);
   }
 
   async getNextPaper(
@@ -282,27 +291,21 @@ export class DairyTraysRepository {
     }[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    for (const entry of entries) {
-      await db.dairy_tray_transaction.upsert({
-        where: {
-          dairy_tray_paper_id_delivery_session_vehicle_id_tray_type_id: {
-            dairy_tray_paper_id: dairyTrayPaperId,
-            delivery_session: entry.deliverySession,
-            vehicle_id: entry.vehicleId,
-            tray_type_id: entry.trayTypeId,
-          },
-        },
-        update: {
-          trays_returned: entry.returned,
-        },
-        create: {
-          dairy_tray_paper_id: dairyTrayPaperId,
-          vehicle_id: entry.vehicleId,
-          delivery_session: entry.deliverySession,
-          tray_type_id: entry.trayTypeId,
-          trays_returned: entry.returned,
-        },
-      });
-    }
+    if (entries.length === 0) return;
+
+    const values = Prisma.join(
+      entries.map(
+        (e) =>
+          Prisma.sql`(${dairyTrayPaperId}, ${e.vehicleId}, ${e.deliverySession}::"DeliverySession", ${e.trayTypeId}, ${e.returned})`,
+      ),
+    );
+
+    await db.$executeRaw(Prisma.sql`
+    INSERT INTO dairy_tray_transaction
+      (dairy_tray_paper_id, vehicle_id, delivery_session, tray_type_id, trays_returned)
+    VALUES ${values}
+    ON CONFLICT (dairy_tray_paper_id, delivery_session, vehicle_id, tray_type_id)
+    DO UPDATE SET trays_returned = EXCLUDED.trays_returned
+  `);
   }
 }

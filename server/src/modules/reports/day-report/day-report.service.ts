@@ -30,7 +30,6 @@ import {
 
 import {
   DeliverySession,
-  OrderPaperStatus,
   SupplyCategory,
 } from '../../../generated/prisma/client.js';
 
@@ -238,7 +237,7 @@ export class DayReportService {
 
     const distributorMap = new Map<number, DayReportPurchaseDistributor>();
 
-    let grandTotals: DayReportPurchaseTotals = {
+    const grandTotals: DayReportPurchaseTotals = {
       totalPurchaseAmount: 0,
       totalAllocatedQty: 0,
       totalPurchasedQty: 0,
@@ -611,11 +610,11 @@ export class DayReportService {
       const quantity = Number(transfer.transfer_qty);
 
       group.rows.push({
-  productId: transfer.master_product.id,
-  productCode: transfer.master_product.code,
-  productName: this.buildProductName(transfer.master_product),
-  transferQty: quantity,
-});
+        productId: transfer.master_product.id,
+        productCode: transfer.master_product.code,
+        productName: this.buildProductName(transfer.master_product),
+        transferQty: quantity,
+      });
 
       group.totalTransferQty += quantity;
       totalTransferQty += quantity;

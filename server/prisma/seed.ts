@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { PrismaClient, GatepassDatePolicy, SupplyCategory, DeliverySession } from '../src/generated/prisma/client.js';
+import { PrismaClient, GatepassDatePolicy, SupplyCategory, DeliverySession, PricingUnit } from '../src/generated/prisma/client.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcrypt';
 
@@ -38,6 +38,7 @@ async function main() {
 
     await prisma.master_client_rate_product.deleteMany();
     await prisma.distributor_product_rate.deleteMany();
+    await prisma.distributor_product_priority.deleteMany();
     await prisma.product_tray_rule.deleteMany();
     await prisma.distributor_procurement_rule.deleteMany();
     await prisma.master_group_supply_rule.deleteMany();
@@ -53,6 +54,8 @@ async function main() {
     await prisma.master_product_link.deleteMany();
     await prisma.master_tray_type.deleteMany();
     await prisma.master_product.deleteMany();
+    await prisma.product_order_unit.deleteMany();
+    await prisma.master_order_unit_type.deleteMany();
     await prisma.master_product_type.deleteMany();
     await prisma.master_product_group.deleteMany();
     await prisma.master_packaging_type.deleteMany();
@@ -209,6 +212,14 @@ async function main() {
         data: { name: 'Cup' },
     });
 
+
+    const trayOrderUnit = await prisma.master_order_unit_type.create({
+        data: { name: 'Tray' },
+    });
+
+    const boxOrderUnit = await prisma.master_order_unit_type.create({
+        data: { name: 'Box' },
+    });
     // ------------------------------------------------------------
     // 9) BRANDS
     // ------------------------------------------------------------
@@ -313,8 +324,72 @@ async function main() {
     });
 
     // ------------------------------------------------------------
-    // 12) PRODUCTS
+// 12) PRODUCT ORDER UNIT CONFIGURATIONS
+// Reusable commercial/order-unit configurations.
+// ------------------------------------------------------------
+
+    const productOrderUnits = await prisma.product_order_unit.createManyAndReturn({
+        data: [
+            // Milk: 20 x 500ml = 10L
+            {
+                order_unit_type_id: trayOrderUnit.id,
+                units_per_order_unit: 20,
+                pricing_quantity: 10,
+                pricing_unit: PricingUnit.L,
+            },
+
+            // Milk: 10 x 1L = 10L
+            {
+                order_unit_type_id: trayOrderUnit.id,
+                units_per_order_unit: 10,
+                pricing_quantity: 10,
+                pricing_unit: PricingUnit.L,
+            },
+
+            // Milk: 10 x 500ml = 5L
+            {
+                order_unit_type_id: trayOrderUnit.id,
+                units_per_order_unit: 10,
+                pricing_quantity: 5,
+                pricing_unit: PricingUnit.L,
+            },
+
+            // Curd: 24 x 200g = 4.8KG
+            {
+                order_unit_type_id: boxOrderUnit.id,
+                units_per_order_unit: 24,
+                pricing_quantity: 4.8,
+                pricing_unit: PricingUnit.KG,
+            },
+
+            // Curd: 24 x 400g = 9.6KG
+            {
+                order_unit_type_id: boxOrderUnit.id,
+                units_per_order_unit: 24,
+                pricing_quantity: 9.6,
+                pricing_unit: PricingUnit.KG,
+            },
+
+            // Lassi: 24 x 200ml = 4.8L
+            {
+                order_unit_type_id: boxOrderUnit.id,
+                units_per_order_unit: 24,
+                pricing_quantity: 4.8,
+                pricing_unit: PricingUnit.L,
+            },
+        ],
+    });
+
+    const productOrderUnitByKey = new Map(
+        productOrderUnits.map((config) => [
+            `${config.order_unit_type_id}_${config.units_per_order_unit}_${config.pricing_quantity}_${config.pricing_unit}`,
+            config,
+        ]),
+    );
+
     // ------------------------------------------------------------
+// 13) PRODUCTS
+// ------------------------------------------------------------
     const products = [
         await prisma.master_product.create({
             data: {
@@ -325,6 +400,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '500',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${trayOrderUnit.id}_20_10_L`,
+                )!.id,
                 gst_percentage: '0',
                 is_gst_inclusive: false,
                 show_by_default: true,
@@ -340,6 +418,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '1000',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${trayOrderUnit.id}_10_10_L`,
+                )!.id,
                 gst_percentage: '0',
                 is_gst_inclusive: false,
                 is_active: true,
@@ -354,6 +435,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '500',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${trayOrderUnit.id}_20_10_L`,
+                )!.id,
                 gst_percentage: '0',
                 is_gst_inclusive: false,
                 is_active: true,
@@ -368,6 +452,9 @@ async function main() {
                 packaging_type_id: cup.id,
                 packaging_size: '200',
                 packaging_unit: 'G',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${boxOrderUnit.id}_24_4.8_KG`,
+                )!.id,
                 gst_percentage: '5',
                 is_gst_inclusive: true,
                 is_active: true,
@@ -382,6 +469,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '400',
                 packaging_unit: 'G',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${boxOrderUnit.id}_24_9.6_KG`,
+                )!.id,
                 gst_percentage: '5',
                 is_gst_inclusive: true,
                 is_active: true,
@@ -396,6 +486,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '500',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${trayOrderUnit.id}_20_10_L`,
+                )!.id,
                 gst_percentage: '0',
                 is_gst_inclusive: false,
                 is_active: true,
@@ -410,6 +503,10 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '200',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${boxOrderUnit.id}_24_4.8_L`,
+                )!.id,
+
                 gst_percentage: '5',
                 is_gst_inclusive: true,
                 is_active: true,
@@ -424,6 +521,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '1000',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${trayOrderUnit.id}_10_10_L`,
+                )!.id,
                 gst_percentage: '0',
                 is_gst_inclusive: false,
                 show_by_default: true,
@@ -439,6 +539,9 @@ async function main() {
                 packaging_type_id: pouch.id,
                 packaging_size: '500',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${trayOrderUnit.id}_20_10_L`,
+                )!.id,
                 gst_percentage: '0',
                 is_gst_inclusive: false,
                 is_active: true,
@@ -453,6 +556,9 @@ async function main() {
                 packaging_type_id: bottle.id,
                 packaging_size: '200',
                 packaging_unit: 'ML',
+                product_order_unit_id: productOrderUnitByKey.get(
+                    `${boxOrderUnit.id}_24_4.8_L`,
+                )!.id,
                 gst_percentage: '5',
                 is_gst_inclusive: true,
                 is_active: true,
@@ -463,7 +569,7 @@ async function main() {
     const productByCode = new Map(products.map((p) => [p.code, p]));
 
     // ------------------------------------------------------------
-    // 12A) PRODUCT LINKS
+    // 13A) PRODUCT LINKS
     // Schema now uses master_product_link as distributor-product ownership.
     // Create one link for every valid distributor-product sourcing combination.
     // ------------------------------------------------------------
@@ -549,7 +655,7 @@ async function main() {
     );
 
     // ------------------------------------------------------------
-    // 13) PROCUREMENT RULES
+    // 14) PROCUREMENT RULES
     // ------------------------------------------------------------
     await prisma.distributor_procurement_rule.createMany({
         data: [
@@ -597,7 +703,7 @@ async function main() {
     });
 
     // ------------------------------------------------------------
-    // 14) DISTRIBUTOR PRODUCT RATES
+    // 15) DISTRIBUTOR PRODUCT RATES
     // distributor_product_rate now points to master_product_link
     // ------------------------------------------------------------
     const rateDate = new Date('2026-01-01');
@@ -721,7 +827,7 @@ async function main() {
         }),
     });
     // ------------------------------------------------------------
-    // 15) VEHICLES
+    // 16) VEHICLES
     // ------------------------------------------------------------
     const vehicles = [
         await prisma.master_vehicle.create({
@@ -807,7 +913,7 @@ async function main() {
     ];
 
     // ------------------------------------------------------------
-    // 16) DRIVERS
+    // 17) DRIVERS
     // ------------------------------------------------------------
     await prisma.master_driver.createMany({
         data: [
@@ -875,7 +981,7 @@ async function main() {
     });
 
     // ------------------------------------------------------------
-    // 17) GROUPS
+    // 18) GROUPS
     // 10 groups.
     // Note:
     // master_group still has distributor_id in schema.
@@ -910,8 +1016,10 @@ async function main() {
             delivery_session: group.delivery_session,
         });
     }
+
+
     // ------------------------------------------------------------
-    // 18) GROUP SUPPLY RULES
+    // 19) GROUP SUPPLY RULES
     // Scenario:
     // - Groups 1-9 milk -> Distributor A
     // - Group 10 milk -> Distributor B
@@ -973,8 +1081,142 @@ async function main() {
         ],
     });
 
+
     // ------------------------------------------------------------
-    // 19) CLIENTS
+    // 13A) DISTRIBUTOR PRODUCT PRIORITIES
+    // ------------------------------------------------------------
+    //
+    // Priority is an alternate preference, not procurement eligibility.
+    //
+    // A distributor can receive a priority row ONLY when:
+    // 1. It has a matching distributor_procurement_rule.
+    // 2. It has a master_product_link for that product.
+    //
+    // Current procurement setup:
+    //
+    // Govind MILK:
+    //   Distributor A -> eligible
+    //   Distributor B -> eligible
+    //
+    // Shakti MILK:
+    //   Distributor A -> eligible
+    //   Distributor B -> NOT eligible
+    //
+    // NON-MILK:
+    //   Distributor C -> eligible
+    //   Distributor A/B -> NOT eligible
+    //
+    // Group defaults:
+    //
+    // Groups 1-9:
+    //   MILK -> Distributor A
+    //
+    // Group 10:
+    //   MILK -> Distributor B
+    //
+    // Therefore:
+    //
+    // Groups 1-9:
+    //   Govind MILK -> Distributor B is priority 1 alternate
+    //
+    // Group 10:
+    //   Govind MILK -> Distributor A is priority 1 alternate
+    //
+    // Shakti has NO alternate distributor.
+    // Non-milk has NO alternate distributor.
+    // ------------------------------------------------------------
+
+    const distributorProductPriorityData = [
+        // --------------------------------------------------------
+        // GROUPS 1-9
+        // Default MILK distributor = A
+        // Alternate MILK distributor = B
+        //
+        // B is eligible for all Govind MILK products.
+        // --------------------------------------------------------
+
+        ...groups.slice(0, 9).flatMap((group) => [
+            {
+                group_id: group.id,
+                product_id: productByCode.get('GOV-COW-500')!.id,
+                distributor_id: distributorB.id,
+                priority: 1,
+                is_active: true,
+            },
+            {
+                group_id: group.id,
+                product_id: productByCode.get('GOV-COW-1000')!.id,
+                distributor_id: distributorB.id,
+                priority: 1,
+                is_active: true,
+            },
+            {
+                group_id: group.id,
+                product_id: productByCode.get('GOV-BUF-500')!.id,
+                distributor_id: distributorB.id,
+                priority: 1,
+                is_active: true,
+            },
+        ]),
+
+        // --------------------------------------------------------
+        // GROUP 10
+        // Default MILK distributor = B
+        // Alternate MILK distributor = A
+        //
+        // A is eligible for all Govind MILK products.
+        // --------------------------------------------------------
+
+        {
+            group_id: groups[9].id,
+            product_id: productByCode.get('GOV-COW-500')!.id,
+            distributor_id: distributorA.id,
+            priority: 1,
+            is_active: true,
+        },
+        {
+            group_id: groups[9].id,
+            product_id: productByCode.get('GOV-COW-1000')!.id,
+            distributor_id: distributorA.id,
+            priority: 1,
+            is_active: true,
+        },
+        {
+            group_id: groups[9].id,
+            product_id: productByCode.get('GOV-BUF-500')!.id,
+            distributor_id: distributorA.id,
+            priority: 1,
+            is_active: true,
+        },
+        {
+            group_id: groups[9].id,
+            product_id: productByCode.get('SHA-TONED-1000')!.id,
+            distributor_id: distributorA.id,
+            priority: 1,
+            is_active: true,
+        },
+        {
+            group_id: groups[9].id,
+            product_id: productByCode.get('SHA-TONED-500')!.id,
+            distributor_id: distributorA.id,
+            priority: 1,
+            is_active: true,
+        },
+        {
+            group_id: groups[9].id,
+            product_id: productByCode.get('SHA-FC-500')!.id,
+            distributor_id: distributorA.id,
+            priority: 1,
+            is_active: true,
+        },
+    ];
+
+    await prisma.distributor_product_priority.createMany({
+        data: distributorProductPriorityData,
+    });
+
+    // ------------------------------------------------------------
+    // 20) CLIENTS
     // 3 clients per group = 30 clients total
     //
     // distributor_id:
@@ -1067,7 +1309,7 @@ async function main() {
         data: clientCategoryRows,
     });
     // ------------------------------------------------------------
-    // 20) CLIENT SELLING RATES
+    // 21) CLIENT SELLING RATES
     // master_client_rate_product now points to master_product_link
     // Only create rates for categories the client is allowed to buy.
     // ------------------------------------------------------------
@@ -1229,7 +1471,6 @@ async function main() {
             // GOVIND
             // ------------------------
 
-            // Cow Milk
             {
                 product_group_id: pgMilk.id,
                 brand_id: govind.id,
@@ -1240,7 +1481,6 @@ async function main() {
                 is_active: true,
             },
 
-            // Buffalo Milk
             {
                 product_group_id: pgMilk.id,
                 brand_id: govind.id,
@@ -1251,7 +1491,6 @@ async function main() {
                 is_active: true,
             },
 
-            // Curd Pouch
             {
                 product_group_id: pgCurd.id,
                 brand_id: govind.id,
@@ -1262,7 +1501,6 @@ async function main() {
                 is_active: true,
             },
 
-            // Lassi Pouch
             {
                 product_group_id: pgLassi.id,
                 brand_id: govind.id,
@@ -1275,7 +1513,7 @@ async function main() {
 
             // ------------------------
             // SHAKTI
-            // One tray for all milk
+            // One physical tray type for milk
             // ------------------------
 
             {

@@ -11,6 +11,7 @@ import { DairyTraysValidationService } from '../../dairy-trays/services/dairy-tr
 import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 import { OrderPaperStatus } from '../../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
+import { DistributorTransferValidationService } from '../../distributor-transfer/services/distributor-transfer-validation.service.js';
 
 @Injectable()
 export class PaperValidationService {
@@ -24,6 +25,7 @@ export class PaperValidationService {
     private readonly purchaseValidationService: PurchaseValidationService,
     private readonly cashSettlementValidationService: CashSettlementValidationService,
     private readonly dairyTraysValidationService: DairyTraysValidationService,
+    private readonly distributorTransferValidationService: DistributorTransferValidationService,
   ) {}
 
   async validateNightSubmitReadiness(paperId: number, db: PrismaOrTransaction) {
@@ -38,16 +40,6 @@ export class PaperValidationService {
     }
 
     const sheets = await this.paperRepository.getPaperSheets(paperId, db);
-
-    await this.vehicleAllocationValidationService.validateVehicleAllocationsForNightSubmit(
-      paperId,
-      db,
-    );
-
-    await this.vehicleAllocationValidationService.validateVehicleAssignmentsForNightSubmit(
-      paperId,
-      db,
-    );
 
     for (const sheet of sheets) {
       await this.ordersValidationService.validateNightEntriesComplete(
@@ -67,6 +59,21 @@ export class PaperValidationService {
       );
     }
 
+    await this.vehicleAllocationValidationService.validateVehicleAllocationsForNightSubmit(
+      paperId,
+      db,
+    );
+
+    await this.vehicleAllocationValidationService.validateVehicleAssignmentsForNightSubmit(
+      paperId,
+      db,
+    );
+
+    await this.distributorTransferValidationService.validateGenerationReadiness(
+      paperId,
+      db,
+    );
+
     return paper;
   }
 
@@ -78,6 +85,15 @@ export class PaperValidationService {
 
     if (!paper) {
       throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    }
+
+    if (paper.status !== OrderPaperStatus.NIGHT_SUBMITTED) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.INVALID_STATUS_TRANSITION(
+          paper.status,
+          OrderPaperStatus.MORNING_SUBMITTED,
+        ),
+      );
     }
 
     const sheets = await this.paperRepository.getPaperSheets(paperId, db);
@@ -101,6 +117,16 @@ export class PaperValidationService {
       );
     }
 
+    await this.vehicleAllocationValidationService.validateVehicleAllocationsForMorningSubmit(
+      paperId,
+      db,
+    );
+
+    await this.vehicleAllocationValidationService.validateVehicleAssignmentsForMorningSubmit(
+      paperId,
+      db,
+    );
+
     await this.purchaseValidationService.validatePurchasesComplete(paperId, db);
 
     await this.dairyTraysValidationService.validateDairyTraysComplete(
@@ -123,6 +149,18 @@ export class PaperValidationService {
       throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
     }
 
+    if (
+      paper.status !== OrderPaperStatus.MORNING_SUBMITTED &&
+      paper.status !== OrderPaperStatus.REOPENED
+    ) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.INVALID_STATUS_TRANSITION(
+          paper.status,
+          OrderPaperStatus.FINALIZED,
+        ),
+      );
+    }
+
     const sheets = await this.paperRepository.getPaperSheets(paperId, db);
 
     for (const sheet of sheets) {
@@ -131,6 +169,11 @@ export class PaperValidationService {
         db,
       );
     }
+
+    await this.cashSettlementValidationService.validateReconciliationOnFinalize(
+      paperId,
+      db,
+    );
 
     return paper;
   }

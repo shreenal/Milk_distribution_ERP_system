@@ -16,9 +16,11 @@ import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase
 import { PurchaseBillingService } from './services/purchase-billing.service.js';
 import { PurchaseCommercialService } from './services/purchase-commercial.service.js';
 import { DependencyModule } from '../dependencies/dependency.module.js';
+import { DairyTraysModule } from '../dairy-trays/dairy-trays.module.js';
+import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
 
 @Module({
-  imports: [WorkflowModule, DependencyModule],
+  imports: [WorkflowModule, DependencyModule, DairyTraysModule],
 
   controllers: [PurchaseController],
 
@@ -38,6 +40,7 @@ import { DependencyModule } from '../dependencies/dependency.module.js';
     PurchaseVarianceCalculator,
     PurchaseBillingService,
     PurchaseCommercialService,
+    TrayCalculationService,
   ],
 
   exports: [PurchaseService, PurchaseValidationService],

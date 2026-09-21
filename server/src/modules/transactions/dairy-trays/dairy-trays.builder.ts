@@ -205,87 +205,6 @@ export class DairyTraysBuilder {
     return rows;
   }
 
-  // private findMatchingTrayRule(
-  //   product: Product,
-  //   trayRules: ProductTrayRule[],
-  // ): ProductTrayRule | null {
-  //   const matchingRules = trayRules.filter((rule) => {
-  //     const baseMatch =
-  //       (rule.brand_id === null || rule.brand_id === product.brand_id) &&
-  //       (rule.product_group_id === null ||
-  //         rule.product_group_id === product.product_group_id) &&
-  //       (rule.product_type_id === null ||
-  //         rule.product_type_id === product.product_type_id);
-
-  //     if (!baseMatch) {
-  //       return false;
-  //     }
-
-  //     if (rule.applies_to_packaging) {
-  //       return rule.packaging_type_id === product.packaging_type_id;
-  //     }
-
-  //     return true;
-  //   });
-
-  //   if (matchingRules.length === 0) {
-  //     return null;
-  //   }
-
-  //   matchingRules.sort((a, b) => {
-  //     const aSpecificity =
-  //       Number(a.brand_id !== null) +
-  //       Number(a.product_group_id !== null) +
-  //       Number(a.product_type_id !== null) +
-  //       Number(a.packaging_type_id !== null);
-
-  //     const bSpecificity =
-  //       Number(b.brand_id !== null) +
-  //       Number(b.product_group_id !== null) +
-  //       Number(b.product_type_id !== null) +
-  //       Number(b.packaging_type_id !== null);
-
-  //     return bSpecificity - aSpecificity;
-  //   });
-
-  //   return matchingRules[0];
-  // }
-
-  // private buildTakenMapFromPurchaseEntries(
-  //   purchaseEntries: PurchaseEntry[],
-  //   trayRules: ProductTrayRule[],
-  // ): Map<number, Map<number, number>> {
-  //   const takenMap = new Map<number, Map<number, number>>();
-
-  //   for (const entry of purchaseEntries) {
-  //     const trayRule =
-  // this.traysCalculationService.resolveTrayRule(
-  //   entry.master_product,
-  //   trayRules,
-  // );
-
-  //     if (!trayRule) {
-  //       continue;
-  //     }
-
-  //     let vehicleMap = takenMap.get(entry.vehicle_id);
-
-  //     if (!vehicleMap) {
-  //       vehicleMap = new Map<number, number>();
-  //       takenMap.set(entry.vehicle_id, vehicleMap);
-  //     }
-
-  //     const currentTaken = vehicleMap.get(trayRule.tray_type_id) ?? 0;
-
-  //     vehicleMap.set(
-  //       trayRule.tray_type_id,
-  //       currentTaken + Number(entry.purchased_qty),
-  //     );
-  //   }
-
-  //   return takenMap;
-  // }
-
   private buildTotals(
     rows: DairyTrayRow[],
     trayTypes: TrayType[],
@@ -347,7 +266,7 @@ export class DairyTraysBuilder {
     const transactions: Prisma.dairy_tray_transactionCreateManyInput[] = [];
 
     for (const entry of trayentries) {
-      const key = `${entry.vehicleId}_${entry.deliverySession}_${entry.trayTypeId}`;
+      // const key = `${entry.vehicleId}_${entry.deliverySession}_${entry.trayTypeId}`;
 
       const previous = previousTransactions.find(
         (transaction) =>

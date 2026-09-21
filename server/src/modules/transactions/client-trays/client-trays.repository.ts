@@ -6,6 +6,7 @@ import {
   TrayTransactionEntry,
 } from '../../../types/transaction.types.js';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
+import { Prisma } from '../../../generated/prisma/client.js';
 
 @Injectable()
 export class ClientTraysRepository {
@@ -237,34 +238,26 @@ export class ClientTraysRepository {
     entries: TrayTransactionEntry[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    for (const entry of entries) {
-      await db.client_tray_transaction.upsert({
-        where: {
-          order_sheet_id_client_id_tray_type_id: {
-            order_sheet_id: entry.order_sheet_id,
-            client_id: entry.client_id,
-            tray_type_id: entry.tray_type_id,
-          },
-        },
+    if (entries.length === 0) return;
 
-        update: {
-          opening_balance: entry.opening_balance,
-          trays_taken: entry.trays_taken,
-          trays_returned: entry.trays_returned,
-          closing_balance: entry.closing_balance,
-        },
+    const values = Prisma.join(
+      entries.map(
+        (e) =>
+          Prisma.sql`(${e.order_sheet_id}, ${e.client_id}, ${e.tray_type_id}, ${e.opening_balance}, ${e.trays_taken}, ${e.trays_returned}, ${e.closing_balance}, now())`,
+      ),
+    );
 
-        create: {
-          order_sheet_id: entry.order_sheet_id,
-          client_id: entry.client_id,
-          tray_type_id: entry.tray_type_id,
-          opening_balance: entry.opening_balance,
-          trays_taken: entry.trays_taken,
-          trays_returned: entry.trays_returned,
-          closing_balance: entry.closing_balance,
-        },
-      });
-    }
+    await db.$executeRaw(Prisma.sql`
+    INSERT INTO client_tray_transaction
+      (order_sheet_id, client_id, tray_type_id, opening_balance, trays_taken, trays_returned, closing_balance, updated_at)
+    VALUES ${values}
+    ON CONFLICT (order_sheet_id, client_id, tray_type_id)
+    DO UPDATE SET opening_balance = EXCLUDED.opening_balance,
+                  trays_taken = EXCLUDED.trays_taken,
+                  trays_returned = EXCLUDED.trays_returned,
+                  closing_balance = EXCLUDED.closing_balance,
+                  updated_at = EXCLUDED.updated_at
+  `);
   }
 
   async getNextSheet(
@@ -285,6 +278,20 @@ export class ClientTraysRepository {
         order_paper: {
           sale_date: 'asc',
         },
+      },
+    });
+  }
+
+  async markClientTrayMorningEntrySaved(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet.update({
+      where: {
+        id: sheetId,
+      },
+      data: {
+        client_tray_morning_saved_at: new Date(),
       },
     });
   }

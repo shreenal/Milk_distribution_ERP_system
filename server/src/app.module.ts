@@ -40,8 +40,11 @@ import { ProcurementRulesModule } from './modules/masters/distribution/procureme
 import { TransferRulesModule } from './modules/masters/distribution/transfer-rules/transfer-rules.module.js';
 import { ConfigModule } from '@nestjs/config';
 import { GroupSupplyRulesModule } from './modules/masters/distribution/group-supply-rules/group-supply-rules.module.js';
+import { DistributorProductPrioritiesModule } from './modules/masters/distribution/distributor-product-priorities/distributor-product-priorities.module.js';
 import { ReportModule } from './modules/reports/report.module.js';
 import { DependencyModule } from './modules/transactions/dependencies/dependency.module.js';
+import { OrderUnitTypesModule } from './modules/masters/products/order-unit-types/order-unit-types.module.js';
+import { ProductOrderUnitsModule } from './modules/masters/products/product-order-unit/product-order-units.module.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -68,6 +71,8 @@ import { DependencyModule } from './modules/transactions/dependencies/dependency
     TrayTypesModule,
     ProductGroupModule,
     PackagingTypeModule,
+    OrderUnitTypesModule,
+    ProductOrderUnitsModule,
     ProductsModule,
     DistributorModule,
     EmployeesModule,
@@ -85,8 +90,10 @@ import { DependencyModule } from './modules/transactions/dependencies/dependency
     ProcurementRulesModule,
     TransferRulesModule,
     GroupSupplyRulesModule,
+    DistributorProductPrioritiesModule,
     ReportModule,
     DependencyModule,
+
   ],
   controllers: [AppController],
   providers: [AppService],

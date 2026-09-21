@@ -12,13 +12,13 @@ import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 import { OrdersValidationService } from './services/orders-validation.service.js';
 
-import { SupplyCategory } from '../../../generated/prisma/client.js';
-
 import {
-  TRANSACTION_CONFIG,
-  ERROR_MESSAGES,
-  SUCCESS_MESSAGES,
-} from './orders.constants.js';
+  OrderPaperStatus,
+  SupplyCategory,
+} from '../../../generated/prisma/client.js';
+
+import { ERROR_MESSAGES, SUCCESS_MESSAGES } from './orders.constants.js';
+import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
@@ -30,6 +30,7 @@ import {
   DEPENDENCY_MODULES,
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
+import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 
 @Injectable()
 export class OrdersService {
@@ -53,51 +54,55 @@ export class OrdersService {
     private readonly workflowBuilder: WorkflowBuilder,
 
     private readonly dependencyOrchestrator: DependencyOrchestratorService,
-  ) {}
+  ) { }
 
   async getAvailableProducts(category: SupplyCategory) {
     return this.ordersRepository.findAvailableProducts(category);
   }
 
   async getSheetService(sheetId: number) {
-    try {
-      if (!sheetId || sheetId <= 0) {
-        throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
-      }
+    return this.prisma.$transaction(async (tx) => {
+      const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+      if (!sheet) throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-      const sheet = await this.ordersRepository.findSheetById(sheetId);
-
-      if (!sheet) {
-        throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
-      }
-
-      const milkProducts = await this.ordersRepository.getProductsForSheet(
-        sheetId,
-        SupplyCategory.MILK,
-      );
-
-      const nonMilkProducts = await this.ordersRepository.getProductsForSheet(
-        sheetId,
-        SupplyCategory.NON_MILK,
-      );
-
-      const milkClients =
-        await this.ordersRepository.getClientsByGroupAndCategory(
+      const [
+        milkProducts,
+        nonMilkProducts,
+        milkClients,
+        nonMilkClients,
+        sheetItems,
+      ] = await Promise.all([
+        this.ordersRepository.getProductsForSheet(
+          sheetId,
+          SupplyCategory.MILK,
+          tx,
+        ),
+        this.ordersRepository.getProductsForSheet(
+          sheetId,
+          SupplyCategory.NON_MILK,
+          tx,
+        ),
+        this.ordersRepository.getClientsForSheetDisplay(
+          sheet.id,
           sheet.group_id,
           SupplyCategory.MILK,
-        );
-
-      const nonMilkClients =
-        await this.ordersRepository.getClientsByGroupAndCategory(
+          tx,
+        ),
+        this.ordersRepository.getClientsForSheetDisplay(
+          sheet.id,
           sheet.group_id,
           SupplyCategory.NON_MILK,
-        );
-
-      const sheetItems = await this.ordersRepository.getSheetItems(sheet.id);
-
+          tx,
+        ),
+        this.ordersRepository.getSheetItems(sheet.id, tx),
+      ]);
       const workflow = this.workflowBuilder.buildOrdersWorkflow(
         sheet.order_paper.status,
       );
+
+      const morningEntrySaved =
+        sheet.order_paper.status === OrderPaperStatus.NIGHT_SUBMITTED &&
+        sheet.order_morning_entry_saved_at !== null;
 
       const orderBilling = this.ordersBuilder.buildOrderBillingSection(
         {
@@ -108,8 +113,8 @@ export class OrdersService {
           sheetItems,
         },
         sheet.order_paper.status,
+        morningEntrySaved,
       );
-
       return {
         sheet,
 
@@ -117,11 +122,7 @@ export class OrdersService {
 
         ...orderBilling,
       };
-    } catch (error) {
-      this.logger.error(`Failed to fetch sheet ${sheetId}`, error);
-
-      throw error;
-    }
+    });
   }
 
   async getSheetItemsService(sheetId: number) {
@@ -143,104 +144,63 @@ export class OrdersService {
       throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
     }
 
-    const sheet = await this.ordersRepository.findSheetById(sheetId);
+    await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+          if (!sheet)
+            throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-    if (!sheet) {
-      throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
-    }
+          if (
+            !this.workflowState.canEditNightEntries(sheet.order_paper.status)
+          ) {
+            throw new BadRequestException(
+              'Products can only be added while the paper is in DRAFT',
+            );
+          }
 
-    if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
-      throw new BadRequestException(
-        'Products can only be added while the paper is in DRAFT',
-      );
-    }
-
-    await this.prisma.$transaction(
-      async (tx) => {
-        const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-          sheet.group_id,
-          tx,
-        );
-
-        const commercialContext = await this.orderCommercialService.resolve(
-          sheet.group_id,
-          dto.productId,
-          supplyRules,
-          tx,
-        );
-
-        const existingItems = await this.ordersRepository.getSheetItems(
-          sheetId,
-          tx,
-        );
-
-        const product = await tx.master_product.findUnique({
-          where: { id: dto.productId },
-          select: {
-            id: true,
-            master_product_group: {
-              select: {
-                category: true,
-              },
-            },
-          },
-        });
-
-        if (!product) {
-          throw new BadRequestException(
-            ERROR_MESSAGES.PRODUCT_NOT_FOUND(dto.productId),
+          const existingLink = await this.ordersRepository.getSheetProductLink(
+            sheetId,
+            dto.productId,
+            tx,
           );
-        }
+          if (existingLink) {
+            throw new BadRequestException(
+              'Product already exists in this sheet',
+            );
+          }
 
-        const eligibleClients =
-          await this.ordersRepository.getClientsByGroupAndCategory(
+          const supplyRules = await this.ordersRepository.getGroupSupplyRules(
             sheet.group_id,
-            product.master_product_group.category,
             tx,
           );
 
-        const rows = eligibleClients
-          .filter(
-            (client) =>
-              !existingItems.some(
-                (item) =>
-                  item.client_id === client.id &&
-                  item.product_id === dto.productId,
-              ),
-          )
-          .map((client) => ({
-            order_sheet_id: sheetId,
-            client_id: client.id,
-            product_id: dto.productId,
-            product_link_id: commercialContext.productLinkId,
+          await this.validationService.validateProduct(dto.productId, tx);
+          // Resolve commercial context exactly once, at deliberate add-time —
+          // this is now the *only* place product_link_id gets fixed for an
+          // explicitly-added product.
+          const commercialContext = await this.orderCommercialService.resolve(
+            sheet.group_id,
+            dto.productId,
+            supplyRules,
+            tx,
+          );
 
-            ordered_qty: 0,
-            delivered_qty: 0,
-
-            night_selling_rate: 0,
-            night_bill_amount: 0,
-
-            final_selling_rate: 0,
-            final_gst_percentage: 0,
-            final_gst_amount: 0,
-            final_taxable_amount: 0,
-            final_bill_amount: 0,
-          }));
-
-        if (rows.length === 0) {
-          throw new BadRequestException('Product already exists in this sheet');
-        }
-
-        const result = await this.ordersRepository.createSheetItems(rows, tx);
-
-        if (result.count === 0) {
-          throw new BadRequestException('Product already exists in this sheet');
-        }
-      },
-      {
-        timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-        isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-      },
+          await this.ordersRepository.createSheetProduct(
+            {
+              order_sheet_id: sheetId,
+              product_id: dto.productId,
+              product_link_id: commercialContext.productLinkId,
+              resolvedViaFallback: commercialContext.resolvedViaFallback,
+            },
+            tx,
+          );
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
     );
 
     return this.getSheetService(sheetId);
@@ -251,40 +211,61 @@ export class OrdersService {
       throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
     }
 
-    const sheet = await this.ordersRepository.findSheetById(sheetId);
+    await withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+          if (!sheet)
+            throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-    if (!sheet) {
-      throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
-    }
+          if (
+            !this.workflowState.canEditNightEntries(sheet.order_paper.status)
+          ) {
+            throw new BadRequestException(
+              'Products can only be removed while the paper is in DRAFT',
+            );
+          }
 
-    if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
-      throw new BadRequestException(
-        'Products can only be removed while the paper is in DRAFT',
-      );
-    }
+          const product = await this.ordersRepository.getProductWithGroup(
+            productId,
+            tx,
+          );
+          if (product.show_by_default) {
+            throw new BadRequestException('Default products cannot be removed');
+          }
 
-    const product = await this.ordersRepository.getProductWithGroup(productId);
+          const hasRealOrders = await tx.order_sheet_items.findFirst({
+            where: {
+              order_sheet_id: sheetId,
+              product_id: productId,
+              ordered_qty: { gt: 0 },
+            },
+            select: { id: true },
+          });
 
-    if (product.show_by_default) {
-      throw new BadRequestException('Default products cannot be removed');
-    }
+          if (hasRealOrders) {
+            throw new BadRequestException(
+              'Cannot remove a product that already has ordered quantities. Set quantities to 0 first.',
+            );
+          }
 
-    await this.prisma.$transaction(
-      async (tx) => {
-        const result = await this.ordersRepository.deleteSheetItems(
-          sheetId,
-          productId,
-          tx,
-        );
+          const result = await this.ordersRepository.deleteSheetProduct(
+            sheetId,
+            productId,
+            tx,
+          );
 
-        if (result.count === 0) {
-          throw new BadRequestException('Product not found in this sheet');
-        }
-      },
-      {
-        timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-        isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-      },
+          if (result.count === 0) {
+            throw new BadRequestException('Product not found in this sheet');
+          }
+
+          await this.ordersRepository.deleteSheetItems(sheetId, productId, tx);
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
     );
 
     return this.getSheetService(sheetId);
@@ -299,75 +280,88 @@ export class OrdersService {
         throw new BadRequestException(`Invalid sheet ID: ${sheetId}`);
       }
 
-      const sheet = await this.ordersRepository.findSheetById(sheetId);
-
-      if (!sheet) {
-        throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
-      }
-
-      if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
-        );
-      }
-
       this.validationService.validateNoDuplicates(entries);
 
-      await this.prisma.$transaction(
-        async (tx) => {
-          for (const entry of entries) {
-            await this.validationService.validateClient(entry.clientId, tx);
-
-            await this.validationService.validateClientInGroup(
-              entry.clientId,
-              sheet.group_id,
+      await withSerializableRetry(() =>
+        this.prisma.$transaction(
+          async (tx) => {
+            const sheet = await this.ordersRepository.findSheetById(
+              sheetId,
               tx,
             );
 
-            await this.validationService.validateProduct(entry.productId, tx);
-
-            await this.validationService.validateClientCanBuyProductCategory(
-              entry.clientId,
-              entry.productId,
-              tx,
-            );
-
-            if (entry.orderedQty === undefined || entry.orderedQty === null) {
+            if (!sheet) {
               throw new BadRequestException(
-                ERROR_MESSAGES.MISSING_REQUIRED_FIELD('orderedQty'),
+                `Sheet with ID ${sheetId} not found`,
               );
             }
 
-            this.validationService.validateQuantity(Number(entry.orderedQty));
+            if (
+              !this.workflowState.canEditNightEntries(sheet.order_paper.status)
+            ) {
+              throw new BadRequestException(
+                ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
+              );
+            }
 
             const supplyRules = await this.ordersRepository.getGroupSupplyRules(
               sheet.group_id,
               tx,
             );
 
-            await this.billingService.saveNightEntry(
+            const productMap = await this.validationService.validateEntriesBatch(
+              entries,
+              sheet.group_id,
+              tx,
+            );
+
+            const trayRules = await this.billingService.getTrayRulesOnce(tx);
+
+            for (const entry of entries) {
+              if (entry.orderedQty === undefined || entry.orderedQty === null) {
+                throw new BadRequestException(
+                  ERROR_MESSAGES.MISSING_REQUIRED_FIELD('orderedQty'),
+                );
+              }
+              const product = productMap.get(entry.productId);
+
+              if (!product) {
+                throw new BadRequestException(
+                  ERROR_MESSAGES.PRODUCT_NOT_FOUND(entry.productId),
+                );
+              }
+
+              this.validationService.validateOrderedQuantity(
+                Number(entry.orderedQty),
+                product,
+                trayRules,
+              );
+            }
+
+            await this.billingService.saveNightEntriesBatch(
               tx,
               sheet,
               supplyRules,
               sheetId,
-              entry,
+              entries,
+              trayRules,
             );
-          }
-
-          await this.dependencyOrchestrator.execute(
-            DEPENDENCY_MODULES.ORDERS,
-            DEPENDENCY_TRIGGERS.ON_SAVE,
-            {
-              paperId: sheet.order_paper_id,
-              sheetId,
-              tx,
-            },
-          );
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
+            await this.dependencyOrchestrator.execute(
+              DEPENDENCY_MODULES.ORDERS,
+              DEPENDENCY_TRIGGERS.ON_SAVE,
+              {
+                paperId: sheet.order_paper_id,
+                sheetId,
+                paperStatus: sheet.order_paper.status,
+                tx,
+              },
+            );
+          },
+          {
+            timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+            isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+          },
+        ),
       );
 
       return {
@@ -394,81 +388,106 @@ export class OrdersService {
         throw new BadRequestException(`Invalid sheet ID: ${sheetId}`);
       }
 
-      const sheet = await this.ordersRepository.findSheetById(sheetId);
-
-      if (!sheet) {
-        throw new BadRequestException(`Sheet with ID ${sheetId} not found`);
-      }
-
-      const status = sheet.order_paper.status;
-
-      if (!this.workflowState.canEditMorningEntries(status)) {
-        throw new BadRequestException(
-          ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
-        );
-      }
-
       this.validationService.validateNoDuplicates(entries);
 
-      await this.prisma.$transaction(
-        async (tx) => {
-          for (const entry of entries) {
-            if (
-              entry.deliveredQty === undefined ||
-              entry.deliveredQty === null
-            ) {
+      await withSerializableRetry(() =>
+        this.prisma.$transaction(
+          async (tx) => {
+            const sheet = await this.ordersRepository.findSheetById(
+              sheetId,
+              tx,
+            );
+
+            if (!sheet) {
               throw new BadRequestException(
-                ERROR_MESSAGES.MISSING_REQUIRED_FIELD('deliveredQty'),
+                `Sheet with ID ${sheetId} not found`,
               );
             }
 
-            const deliveredQty = Number(entry.deliveredQty);
+            const status = sheet.order_paper.status;
 
-            this.validationService.validateQuantity(deliveredQty);
+            if (!this.workflowState.canEditMorningEntries(status)) {
+              throw new BadRequestException(
+                ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
+              );
+            }
 
-            await this.validationService.validateClient(entry.clientId, tx);
-
-            await this.validationService.validateClientInGroup(
-              entry.clientId,
+            await this.validationService.validateEntriesBatch(
+              entries,
               sheet.group_id,
               tx,
             );
 
-            await this.validationService.validateProduct(entry.productId, tx);
+            const existingItemMap =
+              await this.ordersRepository.findSheetItemsByProductBatch(
+                sheetId,
+                entries.map((entry) => ({
+                  clientId: entry.clientId,
+                  productId: entry.productId,
+                })),
+                tx,
+              );
 
-            await this.validationService.validateClientCanBuyProductCategory(
-              entry.clientId,
-              entry.productId,
-              tx,
-            );
+            for (const entry of entries) {
+              if (
+                entry.deliveredQty === undefined ||
+                entry.deliveredQty === null
+              ) {
+                throw new BadRequestException(
+                  ERROR_MESSAGES.MISSING_REQUIRED_FIELD('deliveredQty'),
+                );
+              }
 
-            const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-              sheet.group_id,
-              tx,
-            );
+              const existingItem = existingItemMap.get(
+                `${entry.clientId}_${entry.productId}`,
+              );
 
-            await this.billingService.saveMorningEntry(
+              const deliveredQty = Number(entry.deliveredQty);
+
+              if (!existingItem) {
+                if (deliveredQty === 0) {
+                  continue;
+                }
+
+                throw new BadRequestException(
+                  ERROR_MESSAGES.NO_ORDERED_QUANTITY(
+                    entry.clientId,
+                    entry.productId,
+                  ),
+                );
+              }
+
+              this.validationService.validateDeliveredQuantity(
+                deliveredQty,
+                existingItem,
+              );
+            }
+
+            await this.billingService.saveMorningEntriesBatch(
               tx,
               sheet,
-              supplyRules,
               sheetId,
-              entry,
+              entries,
             );
-          }
-          await this.dependencyOrchestrator.execute(
-            DEPENDENCY_MODULES.ORDERS,
-            DEPENDENCY_TRIGGERS.ON_SAVE,
-            {
-              paperId: sheet.order_paper_id,
-              sheetId,
-              tx,
-            },
-          );
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
+
+            await this.ordersRepository.markOrderMorningEntrySaved(sheetId, tx);
+
+            await this.dependencyOrchestrator.execute(
+              DEPENDENCY_MODULES.ORDERS,
+              DEPENDENCY_TRIGGERS.ON_SAVE,
+              {
+                paperId: sheet.order_paper_id,
+                sheetId,
+                paperStatus: status,
+                tx,
+              },
+            );
+          },
+          {
+            timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+            isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+          },
+        ),
       );
 
       return {

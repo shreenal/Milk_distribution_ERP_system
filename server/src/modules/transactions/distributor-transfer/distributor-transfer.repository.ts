@@ -28,6 +28,7 @@ export class DistributorTransferRepository {
           order_paper_id: paperId,
         },
       },
+
       include: {
         order_sheet: {
           include: {
@@ -36,14 +37,6 @@ export class DistributorTransferRepository {
                 id: true,
                 name: true,
                 delivery_session: true,
-                supply_rules: {
-                  where: {
-                    is_active: true,
-                  },
-                  include: {
-                    distributor: true,
-                  },
-                },
               },
             },
           },
@@ -61,6 +54,12 @@ export class DistributorTransferRepository {
             master_product_group: true,
             master_product_type: true,
             master_packaging_type: true,
+          },
+        },
+
+        product_link: {
+          include: {
+            distributor: true,
           },
         },
       },
@@ -130,16 +129,45 @@ export class DistributorTransferRepository {
     data: Prisma.distributor_transferCreateManyInput[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    await db.distributor_transfer.deleteMany({
-      where: {
-        order_paper_id: orderPaperId,
-      },
+    const existing = await db.distributor_transfer.findMany({
+      where: { order_paper_id: orderPaperId },
     });
 
-    if (data.length > 0) {
-      await db.distributor_transfer.createMany({
-        data,
+    const keyOf = (
+      r: Pick<
+        Prisma.distributor_transferCreateManyInput,
+        'supplier_distributor_id' | 'owner_distributor_id' | 'product_id'
+      >,
+    ) =>
+      `${r.supplier_distributor_id}_${r.owner_distributor_id}_${r.product_id}`;
+
+    const existingByKey = new Map(existing.map((r) => [keyOf(r), r]));
+    const incomingByKey = new Map(data.map((r) => [keyOf(r), r]));
+
+    const toDelete = existing.filter((r) => !incomingByKey.has(keyOf(r)));
+    const toInsert = data.filter((r) => !existingByKey.has(keyOf(r)));
+    const toUpdate = data.filter((r) => {
+      const match = existingByKey.get(keyOf(r));
+      return (
+        match !== undefined &&
+        Number(match.transfer_qty) !== Number(r.transfer_qty)
+      );
+    });
+
+    if (toDelete.length > 0) {
+      await db.distributor_transfer.deleteMany({
+        where: { id: { in: toDelete.map((r) => r.id) } },
       });
+    }
+    for (const row of toUpdate) {
+      const existingRow = existingByKey.get(keyOf(row))!;
+      await db.distributor_transfer.update({
+        where: { id: existingRow.id },
+        data: { transfer_qty: row.transfer_qty },
+      });
+    }
+    if (toInsert.length > 0) {
+      await db.distributor_transfer.createMany({ data: toInsert });
     }
   }
 }

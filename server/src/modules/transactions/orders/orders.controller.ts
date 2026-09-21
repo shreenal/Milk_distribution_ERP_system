@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -58,16 +57,10 @@ export class OrdersController {
     @Param('sheetId') sheetId: string,
     @Body() entries: SaveNightEntriesDto[],
   ) {
-    try {
-      return await this.ordersService.saveNightEntriesService(
-        Number(sheetId),
-        entries,
-      );
-    } catch (error) {
-      throw new BadRequestException(
-        error instanceof Error ? error.message : 'Failed to save night entries',
-      );
-    }
+    return await this.ordersService.saveNightEntriesService(
+      Number(sheetId),
+      entries,
+    );
   }
 
   @Post('sheet/:sheetId/morning-save')

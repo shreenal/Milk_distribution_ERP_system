@@ -22,7 +22,7 @@ import { UpdateProductDto } from './dto/update-product.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) { }
+  constructor(private readonly productsService: ProductsService) {}
 
   @Get()
   findAll() {

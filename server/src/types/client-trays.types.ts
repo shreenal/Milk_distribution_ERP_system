@@ -1,11 +1,9 @@
 import { Prisma } from '../generated/prisma/client.js';
-import type {
-  ProductTrayRule,
-  TrayRuleProduct,
-  TrayType,
-} from './tray.types.js';
 
-export type TrayClient = Prisma.master_clientGetPayload<{}>;
+export type TrayClient = {
+  id: number;
+  name: string;
+};
 
 export type ClientTraySheetItem = Prisma.order_sheet_itemsGetPayload<{
   include: {
@@ -33,20 +31,6 @@ export interface TrayTransactionFields {
   trays_returned: number;
   closing_balance: number;
 }
-
-// export type ProductTrayRule = Prisma.product_tray_ruleGetPayload<{
-//   include: {
-//     master_tray_type: {
-//       include: {
-//         master_brand: true;
-//       };
-//     };
-//     master_brand: true;
-//     master_product_group: true;
-//     master_product_type: true;
-//     master_packaging_type: true;
-//   };
-// }>;
 
 export type ClientTrayType = Prisma.master_tray_typeGetPayload<{
   include: {

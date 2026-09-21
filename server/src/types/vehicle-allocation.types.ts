@@ -1,25 +1,35 @@
 // src/types/vehicle-capacity.types.ts
 
-import { ProductColumnNode } from 'src/common/builders/product-columns.builder.js';
+import { ProductColumnNode } from '../common/builders/product-columns.builder.js';
+export type {
+  OrderItemWithSupplyContext,
+  Product,
+} from '../common/builders/allocation-summary.builder.js';
 import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
 
-export type Product = Prisma.master_productGetPayload<{
-  include: {
-    master_brand: true;
-    master_product_group: true;
-    master_product_type: true;
-    master_packaging_type: true;
-  };
-}>;
+export type Vehicle = {
+  id: number;
+  vehicle_name: string | null;
+};
 
-export type Vehicle = Prisma.master_vehicleGetPayload<{}>;
+export type Distributor = {
+  id: number;
+  name: string;
+};
 
-export type Distributor = Prisma.master_distributorGetPayload<{}>;
+export type VehicleAssignment = {
+  vehicle_id: number;
+  distributor_id: number;
+  category: SupplyCategory;
+};
 
-export type VehicleAssignment =
-  Prisma.vehicle_distribution_assignmentGetPayload<{}>;
-
-export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{}>;
+export type VehicleAllocation = {
+  vehicle_id: number;
+  distributor_id: number;
+  category: SupplyCategory;
+  product_id: number;
+  allocated_qty: Prisma.Decimal;
+};
 
 export type DynamicProductFields = Record<string, number>;
 
@@ -63,16 +73,6 @@ export type AllocationGrid = {
 
 export type AllocationGridResult = {
   allocations: AllocationGrid[];
-};
-
-export type OrderItemWithSupplyContext = {
-  groupId: number;
-  groupName: string;
-  productId: number;
-  orderedQty: number;
-  distributorId: number;
-  category: SupplyCategory;
-  master_product: Product;
 };
 
 export interface VehicleCapacityColumn {
@@ -156,14 +156,6 @@ export interface VehicleCapacityResponse {
   sections: VehicleCapacitySection[];
 }
 
-// export interface VehicleAllocationRow {
-//   vehicleId: number;
-
-//   vehicleNumber: string;
-
-//   values: Record<string, number>;
-// }
-
 export interface VehicleAllocationSection {
   brandId: number;
 
@@ -185,3 +177,21 @@ export interface VehicleAllocationResponse {
 
   sections: VehicleAllocationSection[];
 }
+
+export type VehicleAllocationRequirementGrid = {
+  distributor: {
+    id: number;
+  };
+  category: SupplyCategory;
+  brand: {
+    id: number;
+    name: string;
+  };
+  columns: ProductColumnNode[];
+  rows: {
+    groupId: number;
+    groupName: string;
+    [key: string]: string | number;
+  }[];
+  totals: Record<string, number>;
+};

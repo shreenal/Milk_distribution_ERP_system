@@ -13,6 +13,7 @@ import { NightBillingService } from './services/night-billing.service.js';
 import { FinalBillingService } from './services/final-billing.service.js';
 import { BillingService } from './services/billing.service.js';
 import { DependencyModule } from '../dependencies/dependency.module.js';
+import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
 
 @Module({
   imports: [WorkflowModule, VehicleAllocationModule, DependencyModule],
@@ -29,6 +30,7 @@ import { DependencyModule } from '../dependencies/dependency.module.js';
     NightBillingService,
     FinalBillingService,
     BillingService,
+    TrayCalculationService,
   ],
 
   exports: [

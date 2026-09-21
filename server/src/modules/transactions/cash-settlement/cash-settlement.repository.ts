@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { RouteExpenseDto } from './dto/save-route-expense.dto.js';
 import { RouteDenominationDto } from './dto/save-route-denominations.dto.js';
@@ -63,40 +63,30 @@ export class CashSettlementRepository {
     expenses: RouteExpenseDto[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    let settlement = await db.cash_route_settlement.findUnique({
-      where: {
+    const settlement = await db.cash_route_settlement.upsert({
+      where: { order_sheet_id: sheetId },
+      update: {},
+      create: {
         order_sheet_id: sheetId,
+        note_2000: 0,
+        note_500: 0,
+        note_200: 0,
+        note_100: 0,
+        note_50: 0,
+        note_20: 0,
+        note_10: 0,
+        coins: 0,
       },
     });
-
-    if (!settlement) {
-      settlement = await db.cash_route_settlement.create({
-        data: {
-          order_sheet_id: sheetId,
-          note_2000: 0,
-          note_500: 0,
-          note_200: 0,
-          note_100: 0,
-          note_50: 0,
-          note_20: 0,
-          note_10: 0,
-          coins: 0,
-        },
-      });
-    }
-
     await db.cash_route_expense.deleteMany({
-      where: {
-        cash_route_settlement_id: settlement.id,
-      },
+      where: { cash_route_settlement_id: settlement.id },
     });
-
     if (expenses.length > 0) {
       await db.cash_route_expense.createMany({
-        data: expenses.map((expense) => ({
+        data: expenses.map((e) => ({
           cash_route_settlement_id: settlement.id,
-          expense_type_id: expense.expenseTypeId,
-          amount: expense.amount,
+          expense_type_id: e.expenseTypeId,
+          amount: e.amount,
         })),
       });
     }
@@ -106,33 +96,20 @@ export class CashSettlementRepository {
     denomination: RouteDenominationDto,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    let settlement = await db.cash_route_settlement.findUnique({
-      where: {
+    return db.cash_route_settlement.upsert({
+      where: { order_sheet_id: denomination.sheetId },
+      update: {
+        note_2000: denomination.note2000,
+        note_500: denomination.note500,
+        note_200: denomination.note200,
+        note_100: denomination.note100,
+        note_50: denomination.note50,
+        note_20: denomination.note20,
+        note_10: denomination.note10,
+        coins: denomination.coins,
+      },
+      create: {
         order_sheet_id: denomination.sheetId,
-      },
-    });
-
-    if (!settlement) {
-      settlement = await db.cash_route_settlement.create({
-        data: {
-          order_sheet_id: denomination.sheetId,
-          note_2000: 0,
-          note_500: 0,
-          note_200: 0,
-          note_100: 0,
-          note_50: 0,
-          note_20: 0,
-          note_10: 0,
-          coins: 0,
-        },
-      });
-    }
-
-    return db.cash_route_settlement.update({
-      where: {
-        id: settlement.id,
-      },
-      data: {
         note_2000: denomination.note2000,
         note_500: denomination.note500,
         note_200: denomination.note200,
@@ -179,15 +156,60 @@ export class CashSettlementRepository {
     deposits: BankDepositDto[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    await db.cash_bank_deposit.deleteMany({
-      where: {
-        order_paper_id: paperId,
-      },
+    const existing = await db.cash_bank_deposit.findMany({
+      where: { order_paper_id: paperId },
     });
 
-    if (deposits.length > 0) {
+    const existingById = new Map(existing.map((r) => [r.id, r]));
+    const incomingIds = new Set(
+      deposits.filter((d) => d.id !== undefined).map((d) => d.id!),
+    );
+
+    // Any existing row not referenced by id in the incoming payload is gone.
+    const toDelete = existing.filter((r) => !incomingIds.has(r.id));
+
+    // No id = new deposit. An id present but not matching any existing row
+    // for this paper is a client error (stale/foreign id), not silently
+    // treated as new.
+    const toInsert = deposits.filter((d) => d.id === undefined);
+    const toUpdate = deposits.filter((d) => d.id !== undefined);
+
+    const invalidIds = toUpdate
+      .map((d) => d.id!)
+      .filter((id) => !existingById.has(id));
+
+    if (invalidIds.length > 0) {
+      throw new BadRequestException(
+        `Bank deposit id(s) ${invalidIds.join(', ')} do not belong to paper ${paperId}`,
+      );
+    }
+
+    if (toDelete.length > 0) {
+      await db.cash_bank_deposit.deleteMany({
+        where: { id: { in: toDelete.map((r) => r.id) } },
+      });
+    }
+
+    for (const deposit of toUpdate) {
+      await db.cash_bank_deposit.update({
+        where: { id: deposit.id! },
+        data: {
+          bank_id: deposit.bankId,
+          note_2000: deposit.note2000,
+          note_500: deposit.note500,
+          note_200: deposit.note200,
+          note_100: deposit.note100,
+          note_50: deposit.note50,
+          note_20: deposit.note20,
+          note_10: deposit.note10,
+          coins: deposit.coins,
+        },
+      });
+    }
+
+    if (toInsert.length > 0) {
       await db.cash_bank_deposit.createMany({
-        data: deposits.map((deposit) => ({
+        data: toInsert.map((deposit) => ({
           order_paper_id: paperId,
           bank_id: deposit.bankId,
           note_2000: deposit.note2000,

@@ -12,6 +12,92 @@ import {
   ClientStatementTotals,
 } from './dto/client-statement-response.dto.js';
 
+import { Prisma } from '../../../generated/prisma/client.js';
+
+type ClientStatementSale = Prisma.order_sheet_itemsGetPayload<{
+  select: {
+    product_id: true;
+    delivered_qty: true;
+    final_bill_amount: true;
+    master_product: {
+      select: {
+        id: true;
+        code: true;
+        master_brand: {
+          select: {
+            id: true;
+            name: true;
+          };
+        };
+        master_product_group: {
+          select: {
+            id: true;
+            name: true;
+          };
+        };
+        master_product_type: {
+          select: {
+            id: true;
+            name: true;
+          };
+        };
+        master_packaging_type: {
+          select: {
+            id: true;
+            name: true;
+          };
+        };
+        packaging_size: true;
+        packaging_unit: true;
+      };
+    };
+    order_sheet: {
+      select: {
+        order_paper: {
+          select: {
+            sale_date: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
+type ClientStatementCollection = Prisma.client_collectionGetPayload<{
+  select: {
+    cash_collection: true;
+    office_amount_given: true;
+    cheque_collection: true;
+    online_collection: true;
+    bank_deposit: true;
+    order_sheet: {
+      select: {
+        order_paper: {
+          select: {
+            sale_date: true;
+          };
+        };
+      };
+    };
+  };
+}>;
+
+type ClientStatementPreviousSale = Prisma.order_sheet_itemsGetPayload<{
+  select: {
+    final_bill_amount: true;
+  };
+}>;
+
+type ClientStatementPreviousCollection = Prisma.client_collectionGetPayload<{
+  select: {
+    cash_collection: true;
+    office_amount_given: true;
+    cheque_collection: true;
+    online_collection: true;
+    bank_deposit: true;
+  };
+}>;
+
 @Injectable()
 export class ClientStatementService {
   constructor(
@@ -140,7 +226,10 @@ export class ClientStatementService {
     };
   }
 
-  private calculateOutstanding(sales: any[], collections: any[]): number {
+  private calculateOutstanding(
+    sales: ClientStatementPreviousSale[],
+    collections: ClientStatementPreviousCollection[],
+  ): number {
     const totalBill = sales.reduce(
       (sum, sale) => sum + Number(sale.final_bill_amount ?? 0),
       0,
@@ -160,7 +249,7 @@ export class ClientStatementService {
     return totalBill - totalPaid;
   }
 
-  private getProducts(sales: any[]) {
+  private getProducts(sales: ClientStatementSale[]): ClientStatementProduct[] {
     const productMap = new Map<
       number,
       {
@@ -179,7 +268,7 @@ export class ClientStatementService {
           product.master_product_type?.name,
           product.master_packaging_type?.name,
           product.packaging_size != null
-            ? `${product.packaging_size} ${product.packaging_unit}`
+            ? `${product.packaging_size.toString()} ${product.packaging_unit}`
             : null,
         ].filter(Boolean);
 
@@ -193,8 +282,8 @@ export class ClientStatementService {
     return Array.from(productMap.values());
   }
 
-  private groupSalesByDate(sales: any[]) {
-    const map = new Map<string, any[]>();
+  private groupSalesByDate(sales: ClientStatementSale[]) {
+    const map = new Map<string, ClientStatementSale[]>();
 
     for (const sale of sales) {
       const date = this.toDateKey(sale.order_sheet.order_paper.sale_date);
@@ -207,8 +296,8 @@ export class ClientStatementService {
     return map;
   }
 
-  private groupCollectionsByDate(collections: any[]) {
-    const map = new Map<string, any[]>();
+  private groupCollectionsByDate(collections: ClientStatementCollection[]) {
+    const map = new Map<string, ClientStatementCollection[]>();
 
     for (const collection of collections) {
       const date = this.toDateKey(collection.order_sheet.order_paper.sale_date);
@@ -222,15 +311,15 @@ export class ClientStatementService {
   }
 
   private getReportDates(
-    salesByDate: Map<string, any[]>,
-    collectionsByDate: Map<string, any[]>,
+    salesByDate: Map<string, ClientStatementSale[]>,
+    collectionsByDate: Map<string, ClientStatementCollection[]>,
   ): string[] {
     return Array.from(
       new Set([...salesByDate.keys(), ...collectionsByDate.keys()]),
     ).sort();
   }
 
-  private calculateProductQuantities(sales: any[]) {
+  private calculateProductQuantities(sales: ClientStatementSale[]) {
     const quantities: Record<string, number> = {};
 
     for (const sale of sales) {
@@ -243,14 +332,14 @@ export class ClientStatementService {
     return quantities;
   }
 
-  private calculateBill(sales: any[]): number {
+  private calculateBill(sales: ClientStatementSale[]): number {
     return this.round(
       sales.reduce((sum, sale) => sum + Number(sale.final_bill_amount ?? 0), 0),
     );
   }
 
   private sumCollections(
-    collections: any[],
+    collections: ClientStatementCollection[],
     field:
       | 'cash_collection'
       | 'office_amount_given'

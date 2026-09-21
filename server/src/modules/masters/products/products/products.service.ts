@@ -18,6 +18,7 @@ import { PackagingTypesRepository } from '../packaging-types/packaging-types.rep
 import type { ProductConfigurationStatusDetail } from '../../../../types/product.types.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
+import { ProductOrderUnitsRepository } from '../product-order-unit/product-order-units.repository.js';
 
 @Injectable()
 export class ProductsService {
@@ -27,6 +28,7 @@ export class ProductsService {
     private readonly productGroupRepository: ProductGroupRepository,
     private readonly productTypesRepository: ProductTypesRepository,
     private readonly packagingTypesRepository: PackagingTypesRepository,
+    private readonly productOrderUnitsRepository: ProductOrderUnitsRepository,
   ) { }
 
   async findAll() {
@@ -88,6 +90,17 @@ export class ProductsService {
       }
     }
 
+    const productOrderUnit =
+      await this.productOrderUnitsRepository.findById(
+        dto.product_order_unit_id,
+      );
+
+    if (!productOrderUnit) {
+      throw new NotFoundException(
+        `Product Order Unit with ID ${dto.product_order_unit_id} not found.`,
+      );
+    }
+
     const duplicate = await this.productsRepository.findDuplicate(
       dto.brand_id,
       dto.product_group_id,
@@ -131,9 +144,15 @@ export class ProductsService {
         ? dto.packaging_type_id
         : existingProduct.packaging_type_id;
 
-    const packagingSize = dto.packaging_size ?? existingProduct.packaging_size;
+    const packagingSize =
+      dto.packaging_size ?? existingProduct.packaging_size;
 
-    const packagingUnit = dto.packaging_unit ?? existingProduct.packaging_unit;
+    const packagingUnit =
+      dto.packaging_unit ?? existingProduct.packaging_unit;
+
+    const productOrderUnitId =
+      dto.product_order_unit_id ??
+      existingProduct.product_order_unit_id;
 
     const brand = await this.brandsRepository.findById(brandId);
 
@@ -170,6 +189,23 @@ export class ProductsService {
           `Packaging Type with ID ${packagingTypeId} not found.`,
         );
       }
+    }
+
+    if (!productOrderUnitId) {
+      throw new NotFoundException(
+        `Product Order Unit configuration is required for product ${id}.`,
+      );
+    }
+
+    const productOrderUnit =
+      await this.productOrderUnitsRepository.findById(
+        productOrderUnitId,
+      );
+
+    if (!productOrderUnit) {
+      throw new NotFoundException(
+        `Product Order Unit with ID ${productOrderUnitId} not found.`,
+      );
     }
 
     const duplicate = await this.productsRepository.findDuplicate(
@@ -209,8 +245,7 @@ export class ProductsService {
     );
 
     const missingDistributorRates = activeProductLinks.filter(
-      (link) =>
-        !link.distributor_rates.some((rate) => rate.is_active),
+      (link) => !link.distributor_rates.some((rate) => rate.is_active),
     ).length;
 
     const distributorConfigured = activeProductLinks.length > 0;
@@ -222,11 +257,19 @@ export class ProductsService {
       link.client_rates.some((rate) => rate.is_active),
     );
 
+    const orderUnitConfigured =
+      configuration.product_order_unit !== null;
     const issues: string[] = [];
 
     let status: ProductConfigurationStatus;
 
-    if (!distributorConfigured) {
+    if (!orderUnitConfigured) {
+      status = ProductConfigurationStatus.UNCONFIGURED;
+
+      issues.push(
+        'Product Order Unit configuration must be selected.',
+      );
+    } else if (!distributorConfigured) {
       status = ProductConfigurationStatus.UNCONFIGURED;
 
       issues.push(
@@ -243,9 +286,7 @@ export class ProductsService {
     }
 
     if (!clientRatesConfigured) {
-      issues.push(
-        'No active client product rate is configured.',
-      );
+      issues.push('No active client product rate is configured.');
     }
 
     const configurationStatus: ProductConfigurationStatusDetail = {

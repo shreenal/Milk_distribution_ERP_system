@@ -10,6 +10,8 @@ import {
   DEPENDENCY_MODULES,
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
+import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
+import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 
 @Injectable()
 export class PaperService {
@@ -68,30 +70,61 @@ export class PaperService {
       );
     }
 
-    const existingPaper = await this.paperRepository.findPaperBySaleDate(
-      saleDate,
-      tomorrowSale,
-    );
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const existingPaper = await this.paperRepository.findPaperBySaleDate(
+            saleDate,
+            tomorrowSale,
+            tx,
+          );
 
-    if (existingPaper) {
-      return existingPaper;
-    }
+          if (existingPaper) {
+            return existingPaper;
+          }
 
-    return this.prisma.$transaction(async (tx) => {
-      const paper = await this.paperRepository.generatePaperFromOrderDate(
-        orderDate,
-        tx,
-      );
+          const paper = await this.paperRepository.generatePaperFromOrderDate(
+            orderDate,
+            tx,
+          );
 
-      const groups = await this.paperRepository.getActiveGroups(tx);
+          const groups = await this.paperRepository.getActiveGroups(tx);
 
-      if (!groups || groups.length === 0) {
-        throw new BadRequestException(ERROR_MESSAGES.NO_ACTIVE_GROUPS);
+          if (!groups || groups.length === 0) {
+            throw new BadRequestException(ERROR_MESSAGES.NO_ACTIVE_GROUPS);
+          }
+
+          await this.paperRepository.generateOrderSheets(paper.id, groups, tx);
+
+          return paper;
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    ).catch(async (err: unknown) => {
+      // Two concurrent requests for the same date can both pass the
+      // existingPaper check and race on the unique (sale_date/order_date)
+      // constraint. Postgres SSI does not guarantee this is caught as a
+      // 40001 serialization failure — it can surface as a plain unique
+      // violation instead. Since generation is meant to be idempotent
+      // per date, resolve that case by returning the winner's paper.
+      if (
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        err.code === 'P2002'
+      ) {
+        const existingPaper = await this.paperRepository.findPaperBySaleDate(
+          saleDate,
+          tomorrowSale,
+        );
+        if (existingPaper) {
+          return existingPaper;
+        }
       }
-
-      await this.paperRepository.generateOrderSheets(paper.id, groups, tx);
-
-      return paper;
+      throw err;
     });
   }
 
@@ -178,78 +211,111 @@ export class PaperService {
   }
 
   async submitNightEntryService(paperId: number) {
-    return this.prisma.$transaction(async (tx) => {
-      const paper =
-        await this.paperValidationService.validateNightSubmitReadiness(
-          paperId,
-          tx,
-        );
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const paper =
+            await this.paperValidationService.validateNightSubmitReadiness(
+              paperId,
+              tx,
+            );
 
-      this.workflowState.validateTransition(
-        paper.status,
-        OrderPaperStatus.NIGHT_SUBMITTED,
-      );
+          this.workflowState.validateTransition(
+            paper.status,
+            OrderPaperStatus.NIGHT_SUBMITTED,
+          );
 
-      return this.paperRepository.submitNightEntry(paperId, tx);
-    });
+          return this.paperRepository.submitNightEntry(paperId, tx);
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async submitMorningEntryService(paperId: number) {
-    return this.prisma.$transaction(async (tx) => {
-      const paper =
-        await this.paperValidationService.validateMorningSubmitReadiness(
-          paperId,
-          tx,
-        );
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const paper =
+            await this.paperValidationService.validateMorningSubmitReadiness(
+              paperId,
+              tx,
+            );
 
-      this.workflowState.validateTransition(
-        paper.status,
-        OrderPaperStatus.MORNING_SUBMITTED,
-      );
+          this.workflowState.validateTransition(
+            paper.status,
+            OrderPaperStatus.MORNING_SUBMITTED,
+          );
 
-      return this.paperRepository.submitMorningEntry(paperId, tx);
-    });
+          return this.paperRepository.submitMorningEntry(paperId, tx);
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async finalizePaperService(paperId: number) {
-    return this.prisma.$transaction(async (tx) => {
-      const paper = await this.paperValidationService.validateFinalizeReadiness(
-        paperId,
-        tx,
-      );
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const paper =
+            await this.paperValidationService.validateFinalizeReadiness(
+              paperId,
+              tx,
+            );
 
-      this.workflowState.validateTransition(
-        paper.status,
-        OrderPaperStatus.FINALIZED,
-      );
+          this.workflowState.validateTransition(
+            paper.status,
+            OrderPaperStatus.FINALIZED,
+          );
 
-      await this.dependencyOrchestrator.execute(
-        DEPENDENCY_MODULES.PAPER,
-        DEPENDENCY_TRIGGERS.ON_FINALIZE,
-        {
-          paperId,
-          tx,
+          await this.dependencyOrchestrator.execute(
+            DEPENDENCY_MODULES.PAPER,
+            DEPENDENCY_TRIGGERS.ON_FINALIZE,
+            {
+              paperId,
+              tx,
+            },
+          );
+
+          return this.paperRepository.finalizePaper(paperId, tx);
         },
-      );
-
-      return this.paperRepository.finalizePaper(paperId, tx);
-    });
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async reopenPaperService(paperId: number, reason: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const paper = await this.paperRepository.findPaperById(paperId, tx);
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const paper = await this.paperRepository.findPaperById(paperId, tx);
 
-      if (!paper) {
-        throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-      }
+          if (!paper) {
+            throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+          }
 
-      this.workflowState.validateTransition(
-        paper.status,
-        OrderPaperStatus.REOPENED,
-      );
+          this.workflowState.validateTransition(
+            paper.status,
+            OrderPaperStatus.REOPENED,
+          );
 
-      return this.paperRepository.reopenPaper(paperId, reason, tx);
-    });
+          return this.paperRepository.reopenPaper(paperId, reason, tx);
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 }

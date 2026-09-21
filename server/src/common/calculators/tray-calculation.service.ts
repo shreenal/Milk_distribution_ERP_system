@@ -5,6 +5,8 @@ import type {
 } from '../../types/tray.types.js';
 import { PurchaseEntry } from '../../types/dairy-trays.types.js';
 import { DeliverySession } from '../../generated/prisma/client.js';
+import { PrismaOrTransaction } from '../../types/transaction.types.js';
+import { PrismaService } from '../../prisma/prisma.service.js';
 
 export interface TrayTransactionFields {
   opening_balance: number;
@@ -15,6 +17,7 @@ export interface TrayTransactionFields {
 
 @Injectable()
 export class TrayCalculationService {
+  constructor(private readonly prisma: PrismaService) {}
   resolveTrayRule(
     product: TrayRuleProduct,
     trayRules: ProductTrayRule[],
@@ -61,6 +64,22 @@ export class TrayCalculationService {
     return matchingRules[0];
   }
 
+  resolveFrozenTrayTypeId(
+    item: { tray_type_id?: number | null; master_product: TrayRuleProduct },
+    trayRules: ProductTrayRule[],
+  ): number | null {
+    if (item.tray_type_id !== null && item.tray_type_id !== undefined) {
+      return item.tray_type_id;
+    }
+
+    // Legacy row, created before tray-type freezing existed. Fall back to
+    // live resolution so pre-migration papers keep working; this branch
+    // should disappear once the backfill has run.
+    const rule = this.resolveTrayRule(item.master_product, trayRules);
+
+    return rule?.tray_type_id ?? null;
+  }
+
   calculateTraysTaken(
     orderedQty: number,
     deliveredQty: number,
@@ -72,9 +91,9 @@ export class TrayCalculationService {
   calculateClosingBalance(
     opening: number,
     traysTaken: number,
-    traysReturned: number,
+    traysReturned: number | null,
   ): number {
-    return opening + traysTaken - traysReturned;
+    return opening + traysTaken - (traysReturned ?? 0);
   }
 
   buildTransaction(
@@ -104,9 +123,9 @@ export class TrayCalculationService {
     >();
 
     for (const entry of purchaseEntries) {
-      const trayRule = this.resolveTrayRule(entry.master_product, trayRules);
+      const trayTypeId = this.resolveFrozenTrayTypeId(entry, trayRules);
 
-      if (!trayRule) {
+      if (trayTypeId === null) {
         continue;
       }
 
@@ -126,14 +145,24 @@ export class TrayCalculationService {
         vehicleMap.set(entry.delivery_session, sessionMap);
       }
 
-      const currentTaken = sessionMap.get(trayRule.tray_type_id) ?? 0;
+      const currentTaken = sessionMap.get(trayTypeId) ?? 0;
 
-      sessionMap.set(
-        trayRule.tray_type_id,
-        currentTaken + Number(entry.purchased_qty),
-      );
+      sessionMap.set(trayTypeId, currentTaken + Number(entry.purchased_qty));
     }
 
     return takenMap;
+  }
+
+  async getProductTrayRules(db: PrismaOrTransaction = this.prisma) {
+    return db.product_tray_rule.findMany({
+      where: { is_active: true },
+      include: {
+        master_tray_type: { include: { master_brand: true } },
+        master_brand: true,
+        master_product_group: true,
+        master_product_type: true,
+        master_packaging_type: true,
+      },
+    });
   }
 }

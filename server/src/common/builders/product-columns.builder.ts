@@ -39,7 +39,7 @@ export class ProductColumnsBuilder {
       const packagingTypeName =
         product.master_packaging_type?.name ?? 'Unknown Packaging';
 
-      const sizeLabel = `${product.packaging_size}${product.packaging_unit}`;
+      const sizeLabel = `${product.packaging_size.toString()}${product.packaging_unit}`;
 
       if (!brandMap.has(brandName)) {
         brandMap.set(brandName, {

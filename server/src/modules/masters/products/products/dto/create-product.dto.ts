@@ -41,6 +41,11 @@ export class CreateProductDto {
   @MaxLength(20)
   packaging_unit!: string;
 
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  product_order_unit_id!: number;
+
   @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

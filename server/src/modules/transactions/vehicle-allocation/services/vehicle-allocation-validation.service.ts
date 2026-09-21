@@ -27,8 +27,6 @@ export class VehicleAllocationValidationService {
     dto: SaveVehicleAllocationDto,
     db: PrismaOrTransaction,
   ) {
-    const vehicles = await this.vehicleAllocationRepository.findVehicles(db);
-
     const paper = await this.vehicleAllocationRepository.findOrderPaperById(
       paperId,
       db,
@@ -41,10 +39,30 @@ export class VehicleAllocationValidationService {
     }
 
     const session = this.workflowState.getActiveExecutionSession(paper.status);
-
     const summaries = await this.getGroupSummary(paperId, session, db);
 
-    // rest unchanged
+    // Only (distributor, category, product) combos actually resolved for
+    // this order's items are valid allocation targets.
+    const requiredKeys = new Set<string>();
+    for (const summary of summaries) {
+      for (const product of summary.products) {
+        requiredKeys.add(
+          `${summary.distributorId}_${summary.category}_${product.id}`,
+        );
+      }
+    }
+
+    for (const allocation of dto.allocations) {
+      if (Number(allocation.allocatedQty) <= 0) continue;
+
+      const key = `${allocation.distributorId}_${allocation.category}_${allocation.productId}`;
+
+      if (!requiredKeys.has(key)) {
+        throw new BadRequestException(
+          `Product ${allocation.productId} is not required from distributor ${allocation.distributorId} for category ${allocation.category} in this order`,
+        );
+      }
+    }
   }
 
   async validateVehicleAllocationsForNightSubmit(
@@ -80,7 +98,7 @@ export class VehicleAllocationValidationService {
     db: PrismaOrTransaction,
   ) {
     const orderItems =
-      await this.orderItemsRepository.findOrderItemsWithSupplyContextByPaperId(
+      await this.orderItemsRepository.getOrderItemsWithSupplyContextByPaperId(
         paperId,
         db,
       );
@@ -212,13 +230,13 @@ export class VehicleAllocationValidationService {
     for (const assignment of dto.assignments) {
       if (!validVehicleIds.has(assignment.vehicleId)) {
         throw new BadRequestException(
-          VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_NOT_FOUND,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_NOT_FOUND(assignment.vehicleId),
         );
       }
 
       if (assignedVehicles.has(assignment.vehicleId)) {
         throw new BadRequestException(
-          VEHICLE_ALLOCATION_ERROR_MESSAGES.DUPLICATE_VEHICLE_ASSIGNMENT,
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.DUPLICATE_VEHICLE_ASSIGNMENT(assignment.vehicleId),
         );
       }
 
@@ -333,6 +351,104 @@ export class VehicleAllocationValidationService {
     const assignments =
       await this.vehicleAllocationRepository.findVehicleAssignments(
         vehicleAllocationPaper.id,
+        db,
+      );
+
+    const assignedCategories = new Set(
+      assignments.map(
+        (assignment) => `${assignment.vehicle_id}_${assignment.category}`,
+      ),
+    );
+
+    for (const allocation of allocationGrid.allocations) {
+      const category = allocation.category;
+
+      for (const row of allocation.rows) {
+        let hasAllocation = false;
+
+        for (const [field, value] of Object.entries(row)) {
+          if (!field.startsWith('product_')) {
+            continue;
+          }
+
+          if (Number(value) > 0) {
+            hasAllocation = true;
+            break;
+          }
+        }
+
+        if (!hasAllocation) {
+          continue;
+        }
+
+        const assignmentKey = `${row.vehicleId}_${category}`;
+
+        if (!assignedCategories.has(assignmentKey)) {
+          throw new BadRequestException(
+            VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_WITHOUT_CATEGORY_DISTRIBUTOR(
+              row.vehicleId,
+              category,
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  async validateVehicleAllocationsForMorningSubmit(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ) {
+    const allocationGrid = await this.getAllocationGrid(
+      paperId,
+      DeliverySession.MORNING,
+      db,
+    );
+
+    for (const allocation of allocationGrid.allocations) {
+      for (const [field, requiredQty] of Object.entries(allocation.totals)) {
+        let allocatedQty = 0;
+
+        for (const row of allocation.rows) {
+          allocatedQty += Number(row[field] ?? 0);
+        }
+
+        if (allocatedQty !== Number(requiredQty)) {
+          throw new BadRequestException(
+            `${allocation.brand.name} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
+          );
+        }
+      }
+    }
+  }
+
+  async validateVehicleAssignmentsForMorningSubmit(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ) {
+    const allocationGrid = await this.getAllocationGrid(
+      paperId,
+      DeliverySession.MORNING,
+      db,
+    );
+
+    const vehicleAllocationPaper =
+      await this.vehicleAllocationRepository.findVehicleAllocationPaper(
+        paperId,
+        DeliverySession.MORNING,
+        db,
+      );
+
+    if (!vehicleAllocationPaper) {
+      throw new BadRequestException(
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_ALLOCATIONS_NOT_FOUND,
+      );
+    }
+
+    const assignments =
+      await this.vehicleAllocationRepository.findVehicleAssignments(
+        vehicleAllocationPaper.id,
+        db,
       );
 
     const assignedCategories = new Set(
@@ -389,11 +505,12 @@ export class VehicleAllocationValidationService {
         allocation.distributorId,
         allocation.productId,
         db,
+        true,
       );
 
       if (!productLink) {
         invalidAllocations.push(
-          `Distributor ${allocation.distributorId} does not source Product ${allocation.productId}`,
+          `Distributor ${allocation.distributorId} does not have an active link to Product ${allocation.productId}`,
         );
       }
     }
@@ -403,6 +520,25 @@ export class VehicleAllocationValidationService {
         message: 'Invalid product allocations',
         details: invalidAllocations,
       });
+    }
+  }
+
+  validateNoDuplicateAllocations(dto: SaveVehicleAllocationDto): void {
+    const seen = new Set<string>();
+    const duplicates: string[] = [];
+
+    for (const allocation of dto.allocations) {
+      const key = `${allocation.vehicleId}_${allocation.distributorId}_${allocation.category}_${allocation.productId}`;
+      if (seen.has(key)) {
+        duplicates.push(key);
+      }
+      seen.add(key);
+    }
+
+    if (duplicates.length > 0) {
+      throw new BadRequestException(
+        `Duplicate allocation entries found: ${duplicates.join(', ')}. Each vehicle-distributor-category-product combination can only appear once.`,
+      );
     }
   }
 }

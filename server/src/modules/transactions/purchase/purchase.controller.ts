@@ -5,7 +5,6 @@ import {
   Param,
   ParseIntPipe,
   Post,
-  Req,
   UseGuards,
 } from '@nestjs/common';
 
@@ -39,8 +38,7 @@ export class PurchaseController {
     paperId: number,
     @Body()
     dto: SavePurchaseDto,
-    @Req() req: any,
   ) {
-    return this.purchaseService.savePurchases(paperId, dto, req.user.id);
+    return this.purchaseService.savePurchases(paperId, dto);
   }
 }

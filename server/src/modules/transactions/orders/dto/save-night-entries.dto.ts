@@ -1,4 +1,5 @@
 import { IsNumber, Max, Min } from 'class-validator';
+import { QUANTITY_PRECISION } from '../orders.constants.js';
 
 export class SaveNightEntriesDto {
   @IsNumber()
@@ -11,6 +12,6 @@ export class SaveNightEntriesDto {
 
   @IsNumber()
   @Min(0)
-  @Max(10000)
+  @Max(QUANTITY_PRECISION.MAX_ORDERED_QTY)
   orderedQty!: number;
 }

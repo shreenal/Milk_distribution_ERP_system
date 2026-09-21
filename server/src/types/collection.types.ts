@@ -55,7 +55,11 @@ export type CollectionSheet = Prisma.order_sheetGetPayload<{
   };
 }>;
 
-export type CollectionClient = Prisma.master_clientGetPayload<{}>;
+export type CollectionClient = {
+  id: number;
+  code: string | null;
+  name: string;
+};
 
 export type CollectionGrid = {
   columns: any[];
@@ -73,4 +77,17 @@ export type CollectionGrid = {
   };
 };
 
-export type SavedCollection = Prisma.client_collectionGetPayload<{}>;
+export type SavedCollection = Prisma.client_collectionGetPayload<{
+  select: {
+    id: true;
+    client_id: true;
+    category: true;
+    cash_collection: true;
+    office_amount_given: true;
+    cheque_collection: true;
+    online_collection: true;
+    bank_deposit: true;
+    employee_remarks: true;
+    admin_remarks: true;
+  };
+}>;

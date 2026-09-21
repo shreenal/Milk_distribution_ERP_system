@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import {

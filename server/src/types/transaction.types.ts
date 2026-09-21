@@ -13,6 +13,6 @@ export type TrayTransactionEntry = {
   tray_type_id: number;
   opening_balance: number;
   trays_taken: number;
-  trays_returned: number;
+  trays_returned: number | null;
   closing_balance: number;
 };

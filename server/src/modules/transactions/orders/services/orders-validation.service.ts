@@ -2,11 +2,15 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { OrdersRepository } from '.././orders.repository.js';
 import { ERROR_MESSAGES, QUANTITY_PRECISION } from './../orders.constants.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
+import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
+import { ProductTrayRule, TrayRuleProduct } from '../../../../types/tray.types.js';
 
 @Injectable()
 export class OrdersValidationService {
   private readonly logger = new Logger(OrdersValidationService.name);
-  constructor(private readonly ordersRepository: OrdersRepository) {}
+  constructor(
+    private readonly ordersRepository: OrdersRepository,
+    private readonly trayCalculationService: TrayCalculationService,) { }
 
   async validateProduct(productId: number, db: PrismaOrTransaction) {
     const product = await db.master_product.findUnique({
@@ -161,19 +165,65 @@ export class OrdersValidationService {
     }
   }
 
-  validateQuantity(qty: number) {
+  validateOrderedQuantity(
+    qty: number,
+    product: TrayRuleProduct,
+    trayRules: ProductTrayRule[],
+  ) {
     if (qty < 0) {
       throw new BadRequestException(
-        ERROR_MESSAGES.QUANTITY_NEGATIVE('Quantity', qty),
+        ERROR_MESSAGES.QUANTITY_NEGATIVE('ordered quantity', qty),
       );
     }
 
-    if ((qty * 10) % 5 !== 0) {
+    const trayRule = this.trayCalculationService.resolveTrayRule(
+      product,
+      trayRules,
+    );
+
+    // No tray rule = product is not tray-based.
+    if (!trayRule) {
+      return;
+    }
+
+    this.validateTrayQuantity(qty);
+  }
+
+  validateDeliveredQuantity(
+    qty: number,
+    item: {
+      tray_type_id: number | null;
+    },
+  ) {
+    if (qty < 0) {
       throw new BadRequestException(
-        ERROR_MESSAGES.INVALID_QUANTITY_PRECISION(
-          qty,
-          QUANTITY_PRECISION.MIN_UNIT_PRECISION,
-        ),
+        ERROR_MESSAGES.QUANTITY_NEGATIVE('delivered quantity', qty),
+      );
+    }
+
+    // Product was not tray-based when the order item was created.
+    if (item.tray_type_id === null) {
+      return;
+    }
+
+    this.validateTrayQuantity(qty);
+  }
+
+  private validateTrayQuantity(qty: number) {
+    const decimalPlaces = QUANTITY_PRECISION.QTY_DECIMAL_PLACES;
+    const factor = 10 ** decimalPlaces;
+
+    if (!Number.isFinite(qty)) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.INVALID_QUANTITY_PRECISION(qty),
+      );
+    }
+
+    const rounded = Math.round(qty * factor) / factor;
+
+    if (Math.abs(qty - rounded) > 1e-9) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.INVALID_QUANTITY_PRECISION(qty),
       );
     }
   }
@@ -188,16 +238,6 @@ export class OrdersValidationService {
     if (entries.length === 0) {
       throw new BadRequestException(
         ERROR_MESSAGES.NO_ORDERS_IN_SHEET(groupName),
-      );
-    }
-
-    const incompleteEntries = entries.filter(
-      (item) => item.ordered_qty === null,
-    );
-
-    if (incompleteEntries.length > 0) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.NIGHT_ENTRY_INCOMPLETE(groupName),
       );
     }
   }
@@ -251,5 +291,89 @@ export class OrdersValidationService {
     if (extreme.length > 0) {
       this.logger.warn(`Over-delivery detected: ${extreme.length} items`);
     }
+  }
+
+  async validateEntriesBatch(
+    entries: { clientId: number; productId: number }[],
+    groupId: number,
+    db: PrismaOrTransaction,
+  ) {
+    const clientIds = [...new Set(entries.map((e) => e.clientId))];
+    const productIds = [...new Set(entries.map((e) => e.productId))];
+
+    const [clients, products] = await Promise.all([
+      db.master_client.findMany({
+        where: { id: { in: clientIds } },
+        select: {
+          id: true,
+          name: true,
+          is_active: true,
+          delivery_group_id: true,
+          categories: { select: { category: true } },
+        },
+      }),
+      db.master_product.findMany({
+        where: { id: { in: productIds } },
+        select: {
+          id: true,
+          is_active: true,
+          brand_id: true,
+          product_group_id: true,
+          product_type_id: true,
+          packaging_type_id: true,
+          master_product_group: {
+            select: {
+              category: true,
+            },
+          },
+        }
+      }),
+    ]);
+
+    const clientMap = new Map(clients.map((c) => [c.id, c]));
+    const productMap = new Map(products.map((p) => [p.id, p]));
+
+    for (const entry of entries) {
+      const client = clientMap.get(entry.clientId);
+      if (!client) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.CLIENT_NOT_FOUND(entry.clientId),
+        );
+      }
+      if (!client.is_active) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.CLIENT_INACTIVE(client.name),
+        );
+      }
+      if (client.delivery_group_id !== groupId) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(entry.clientId, groupId),
+        );
+      }
+
+      const product = productMap.get(entry.productId);
+      if (!product) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.PRODUCT_NOT_FOUND(entry.productId),
+        );
+      }
+      if (!product.is_active) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.PRODUCT_INACTIVE(String(entry.productId)),
+        );
+      }
+
+      const productCategory = product.master_product_group.category;
+      const isAllowed = client.categories.some(
+        (c) => c.category === productCategory,
+      );
+      if (!isAllowed) {
+        throw new BadRequestException(
+          `Client "${client.name}" is not authorized to purchase ${productCategory} products`,
+        );
+      }
+    }
+
+    return productMap;
   }
 }

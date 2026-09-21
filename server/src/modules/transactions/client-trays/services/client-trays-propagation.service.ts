@@ -1,18 +1,17 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import {
-  OrderPaperStatus,
-  Prisma,
-} from '../../../../generated/prisma/client.js';
+import { Prisma } from '../../../../generated/prisma/client.js';
 
 import { ClientTraysRepository } from '../client-trays.repository.js';
 import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
 import { TrayTransactionEntry } from '../../../../types/transaction.types.js';
+import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 
 @Injectable()
 export class ClientTraysPropagationService {
   constructor(
     private readonly clientTraysRepository: ClientTraysRepository,
     private readonly trayCalculationService: TrayCalculationService,
+    private readonly workflowState: WorkflowStateService,
   ) {}
 
   async recalculateFromSheet(
@@ -40,27 +39,48 @@ export class ClientTraysPropagationService {
     startSheetId: number,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
-    let currentSheetId: number | null = startSheetId;
+    const startSheet = await this.clientTraysRepository.findSheetById(
+      startSheetId,
+      tx,
+    );
+
+    if (!startSheet) {
+      throw new NotFoundException(`Order sheet ${startSheetId} not found`);
+    }
+
+    // Only the sheet whose own data actually changed gets a full recompute
+    // of trays_taken (from its own order items + current tray rules).
+    await this.recalculateSheet(startSheetId, tx);
+
+    // Everything after it only inherits the shifted opening balance —
+    // their own trays_taken/trays_returned must never be touched by
+    // someone else's correction or by tray-rule drift since they were
+    // last finalized.
+    let currentSheetId: number | null =
+      (
+        await this.clientTraysRepository.getNextSheet(
+          startSheet.group_id,
+          startSheet.order_paper.sale_date,
+          tx,
+        )
+      )?.id ?? null;
 
     while (currentSheetId !== null) {
+      await this.cascadeOpeningBalance(currentSheetId, tx);
+
       const sheet = await this.clientTraysRepository.findSheetById(
         currentSheetId,
         tx,
       );
 
-      if (!sheet) {
-        throw new NotFoundException(`Order sheet ${currentSheetId} not found`);
-      }
-
-      await this.recalculateSheet(currentSheetId, tx);
-
-      const nextSheet = await this.clientTraysRepository.getNextSheet(
-        sheet.group_id,
-        sheet.order_paper.sale_date,
-        tx,
-      );
-
-      currentSheetId = nextSheet?.id ?? null;
+      currentSheetId =
+        (
+          await this.clientTraysRepository.getNextSheet(
+            sheet!.group_id,
+            sheet!.order_paper.sale_date,
+            tx,
+          )
+        )?.id ?? null;
     }
   }
 
@@ -141,18 +161,20 @@ export class ClientTraysPropagationService {
      * Everything after DRAFT:
      *   delivered_qty
      */
-    const useOrderedQuantity =
-      sheet.order_paper.status === OrderPaperStatus.DRAFT;
+    const useOrderedQuantity = this.workflowState.resolveUseOrderedQuantity(
+      sheet.order_paper.status,
+      sheet.order_morning_entry_saved_at !== null,
+    );
 
     const traysTakenMap = new Map<string, number>();
 
     for (const item of sheetItems) {
-      const trayRule = this.trayCalculationService.resolveTrayRule(
-        item.master_product,
+      const trayTypeId = this.trayCalculationService.resolveFrozenTrayTypeId(
+        item,
         trayRules,
       );
 
-      if (!trayRule) {
+      if (trayTypeId === null) {
         continue;
       }
 
@@ -162,7 +184,7 @@ export class ClientTraysPropagationService {
         useOrderedQuantity,
       );
 
-      const key = `${item.client_id}_${trayRule.tray_type_id}`;
+      const key = `${item.client_id}_${trayTypeId}`;
 
       traysTakenMap.set(key, (traysTakenMap.get(key) ?? 0) + traysTaken);
     }
@@ -206,7 +228,8 @@ export class ClientTraysPropagationService {
        * trays_returned is manual data.
        * Never recalculate it from orders.
        */
-      const traysReturned = Number(existingTransaction?.trays_returned ?? 0);
+      const traysReturned: number | null =
+        existingTransaction?.trays_returned ?? null;
 
       const closingBalance =
         this.trayCalculationService.calculateClosingBalance(
@@ -229,6 +252,87 @@ export class ClientTraysPropagationService {
     if (transactionEntries.length === 0) {
       return;
     }
+
+    await this.clientTraysRepository.replaceTrayTransactions(
+      transactionEntries,
+      tx,
+    );
+  }
+
+  private async cascadeOpeningBalance(
+    sheetId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const sheet = await this.clientTraysRepository.findSheetById(sheetId, tx);
+    if (!sheet) {
+      throw new NotFoundException(`Order sheet ${sheetId} not found`);
+    }
+
+    const existingTransactions =
+      await this.clientTraysRepository.getTrayTransactions(sheetId, tx);
+
+    const previousSheet = await this.clientTraysRepository.getPreviousSheet(
+      sheet.group_id,
+      sheet.order_paper.sale_date,
+      tx,
+    );
+
+    const openingBalanceMap = new Map<string, number>();
+
+    if (previousSheet) {
+      const previousBalances =
+        await this.clientTraysRepository.getPreviousTrayBalances(
+          previousSheet.id,
+          tx,
+        );
+
+      for (const balance of previousBalances) {
+        openingBalanceMap.set(
+          `${balance.client_id}_${balance.tray_type_id}`,
+          Number(balance.closing_balance ?? 0),
+        );
+      }
+    }
+
+    if (existingTransactions.length === 0 && openingBalanceMap.size === 0) {
+      return;
+    }
+
+    const existingByKey = new Map(
+      existingTransactions.map((t) => [`${t.client_id}_${t.tray_type_id}`, t]),
+    );
+
+    const keys = new Set<string>([
+      ...existingByKey.keys(),
+      ...openingBalanceMap.keys(),
+    ]);
+
+    const transactionEntries: TrayTransactionEntry[] = Array.from(keys).map(
+      (key) => {
+        const separatorIndex = key.indexOf('_');
+        const clientId = Number(key.substring(0, separatorIndex));
+        const trayTypeId = Number(key.substring(separatorIndex + 1));
+
+        const existing = existingByKey.get(key);
+        const openingBalance = openingBalanceMap.get(key) ?? 0;
+        const traysTaken = Number(existing?.trays_taken ?? 0);
+        const traysReturned: number | null = existing?.trays_returned ?? null;
+
+        return {
+          order_sheet_id: sheetId,
+          client_id: clientId,
+          tray_type_id: trayTypeId,
+          opening_balance: openingBalance,
+          trays_taken: traysTaken,
+          trays_returned: traysReturned,
+          closing_balance: this.trayCalculationService.calculateClosingBalance(
+            openingBalance,
+            traysTaken,
+            traysReturned,
+          ),
+        };
+      },
+    );
 
     await this.clientTraysRepository.replaceTrayTransactions(
       transactionEntries,

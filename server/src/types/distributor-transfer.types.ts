@@ -29,6 +29,11 @@ export type TransferSourceItem = Prisma.order_sheet_itemsGetPayload<{
         master_packaging_type: true;
       };
     };
+    product_link: {
+      include: {
+        distributor: true;
+      };
+    };
   };
 }>;
 
@@ -63,8 +68,6 @@ export type TransferSummary = {
 export type TransferGrid = TransferSummary & {
   columns: ProductColumnNode[];
 };
-
-type DistributorTransferRule = Prisma.distributor_transfer_ruleGetPayload<{}>;
 
 export type Product = Prisma.master_productGetPayload<{
   include: {

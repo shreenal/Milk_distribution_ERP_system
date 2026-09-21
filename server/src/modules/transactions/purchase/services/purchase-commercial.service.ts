@@ -23,16 +23,20 @@ export class PurchaseCommercialService {
     productId: number,
     gatepassPolicy: GatepassDatePolicy,
     db: PrismaOrTransaction = this.prisma,
+    activeOnly = false,
   ): Promise<PurchaseCommercialContext> {
     const productLink = await this.purchaseRepository.getProductLink(
       distributorId,
       productId,
       db,
+      activeOnly,
     );
 
     if (!productLink) {
       throw new BadRequestException(
-        `No product link found for distributor ${distributorId} and product ${productId}`,
+        activeOnly
+          ? `Distributor ${distributorId} does not have an active product link for product ${productId}`
+          : `No product link found for distributor ${distributorId} and product ${productId}`,
       );
     }
 
@@ -68,5 +72,9 @@ export class PurchaseCommercialService {
     }
 
     return gatepassDate;
+  }
+
+  resolveGatepassDateFor(saleDate: Date, policy: GatepassDatePolicy): Date {
+    return this.resolveGatepassDate(saleDate, policy);
   }
 }

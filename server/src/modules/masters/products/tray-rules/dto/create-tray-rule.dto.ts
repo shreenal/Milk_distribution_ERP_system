@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsOptional } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsPositive } from 'class-validator';
 
 export class CreateTrayRuleDto {
   @IsOptional()
@@ -27,4 +27,8 @@ export class CreateTrayRuleDto {
   @IsOptional()
   @IsBoolean()
   is_active?: boolean;
+
+  @IsInt()
+  @IsPositive()
+  units_per_tray!: number;
 }

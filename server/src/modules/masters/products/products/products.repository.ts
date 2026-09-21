@@ -17,6 +17,7 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
+        product_order_unit: { include: { order_unit_type: true, }, },
       },
       orderBy: [
         {
@@ -46,6 +47,7 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
+        product_order_unit: { include: { order_unit_type: true, }, },
       },
       orderBy: [
         {
@@ -73,6 +75,7 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
+        product_order_unit: { include: { order_unit_type: true, }, },
       },
     });
   }
@@ -119,6 +122,11 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
+        product_order_unit: {
+          include: {
+            order_unit_type: true,
+          },
+        },
       },
     });
   }
@@ -139,6 +147,12 @@ export class ProductsRepository {
 
         master_product_type: true,
         master_packaging_type: true,
+
+        product_order_unit: {
+          include: {
+            order_unit_type: true,
+          },
+        },
 
         product_links: {
           where: {
@@ -176,80 +190,104 @@ export class ProductsRepository {
       return null;
     }
 
-    const [trayRules, procurementRules] = await Promise.all([
-      this.prisma.product_tray_rule.findMany({
-        where: {
-          is_active: true,
+    const [trayRules, procurementRules, distributorProductPriorities] =
+      await Promise.all([
+        this.prisma.product_tray_rule.findMany({
+          where: {
+            is_active: true,
 
-          OR: [
-            {
-              brand_id: null,
-            },
-            {
-              brand_id: product.brand_id,
-            },
-          ],
+            OR: [
+              {
+                brand_id: null,
+              },
+              {
+                brand_id: product.brand_id,
+              },
+            ],
 
-          AND: [
-            {
-              OR: [
-                { product_group_id: null },
-                { product_group_id: product.product_group_id },
-              ],
-            },
-            {
-              OR: [
-                { product_type_id: null },
-                { product_type_id: product.product_type_id },
-              ],
-            },
-            {
-              OR: [
-                { packaging_type_id: null },
-                { packaging_type_id: product.packaging_type_id },
-              ],
-            },
-          ],
-        },
+            AND: [
+              {
+                OR: [
+                  { product_group_id: null },
+                  { product_group_id: product.product_group_id },
+                ],
+              },
+              {
+                OR: [
+                  { product_type_id: null },
+                  { product_type_id: product.product_type_id },
+                ],
+              },
+              {
+                OR: [
+                  { packaging_type_id: null },
+                  { packaging_type_id: product.packaging_type_id },
+                ],
+              },
+            ],
+          },
 
-        include: {
-          master_brand: true,
-          master_product_group: true,
-          master_product_type: true,
-          master_packaging_type: true,
+          include: {
+            master_brand: true,
+            master_product_group: true,
+            master_product_type: true,
+            master_packaging_type: true,
 
-          master_tray_type: {
-            include: {
-              master_brand: true,
+            master_tray_type: {
+              include: {
+                master_brand: true,
+              },
             },
           },
-        },
-      }),
+        }),
 
-      this.prisma.distributor_procurement_rule.findMany({
-        where: {
-          is_active: true,
-          brand_id: product.brand_id,
-          product_group_id: product.product_group_id,
-          category: product.master_product_group.category,
-        },
+        this.prisma.distributor_procurement_rule.findMany({
+          where: {
+            is_active: true,
+            brand_id: product.brand_id,
+            product_group_id: product.product_group_id,
+            category: product.master_product_group.category,
+          },
 
-        include: {
-          master_distributor: true,
-          master_brand: true,
-          master_product_group: true,
-        },
+          include: {
+            master_distributor: true,
+            master_brand: true,
+            master_product_group: true,
+          },
 
-        orderBy: {
-          distributor_id: 'asc',
-        },
-      }),
-    ]);
+          orderBy: {
+            distributor_id: 'asc',
+          },
+        }),
+
+        this.prisma.distributor_product_priority.findMany({
+          where: {
+            product_id: product.id,
+            is_active: true,
+          },
+
+          include: {
+            group: true,
+            distributor: true,
+          },
+
+          orderBy: [
+            {
+              group_id: 'asc',
+            },
+            {
+              priority: 'asc',
+            },
+          ],
+        }),
+      ]);
 
     return {
       ...product,
 
       procurement_rules: procurementRules,
+
+      distributor_product_priorities: distributorProductPriorities,
 
       master_product_group: {
         ...product.master_product_group,

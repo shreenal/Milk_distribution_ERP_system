@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import type { ModuleMetadata } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { vi } from 'vitest';
 
@@ -79,12 +80,14 @@ export class MockPrismaService {
     findMany: vi.fn(),
   };
 
-  $transaction = vi.fn((callback) => callback(this));
+  $transaction = vi.fn(<T>(callback: (tx: MockPrismaService) => T): T =>
+    callback(this),
+  );
 }
 
 export async function createTestingModule(
-  imports: any[] = [],
-  providers: any[] = [],
+  imports: ModuleMetadata['imports'] = [],
+  providers: ModuleMetadata['providers'] = [],
 ) {
   const moduleFixture: TestingModule = await Test.createTestingModule({
     imports,

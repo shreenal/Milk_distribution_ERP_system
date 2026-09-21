@@ -13,7 +13,7 @@ const clientProductRateInclude = {
 
 @Injectable()
 export class ClientProductRatesRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.master_client_rate_product.findMany({
@@ -63,16 +63,12 @@ export class ClientProductRatesRepository {
         selling_rate: dto.selling_rate,
 
         ...(dto.effective_from !== undefined && {
-          effective_from: new Date(
-            `${dto.effective_from}T00:00:00.000Z`,
-          ),
+          effective_from: new Date(`${dto.effective_from}T00:00:00.000Z`),
         }),
 
         ...(dto.effective_to !== undefined && {
           effective_to: dto.effective_to
-            ? new Date(
-              `${dto.effective_to}T00:00:00.000Z`,
-            )
+            ? new Date(`${dto.effective_to}T00:00:00.000Z`)
             : null,
         }),
 
@@ -102,16 +98,12 @@ export class ClientProductRatesRepository {
         }),
 
         ...(dto.effective_from !== undefined && {
-          effective_from: new Date(
-            `${dto.effective_from}T00:00:00.000Z`,
-          ),
+          effective_from: new Date(`${dto.effective_from}T00:00:00.000Z`),
         }),
 
         ...(dto.effective_to !== undefined && {
           effective_to: dto.effective_to
-            ? new Date(
-              `${dto.effective_to}T00:00:00.000Z`,
-            )
+            ? new Date(`${dto.effective_to}T00:00:00.000Z`)
             : null,
         }),
 

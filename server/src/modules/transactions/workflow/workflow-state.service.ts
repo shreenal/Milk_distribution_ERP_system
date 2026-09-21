@@ -205,4 +205,14 @@ export class WorkflowStateService {
         );
     }
   }
+
+  resolveUseOrderedQuantity(
+    status: OrderPaperStatus,
+    morningEntrySaved: boolean,
+  ): boolean {
+    return (
+      status === OrderPaperStatus.DRAFT ||
+      (status === OrderPaperStatus.NIGHT_SUBMITTED && !morningEntrySaved)
+    );
+  }
 }

@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { CashSettlementRepository } from '../cash-settlement.repository.js';
 
@@ -16,6 +12,7 @@ import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 import { CashSettlementCalculationService } from '../../../../common/calculators/cash-settlement.calculator.js';
 
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
+import { OrderPaperStatus } from '../../../../generated/prisma/client.js';
 
 @Injectable()
 export class CashSettlementValidationService {
@@ -32,7 +29,7 @@ export class CashSettlementValidationService {
     );
 
     if (!paper) {
-      throw new NotFoundException(CASH_SETTLEMENT_ERRORS.PAPER_NOT_FOUND);
+      throw new BadRequestException(CASH_SETTLEMENT_ERRORS.PAPER_NOT_FOUND);
     }
 
     return paper;
@@ -194,6 +191,140 @@ export class CashSettlementValidationService {
           `Bank deposit ${label} count exceeds available cash. Available: ${available}, Deposited: ${deposited}`,
         );
       }
+    }
+  }
+
+  // cash-settlement-validation.service.ts
+  async validateReconciliationOnFinalize(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const paper = await this.getCashSettlementPaper(paperId, db);
+    if (paper.status !== OrderPaperStatus.REOPENED) return;
+
+    const totalRouteNetCash =
+      this.cashSettlementCalculationService.getTotalRouteNetCash(
+        paper.order_sheet,
+      );
+    const directCollectionCash =
+      this.cashSettlementCalculationService.getDenominationAmount(
+        this.cashSettlementCalculationService.getDenominationTotals(
+          paper.cash_direct_collections,
+        ),
+      );
+    const totalDeposits =
+      this.cashSettlementCalculationService.getDenominationAmount(
+        this.cashSettlementCalculationService.getDenominationTotals(
+          paper.cash_bank_deposits,
+        ),
+      );
+    const routeDenominationRows = paper.order_sheet
+      .map((s) => s.cash_route_settlement)
+      .filter((s): s is NonNullable<typeof s> => s !== null);
+    const historicalRouteDenominationCash =
+      this.cashSettlementCalculationService.getDenominationAmount(
+        this.cashSettlementCalculationService.getDenominationTotals(
+          routeDenominationRows,
+        ),
+      );
+
+    const revisedOfficeCash =
+      this.cashSettlementCalculationService.getRevisedCashBeforeDeposits(
+        totalRouteNetCash,
+        directCollectionCash,
+      );
+    const revisedCashOnHand =
+      this.cashSettlementCalculationService.getRevisedCashOnHand(
+        revisedOfficeCash,
+        totalDeposits,
+      );
+    const historicalCashOnHand =
+      this.cashSettlementCalculationService.getHistoricalCashOnHand(
+        historicalRouteDenominationCash,
+        directCollectionCash,
+        totalDeposits,
+      );
+    const difference =
+      this.cashSettlementCalculationService.getReconciliationDifference(
+        revisedCashOnHand,
+        historicalCashOnHand,
+      );
+
+    if (difference !== 0) {
+      throw new BadRequestException(
+        `Cash settlement no longer reconciles after reopening (difference: ₹${difference.toFixed(2)}). ` +
+          `Route denominations must be re-entered before finalizing.`,
+      );
+    }
+  }
+
+  // cash-settlement-validation.service.ts
+  async validateSheetsBelongToPaper(
+    paperId: number,
+    sheetIds: number[],
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const uniqueIds = [...new Set(sheetIds)];
+    const sheets = await db.order_sheet.findMany({
+      where: { id: { in: uniqueIds }, order_paper_id: paperId },
+      select: { id: true },
+    });
+    const validIds = new Set(sheets.map((s) => s.id));
+    const invalid = uniqueIds.filter((id) => !validIds.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Sheet(s) ${invalid.join(', ')} do not belong to paper ${paperId}`,
+      );
+    }
+  }
+
+  validateNoDuplicateEmployees(entries: { employeeId: number }[]): void {
+    const seen = new Set<number>();
+    const duplicates: number[] = [];
+    for (const e of entries) {
+      if (seen.has(e.employeeId)) duplicates.push(e.employeeId);
+      seen.add(e.employeeId);
+    }
+    if (duplicates.length > 0) {
+      throw new BadRequestException(
+        `Duplicate employee entries found: ${duplicates.join(', ')}. Each employee can only appear once per save.`,
+      );
+    }
+  }
+
+  async validateExpenseTypesExist(
+    expenseTypeIds: number[],
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const uniqueIds = [...new Set(expenseTypeIds)];
+    const found = await db.master_expense_type.findMany({
+      where: { id: { in: uniqueIds }, is_active: true },
+      select: { id: true },
+    });
+    const validIds = new Set(found.map((f) => f.id));
+    const invalid = uniqueIds.filter((id) => !validIds.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Invalid or inactive expense type(s): ${invalid.join(', ')}`,
+      );
+    }
+  }
+
+  async validateBanksExist(
+    bankIds: number[],
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const uniqueIds = [...new Set(bankIds)];
+    const found = await db.master_bank.findMany({
+      where: { id: { in: uniqueIds }, is_active: true },
+      select: { id: true },
+    });
+    const validIds = new Set(found.map((f) => f.id));
+    const invalid = uniqueIds.filter((id) => !validIds.has(id));
+    if (invalid.length > 0) {
+      throw new BadRequestException(
+        `Invalid or inactive bank(s): ${invalid.join(', ')}`,
+      );
     }
   }
 }

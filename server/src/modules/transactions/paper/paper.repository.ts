@@ -6,7 +6,7 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class PaperRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAllPapers(db: PrismaOrTransaction = this.prisma) {
     return db.order_paper.findMany({
@@ -30,7 +30,21 @@ export class PaperRepository {
       },
 
       include: {
-        order_sheet: true,
+        order_sheet: {
+          include: {
+            master_group: {
+              select: {
+                id: true,
+                name: true,
+                delivery_session: true,
+              },
+            },
+          },
+
+          orderBy: {
+            id: 'asc',
+          },
+        },
       },
     });
   }
@@ -47,10 +61,7 @@ export class PaperRepository {
     });
   }
 
-  async findPaperById(
-    paperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
+  async findPaperById(paperId: number, db: PrismaOrTransaction = this.prisma) {
     return db.order_paper.findUnique({
       where: {
         id: paperId,
@@ -243,6 +254,8 @@ export class PaperRepository {
 
 function resolvePaperSaleDate(orderDate: Date): Date {
   const saleDate = new Date(orderDate);
-  saleDate.setDate(saleDate.getDate() + 1);
+
+  saleDate.setUTCDate(saleDate.getUTCDate() + 1);
+
   return saleDate;
 }

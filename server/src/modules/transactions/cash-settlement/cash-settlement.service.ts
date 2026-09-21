@@ -11,6 +11,8 @@ import { SaveBankDepositsDto } from './dto/save-bank-deposit.dto.js';
 import { CashSettlementValidationService } from './services/cash-settlement-validation.service.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
+import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 
 @Injectable()
 export class CashSettlementService {
@@ -58,25 +60,44 @@ export class CashSettlementService {
       paperId,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      const expensesBySheet = new Map<number, typeof dto.expenses>();
+    await this.cashSettlementValidationService.validateSheetsBelongToPaper(
+      paperId,
+      dto.expenses.map((e) => e.sheetId),
+      this.prisma,
+    );
 
-      for (const expense of dto.expenses) {
-        const existing = expensesBySheet.get(expense.sheetId) ?? [];
+    await this.cashSettlementValidationService.validateExpenseTypesExist(
+      dto.expenses.map((e) => e.expenseTypeId),
+      this.prisma,
+    );
 
-        existing.push(expense);
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          const expensesBySheet = new Map<number, typeof dto.expenses>();
 
-        expensesBySheet.set(expense.sheetId, existing);
-      }
+          for (const expense of dto.expenses) {
+            const existing = expensesBySheet.get(expense.sheetId) ?? [];
 
-      for (const [sheetId, expenses] of expensesBySheet) {
-        await this.repository.replaceRouteExpenses(sheetId, expenses, tx);
-      }
+            existing.push(expense);
 
-      return {
-        success: true,
-      };
-    });
+            expensesBySheet.set(expense.sheetId, existing);
+          }
+
+          for (const [sheetId, expenses] of expensesBySheet) {
+            await this.repository.replaceRouteExpenses(sheetId, expenses, tx);
+          }
+
+          return {
+            success: true,
+          };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async saveRouteDenominationsService(
@@ -87,15 +108,29 @@ export class CashSettlementService {
       paperId,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      for (const denomination of dto.denominations) {
-        await this.repository.saveRouteDenomination(denomination, tx);
-      }
+    await this.cashSettlementValidationService.validateSheetsBelongToPaper(
+      paperId,
+      dto.denominations.map((e) => e.sheetId),
+      this.prisma,
+    );
 
-      return {
-        success: true,
-      };
-    });
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          for (const denomination of dto.denominations) {
+            await this.repository.saveRouteDenomination(denomination, tx);
+          }
+
+          return {
+            success: true,
+          };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async saveDirectCollectionsService(
@@ -106,17 +141,29 @@ export class CashSettlementService {
       paperId,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.repository.replaceDirectCollections(
-        paperId,
-        dto.directCollections,
-        tx,
-      );
+    this.cashSettlementValidationService.validateNoDuplicateEmployees(
+      dto.directCollections,
+    );
 
-      return {
-        success: true,
-      };
-    });
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          await this.repository.replaceDirectCollections(
+            paperId,
+            dto.directCollections,
+            tx,
+          );
+
+          return {
+            success: true,
+          };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 
   async saveBankDepositsService(paperId: number, dto: SaveBankDepositsDto) {
@@ -124,12 +171,29 @@ export class CashSettlementService {
       paperId,
     );
 
-    return this.prisma.$transaction(async (tx) => {
-      await this.repository.replaceBankDeposits(paperId, dto.bankDeposits, tx);
+    await this.cashSettlementValidationService.validateBanksExist(
+      dto.bankDeposits.map((d) => d.bankId),
+      this.prisma,
+    );
 
-      return {
-        success: true,
-      };
-    });
+    return withSerializableRetry(() =>
+      this.prisma.$transaction(
+        async (tx) => {
+          await this.repository.replaceBankDeposits(
+            paperId,
+            dto.bankDeposits,
+            tx,
+          );
+
+          return {
+            success: true,
+          };
+        },
+        {
+          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        },
+      ),
+    );
   }
 }

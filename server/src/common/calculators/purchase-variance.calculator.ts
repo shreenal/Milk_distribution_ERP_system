@@ -18,14 +18,22 @@ export class PurchaseVarianceCalculator {
     purchasedQty: number,
   ): PurchaseVarianceResult {
     const variance = purchasedQty - allocatedQty;
+    const hasVariance = variance !== 0;
 
-    const variancePercentage =
-      allocatedQty === 0
-        ? 0
-        : Number(((Math.abs(variance) / allocatedQty) * 100).toFixed(2));
+    let variancePercentage: number;
+    if (allocatedQty === 0) {
+      // Purchased against zero allocation is the most severe case, not "no
+      // variance" — percentage-of-allocated is undefined here, so treat any
+      // nonzero purchase as maximal variance rather than silently reading 0%.
+      variancePercentage = purchasedQty === 0 ? 0 : 100;
+    } else {
+      variancePercentage = Number(
+        ((Math.abs(variance) / allocatedQty) * 100).toFixed(2),
+      );
+    }
 
     return {
-      hasVariance: variance !== 0,
+      hasVariance,
       variance,
       variancePercentage,
       severity: this.calculateSeverity(variancePercentage),

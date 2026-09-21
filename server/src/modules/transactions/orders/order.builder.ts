@@ -2,14 +2,19 @@ import { Injectable } from '@nestjs/common';
 import { ProductColumnsBuilder } from '../../../common/builders/product-columns.builder.js';
 import { BillingRow, OrderBillingInput } from '../../../types/order.types.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
+import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
 @Injectable()
 export class OrdersBuilder {
-  constructor(private readonly productColumnsBuilder: ProductColumnsBuilder) {}
+  constructor(
+    private readonly productColumnsBuilder: ProductColumnsBuilder,
+    private readonly workflowState: WorkflowStateService,
+  ) {}
 
   buildOrderBillingSection(
     input: OrderBillingInput,
     paperStatus: OrderPaperStatus,
+    morningEntrySaved: boolean,
   ) {
     const {
       milkProducts,
@@ -30,22 +35,32 @@ export class OrdersBuilder {
     );
 
     const milkProductIds = new Set(milkProducts.map((p) => p.id));
-
     const nonMilkProductIds = new Set(nonMilkProducts.map((p) => p.id));
 
-    const milkRows: BillingRow[] = [];
+    const itemsByClientId = new Map<number, typeof sheetItems>();
 
+    for (const item of sheetItems) {
+      const list = itemsByClientId.get(item.client_id);
+
+      if (list) {
+        list.push(item);
+      } else {
+        itemsByClientId.set(item.client_id, [item]);
+      }
+    }
+
+    const milkRows: BillingRow[] = [];
     const nonMilkRows: BillingRow[] = [];
 
     let milkTotalNightBillAmount = 0;
-
     let milkTotalFinalBillAmount = 0;
-
     let nonMilkTotalNightBillAmount = 0;
-
     let nonMilkTotalFinalBillAmount = 0;
 
-    const useOrderedQuantity = paperStatus === OrderPaperStatus.DRAFT;
+    const useOrderedQuantity = this.workflowState.resolveUseOrderedQuantity(
+      paperStatus,
+      morningEntrySaved,
+    );
 
     for (const client of milkClients) {
       const milkRow: BillingRow = {
@@ -54,9 +69,7 @@ export class OrdersBuilder {
         billAmount: 0,
       };
 
-      const clientItems = sheetItems.filter(
-        (item) => item.client_id === client.id,
-      );
+      const clientItems = itemsByClientId.get(client.id) ?? [];
 
       let milkNightBillAmount = 0;
       let milkFinalBillAmount = 0;
@@ -64,6 +77,7 @@ export class OrdersBuilder {
       for (const item of clientItems) {
         if (milkProductIds.has(item.product_id)) {
           const key = `product_${item.product_id}`;
+
           const quantity = useOrderedQuantity
             ? Number(item.ordered_qty ?? 0)
             : Number(item.delivered_qty ?? 0);
@@ -92,9 +106,7 @@ export class OrdersBuilder {
         billAmount: 0,
       };
 
-      const clientItems = sheetItems.filter(
-        (item) => item.client_id === client.id,
-      );
+      const clientItems = itemsByClientId.get(client.id) ?? [];
 
       let nonMilkNightBillAmount = 0;
       let nonMilkFinalBillAmount = 0;

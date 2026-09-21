@@ -2,34 +2,13 @@ import {
   DeliverySession,
   Prisma,
   SupplyCategory,
-  PurchaseVarianceReason,
 } from '../generated/prisma/client.js';
 import { ProductColumnNode } from '../common/builders/product-columns.builder.js';
-
-export type Product = Prisma.master_productGetPayload<{
-  include: {
-    master_brand: true;
-    master_product_group: true;
-    master_product_type: true;
-    master_packaging_type: true;
-  };
-}>;
-
-export type OrderItemWithSupplyContext = {
-  groupId: number;
-  groupName: string;
-  productId: number;
-  orderedQty: number;
-  distributorId: number;
-  category: SupplyCategory;
-  master_product: Product;
-};
-
-export type SummaryRow = {
-  groupId: number;
-  groupName: string;
-  [key: string]: string | number;
-};
+export type {
+  OrderItemWithSupplyContext,
+  Product,
+  SummaryRow,
+} from '../common/builders/allocation-summary.builder.js';
 
 export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
   include: {
@@ -48,13 +27,26 @@ export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
   };
 }>;
 
-export type PurchaseEntry = Prisma.purchase_entryGetPayload<{}>;
+export type PurchaseEntry = Prisma.purchase_entryGetPayload<{
+  select: {
+    product_id: true;
+    distributor_id: true;
+    category: true;
+    vehicle_id: true;
+    delivery_session: true;
+    purchased_qty: true;
+    purchase_rate: true;
+    purchase_amount: true;
+    source_allocation_id: true;
+    source_allocated_qty: true;
+  };
+}>;
 
 export type PurchaseRow = {
   vehicleId: number;
   vehicleName: string | null;
   deliverySession: DeliverySession;
-  [key: string]: string | number | null | PurchaseVarianceMetadata;
+  [key: string]: string | number | null | PurchaseVarianceMetadata | boolean;
 };
 
 export type PurchaseGridItem = {
@@ -85,6 +77,7 @@ export type PurchaseRateDefault = {
   vehicleId: number;
   productId: number;
   purchaseRate: number;
+  pricingQuantity: number;
   deliverySession: DeliverySession;
 };
 
@@ -105,30 +98,6 @@ export type VehicleAssignment = {
   };
 };
 
-export type PurchaseVarianceAcknowledgement =
-  Prisma.purchase_variance_acknowledgementGetPayload<{
-    include: {
-      purchase_entry: {
-        select: {
-          id: true;
-          distributor_id: true;
-          category: true;
-          vehicle_id: true;
-          product_id: true;
-          delivery_session: true;
-        };
-      };
-      user: {
-        select: {
-          id: true;
-          username: true;
-          first_name: true;
-          last_name: true;
-        };
-      };
-    };
-  }>;
-
 export enum PurchaseVarianceSeverity {
   NONE = 'NONE',
   LOW = 'LOW',
@@ -140,11 +109,8 @@ export enum PurchaseVarianceSeverity {
 export type PurchaseVarianceMetadata = {
   allocatedQty: number;
   purchasedQty: number;
-
   hasVariance: boolean;
   variance: number;
   variancePercentage: number;
   severity: PurchaseVarianceSeverity;
-
-  acknowledgement: PurchaseVarianceAcknowledgement | null;
 };

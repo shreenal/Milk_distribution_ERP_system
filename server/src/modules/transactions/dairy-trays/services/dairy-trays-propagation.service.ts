@@ -25,27 +25,48 @@ export class DairyTraysPropagationService {
     startPaperId: number,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
-    let currentPaperId: number | null = startPaperId;
+    const startPaper = await this.dairyTraysRepository.findPaperById(
+      startPaperId,
+      tx,
+    );
+
+    if (!startPaper) {
+      throw new NotFoundException(`Order paper ${startPaperId} not found`);
+    }
+
+    // Only the paper whose own purchase entries actually changed gets a
+    // full recompute of trays_taken.
+    await this.recalculatePaper(startPaperId, tx);
+
+    // Every paper after it only inherits the shifted opening balance —
+    // their own trays_taken/trays_returned must never be touched by
+    // someone else's correction or by tray-rule drift since they were
+    // last finalized.
+    let currentPaperId: number | null =
+      (
+        await this.dairyTraysRepository.getNextPaper(
+          startPaper.id,
+          startPaper.sale_date,
+          tx,
+        )
+      )?.id ?? null;
 
     while (currentPaperId !== null) {
+      await this.cascadeOpeningBalance(currentPaperId, tx);
+
       const paper = await this.dairyTraysRepository.findPaperById(
         currentPaperId,
         tx,
       );
 
-      if (!paper) {
-        throw new NotFoundException(`Order paper ${currentPaperId} not found`);
-      }
-
-      await this.recalculatePaper(currentPaperId, tx);
-
-      const nextPaper = await this.dairyTraysRepository.getNextPaper(
-        paper.id,
-        paper.sale_date,
-        tx,
-      );
-
-      currentPaperId = nextPaper?.id ?? null;
+      currentPaperId =
+        (
+          await this.dairyTraysRepository.getNextPaper(
+            paper!.id,
+            paper!.sale_date,
+            tx,
+          )
+        )?.id ?? null;
     }
   }
 
@@ -145,16 +166,16 @@ export class DairyTraysPropagationService {
     const traysTakenMap = new Map<string, number>();
 
     for (const entry of purchaseEntries) {
-      const trayRule = this.trayCalculationService.resolveTrayRule(
-        entry.master_product,
+      const trayTypeId = this.trayCalculationService.resolveFrozenTrayTypeId(
+        entry,
         trayRules,
       );
 
-      if (!trayRule) {
+      if (trayTypeId === null) {
         continue;
       }
 
-      const key = `${entry.vehicle_id}_${entry.delivery_session}_${trayRule.tray_type_id}`;
+      const key = `${entry.vehicle_id}_${entry.delivery_session}_${trayTypeId}`;
 
       const currentTaken = traysTakenMap.get(key) ?? 0;
 
@@ -279,6 +300,101 @@ export class DairyTraysPropagationService {
      * trays_returned has already been copied from the existing
      * transactions, so manual return values are preserved.
      */
+    await this.dairyTraysRepository.replaceTrayTransactions(
+      dairyTrayPaper.id,
+      transactions,
+      tx,
+    );
+  }
+
+  private async cascadeOpeningBalance(
+    paperId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const paper = await this.dairyTraysRepository.findPaperById(paperId, tx);
+    if (!paper) {
+      throw new NotFoundException(`Order paper ${paperId} not found`);
+    }
+
+    const dairyTrayPaper =
+      await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
+        paperId,
+        tx,
+      );
+
+    if (!dairyTrayPaper) {
+      return; // nothing recorded for this paper yet — nothing to cascade
+    }
+
+    const existingTransactions =
+      await this.dairyTraysRepository.getCurrentTrayTransactions(
+        dairyTrayPaper.id,
+        tx,
+      );
+
+    if (existingTransactions.length === 0) {
+      return;
+    }
+
+    const previousPaper = await this.dairyTraysRepository.getPreviousPaper(
+      paper.id,
+      paper.sale_date,
+      tx,
+    );
+
+    const previousClosingMap = new Map<string, number>();
+
+    if (previousPaper) {
+      const previousDairyTrayPaper =
+        await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
+          previousPaper.id,
+          tx,
+        );
+
+      if (previousDairyTrayPaper) {
+        const previousTransactions =
+          await this.dairyTraysRepository.getPreviousTrayBalances(
+            previousDairyTrayPaper.id,
+            tx,
+          );
+
+        for (const transaction of previousTransactions) {
+          const key = `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`;
+          previousClosingMap.set(key, Number(transaction.closing_balance ?? 0));
+        }
+      }
+    }
+
+    // trays_taken and trays_returned are NOT recomputed here — this paper's
+    // own purchase entries haven't changed. Only the opening balance
+    // inherited from the previous paper has, so only opening/closing shift.
+    const transactions: Prisma.dairy_tray_transactionCreateManyInput[] =
+      existingTransactions.map((transaction) => {
+        const key = `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`;
+        const openingBalance = previousClosingMap.get(key) ?? 0;
+        const traysTaken = Number(transaction.trays_taken ?? 0);
+        const traysReturned = Number(transaction.trays_returned ?? 0);
+
+        return {
+          dairy_tray_paper_id: dairyTrayPaper.id,
+          vehicle_id: transaction.vehicle_id,
+          tray_type_id: transaction.tray_type_id,
+          delivery_session: transaction.delivery_session,
+          opening_balance: openingBalance,
+          trays_taken: traysTaken,
+          trays_returned: traysReturned,
+          closing_balance: this.trayCalculationService.calculateClosingBalance(
+            openingBalance,
+            traysTaken,
+            traysReturned,
+          ),
+        };
+      });
+
+    if (transactions.length === 0) {
+      return;
+    }
+
     await this.dairyTraysRepository.replaceTrayTransactions(
       dairyTrayPaper.id,
       transactions,
