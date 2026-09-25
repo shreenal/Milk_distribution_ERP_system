@@ -3,14 +3,18 @@ import { OrdersRepository } from '.././orders.repository.js';
 import { ERROR_MESSAGES, QUANTITY_PRECISION } from './../orders.constants.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
-import { ProductTrayRule, TrayRuleProduct } from '../../../../types/tray.types.js';
+import {
+  ProductTrayRule,
+  TrayRuleProduct,
+} from '../../../../types/tray.types.js';
 
 @Injectable()
 export class OrdersValidationService {
   private readonly logger = new Logger(OrdersValidationService.name);
   constructor(
     private readonly ordersRepository: OrdersRepository,
-    private readonly trayCalculationService: TrayCalculationService,) { }
+    private readonly trayCalculationService: TrayCalculationService,
+  ) {}
 
   async validateProduct(productId: number, db: PrismaOrTransaction) {
     const product = await db.master_product.findUnique({
@@ -34,110 +38,6 @@ export class OrdersValidationService {
     }
 
     return product;
-  }
-
-  async validateClient(clientId: number, db: PrismaOrTransaction) {
-    const client = await db.master_client.findUnique({
-      where: { id: clientId },
-      select: {
-        id: true,
-        name: true,
-        is_active: true,
-      },
-    });
-
-    if (!client) {
-      throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
-    }
-
-    if (!client.is_active) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.CLIENT_INACTIVE(client.name),
-      );
-    }
-
-    return client;
-  }
-
-  async validateClientInGroup(
-    clientId: number,
-    groupId: number,
-    db: PrismaOrTransaction,
-  ) {
-    const client = await db.master_client.findUnique({
-      where: { id: clientId },
-      select: {
-        id: true,
-        delivery_group_id: true,
-      },
-    });
-
-    if (!client) {
-      throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
-    }
-
-    if (client.delivery_group_id !== groupId) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(clientId, groupId),
-      );
-    }
-
-    return client;
-  }
-
-  async validateClientCanBuyProductCategory(
-    clientId: number,
-    productId: number,
-    db: PrismaOrTransaction,
-  ) {
-    const client = await db.master_client.findUnique({
-      where: { id: clientId },
-      select: {
-        id: true,
-        name: true,
-        categories: {
-          select: {
-            category: true,
-          },
-        },
-      },
-    });
-
-    if (!client) {
-      throw new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(clientId));
-    }
-
-    const product = await db.master_product.findUnique({
-      where: { id: productId },
-      select: {
-        id: true,
-        master_product_group: {
-          select: {
-            category: true,
-          },
-        },
-      },
-    });
-
-    if (!product) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.PRODUCT_NOT_FOUND(productId),
-      );
-    }
-
-    const productCategory = product.master_product_group.category;
-
-    const isAllowed = client.categories.some(
-      (entry) => entry.category === productCategory,
-    );
-
-    if (!isAllowed) {
-      throw new BadRequestException(
-        `Client "${client.name}" is not authorized to purchase ${productCategory} products`,
-      );
-    }
-
-    return true;
   }
 
   validateNoDuplicates(
@@ -297,6 +197,7 @@ export class OrdersValidationService {
     entries: { clientId: number; productId: number }[],
     groupId: number,
     db: PrismaOrTransaction,
+    checkCategoryAuthorization = true,
   ) {
     const clientIds = [...new Set(entries.map((e) => e.clientId))];
     const productIds = [...new Set(entries.map((e) => e.productId))];
@@ -326,7 +227,7 @@ export class OrdersValidationService {
               category: true,
             },
           },
-        }
+        },
       }),
     ]);
 
@@ -364,13 +265,15 @@ export class OrdersValidationService {
       }
 
       const productCategory = product.master_product_group.category;
-      const isAllowed = client.categories.some(
-        (c) => c.category === productCategory,
-      );
-      if (!isAllowed) {
-        throw new BadRequestException(
-          `Client "${client.name}" is not authorized to purchase ${productCategory} products`,
+      if (checkCategoryAuthorization) {
+        const isAllowed = client.categories.some(
+          (c) => c.category === productCategory,
         );
+        if (!isAllowed) {
+          throw new BadRequestException(
+            `Client "${client.name}" is not authorized to purchase ${productCategory} products`,
+          );
+        }
       }
     }
 

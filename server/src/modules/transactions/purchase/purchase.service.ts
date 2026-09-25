@@ -13,7 +13,6 @@ import { AllocationSummaryBuilder } from '../../../common/builders/allocation-su
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 
 import { OrderItemsRepository } from '../../../common/repositories/order-items.repository.js';
-import { VehicleAssignment } from '../../../types/purchase.types.js';
 import { PURCHASE_ERROR_MESSAGES } from './purchase.constants.js';
 
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
@@ -25,11 +24,26 @@ import {
   DEPENDENCY_MODULES,
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
-import { DeliverySession, PricingUnit, Prisma } from '../../../generated/prisma/client.js';
+import {
+  DeliverySession,
+  PricingUnit,
+  Prisma,
+} from '../../../generated/prisma/client.js';
 import { DairyTraysRepository } from '../dairy-trays/dairy-trays.repository.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js'; // or wherever it currently lives
+// FIX F1 (consistency review): shared with purchase.builder.ts,
+// purchase.repository.ts and vehicle-allocation.repository.ts instead of a
+// locally-defined `rowKey`.
+import { buildPurchaseKey } from '../../../common/utils/allocation-key.util.js';
+// FIX F10 (consistency review): shared with vehicle-allocation.service.ts
+// instead of each service hand-rolling its own "touch if unchanged, else
+// 409" flow.
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Purchase data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class PurchaseService {
@@ -57,32 +71,11 @@ export class PurchaseService {
     private readonly dependencyOrchestrator: DependencyOrchestratorService,
     private readonly trayCalculationService: TrayCalculationService,
     private readonly dairyTraysRepository: DairyTraysRepository,
-  ) { }
+  ) {}
 
-  private rowKey(entry: {
-    vehicle_id?: number;
-    vehicleId?: number;
-    distributor_id?: number;
-    distributorId?: number;
-    category: string;
-    product_id?: number;
-    productId?: number;
-    delivery_session?: DeliverySession;
-    deliverySession?: DeliverySession;
-  }): string {
-    const vehicleId = entry.vehicle_id ?? entry.vehicleId;
-    const distributorId = entry.distributor_id ?? entry.distributorId;
-    const productId = entry.product_id ?? entry.productId;
-    const deliverySession = entry.delivery_session ?? entry.deliverySession;
+  // FIX F1 (consistency review): getPurchases()/savePurchases() below now
+  // call the shared `buildPurchaseKey` instead of this method.
 
-    return `${vehicleId}_${distributorId}_${entry.category}_${productId}_${deliverySession}`;
-  }
-
-  // FIX F8: the entire read is now a single transaction (defaulting to
-  // Prisma's `ReadCommitted`, upgraded to `RepeatableRead` here) so the
-  // response is built from one consistent snapshot instead of ~7
-  // sequential statements that could each observe a different committed
-  // state if a save happens mid-read.
   async getPurchases(paperId: number) {
     return this.prisma.$transaction(
       async (tx) => {
@@ -97,20 +90,6 @@ export class PurchaseService {
           );
         }
 
-        const vehicleAssignments: VehicleAssignment[] =
-          await this.purchaseRepository.findVehicleAssignmentsByPaperId(
-            paperId,
-            tx,
-          );
-
-        if (vehicleAssignments.length === 0) {
-          throw new BadRequestException(
-            PURCHASE_ERROR_MESSAGES.NO_VEHICLE_ASSIGNMENTS,
-          );
-        }
-
-        const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
-
         const workflow = this.workflowBuilder.buildPurchasesWorkflow(
           paper.status,
         );
@@ -122,11 +101,6 @@ export class PurchaseService {
           );
 
         const summaries = this.allocationSummaryBuilder.build(orderItems);
-
-        const grids = this.purchaseBuilder.buildPurchaseGrids(
-          summaries,
-          vehicleAssignments,
-        );
 
         const allocations =
           await this.purchaseRepository.findVehicleAllocationsByPaperId(
@@ -140,6 +114,11 @@ export class PurchaseService {
           );
         }
 
+        const grids = this.purchaseBuilder.buildPurchaseGrids(
+          summaries,
+          allocations,
+        );
+
         const allocationResult = this.purchaseBuilder.applyVehicleAllocations(
           grids,
           allocations,
@@ -152,9 +131,9 @@ export class PurchaseService {
 
         const purchaseEntries = purchasePaper
           ? await this.purchaseRepository.findPurchaseEntries(
-            purchasePaper.id,
-            tx,
-          )
+              purchasePaper.id,
+              tx,
+            )
           : [];
 
         // FIX F4: only resolve a LIVE default rate for allocation rows that
@@ -165,7 +144,7 @@ export class PurchaseService {
         // reading historical data (previously this threw for the whole
         // endpoint).
         const purchasedRowKeys = new Set(
-          purchaseEntries.map((entry) => this.rowKey(entry)),
+          purchaseEntries.map((entry) => buildPurchaseKey(entry)),
         );
 
         const allocationsNeedingLiveRate = allocations.filter((allocation) => {
@@ -175,35 +154,19 @@ export class PurchaseService {
             );
           }
           return !purchasedRowKeys.has(
-            this.rowKey({
-              vehicle_id: allocation.vehicle_id,
-              distributor_id: allocation.distributor_id,
+            buildPurchaseKey({
+              vehicleId: allocation.vehicle_id,
+              distributorId: allocation.distributor_id,
               category: allocation.category,
-              product_id: allocation.product_id,
-              delivery_session:
+              productId: allocation.product_id,
+              deliverySession:
                 allocation.vehicle_allocation_paper.delivery_session,
             }),
           );
         });
 
         // Validate assignments up front (no query needed, already in memory)
-        const validatedAllocations = allocationsNeedingLiveRate.map(
-          (allocation) => {
-            const key = `${allocation.vehicle_id}_${allocation.category}_${allocation.vehicle_allocation_paper.delivery_session}`;
-            const assignment = assignmentMap.get(key);
-            if (
-              !assignment ||
-              assignment.distributor_id !== allocation.distributor_id
-            ) {
-              throw new BadRequestException(
-                PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(
-                  allocation.vehicle_id,
-                ),
-              );
-            }
-            return allocation;
-          },
-        );
+        const validatedAllocations = allocationsNeedingLiveRate;
 
         // Batch-fetch product links
         const linkMap = await this.purchaseRepository.getProductLinksBatch(
@@ -284,8 +247,11 @@ export class PurchaseService {
           allocations,
         );
 
+        const totalsResult =
+          this.purchaseBuilder.applyPurchaseTotals(entriesResult);
+
         const finalResult = this.purchaseBuilder.applyVarianceMetadata(
-          entriesResult,
+          totalsResult,
           allocations,
           purchaseEntries,
         );
@@ -312,7 +278,13 @@ export class PurchaseService {
         );
 
         return {
-          paper,
+          // FIX F2/F5 (consistency review): the full order_paper record used
+          // to be returned here as `paper`, duplicating `status` against
+          // `workflow.status` and duplicating data the frontend already has
+          // via PaperContext (fetched separately from GET /papers/:id).
+          // Nothing in the reviewed PurchasePage code reads `data.paper`, so
+          // it's dropped; `workflow` already carries the status this
+          // endpoint needs to expose.
           workflow,
           hasPurchaseEntries: purchaseEntries.length > 0,
           hasStaleRows,
@@ -360,22 +332,21 @@ export class PurchaseService {
 
           if (dto.expectedUpdatedAt) {
             if (!existingPurchasePaper) {
-              throw new ConflictException(
-                'Purchase data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.',
-              );
+              throw new ConflictException(STALE_DATA_MESSAGE);
             }
 
-            const stillCurrent = await this.purchaseRepository.touchPurchasePaperIfUnchanged(
-              existingPurchasePaper.id,
-              new Date(dto.expectedUpdatedAt),
-              tx,
+            // FIX F10 (consistency review): shared touch-if-unchanged
+            // helper instead of an inline boolean check duplicated with
+            // vehicle-allocation.service.ts.
+            await assertNotStale(
+              () =>
+                this.purchaseRepository.touchPurchasePaperIfUnchanged(
+                  existingPurchasePaper.id,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
             );
-
-            if (!stillCurrent) {
-              throw new ConflictException(
-                'Purchase data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.',
-              );
-            }
           }
 
           await this.purchaseValidationService.validatePurchases(
@@ -399,14 +370,6 @@ export class PurchaseService {
               tx,
             );
 
-          const vehicleAssignments: VehicleAssignment[] =
-            await this.purchaseRepository.findVehicleAssignmentsByPaperId(
-              paperId,
-              tx,
-            );
-
-          const assignmentMap = buildVehicleAssignmentMap(vehicleAssignments);
-
           const allocationMap = new Map<string, (typeof allocations)[number]>();
 
           for (const allocation of allocations) {
@@ -420,36 +383,35 @@ export class PurchaseService {
             }
 
             allocationMap.set(
-              `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`,
+              buildPurchaseKey({
+                vehicleId: allocation.vehicle_id,
+                distributorId: allocation.distributor_id,
+                category: allocation.category,
+                productId: allocation.product_id,
+                deliverySession:
+                  allocation.vehicle_allocation_paper.delivery_session,
+              }),
               allocation,
             );
           }
 
           const existingEntries = purchasePaper.id
             ? await this.purchaseRepository.findPurchaseEntries(
-              purchasePaper.id,
-              tx,
-            )
+                purchasePaper.id,
+                tx,
+              )
             : [];
 
           const existingEntryMap = new Map(
-            existingEntries.map((entry) => [this.rowKey(entry), entry]),
+            existingEntries.map((entry) => [buildPurchaseKey(entry), entry]),
           );
 
           const incomingKeys = new Set(
-            entries.map((entry) =>
-              this.rowKey({
-                vehicleId: entry.vehicleId,
-                distributorId: entry.distributorId,
-                category: entry.category,
-                productId: entry.productId,
-                deliverySession: entry.deliverySession,
-              }),
-            ),
+            entries.map((entry) => buildPurchaseKey(entry)),
           );
 
           const entriesAboutToBeDropped = existingEntries.filter(
-            (entry) => !incomingKeys.has(this.rowKey(entry)),
+            (entry) => !incomingKeys.has(buildPurchaseKey(entry)),
           );
 
           if (entriesAboutToBeDropped.length > 0 && !dto.confirmDeletions) {
@@ -468,28 +430,13 @@ export class PurchaseService {
           }
 
           const validatedEntries = entries.map((entry) => {
-            const allocation = allocationMap.get(
-              `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}_${entry.deliverySession}`,
-            );
+            const allocation = allocationMap.get(buildPurchaseKey(entry));
+
             if (!allocation) {
               throw new BadRequestException(
                 PURCHASE_ERROR_MESSAGES.ALLOCATION_NOT_FOUND(
                   entry.vehicleId,
                   entry.productId,
-                ),
-              );
-            }
-
-            const assignment = assignmentMap.get(
-              `${entry.vehicleId}_${entry.category}_${entry.deliverySession}`,
-            );
-            if (
-              !assignment ||
-              assignment.distributor_id !== entry.distributorId
-            ) {
-              throw new BadRequestException(
-                PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(
-                  entry.vehicleId,
                 ),
               );
             }
@@ -545,13 +492,7 @@ export class PurchaseService {
               }
 
               const existingEntry = existingEntryMap.get(
-                this.rowKey({
-                  vehicleId: entry.vehicleId,
-                  distributorId: entry.distributorId,
-                  category: entry.category,
-                  productId: entry.productId,
-                  deliverySession: entry.deliverySession,
-                }),
+                buildPurchaseKey(entry),
               );
 
               const purchaseRate = existingEntry
@@ -592,13 +533,13 @@ export class PurchaseService {
 
               const trayTypeId = existingEntry
                 ? this.trayCalculationService.resolveFrozenTrayTypeId(
-                  existingEntry,
-                  trayRules,
-                )
+                    existingEntry,
+                    trayRules,
+                  )
                 : (this.trayCalculationService.resolveTrayRule(
-                  allocation.master_product,
-                  trayRules,
-                )?.tray_type_id ?? null);
+                    allocation.master_product,
+                    trayRules,
+                  )?.tray_type_id ?? null);
 
               return {
                 purchase_paper_id: purchasePaper.id,
@@ -648,19 +589,4 @@ export class PurchaseService {
       ),
     );
   }
-}
-
-function buildVehicleAssignmentMap(
-  assignments: VehicleAssignment[],
-): Map<string, VehicleAssignment> {
-  const map = new Map<string, VehicleAssignment>();
-
-  for (const assignment of assignments) {
-    map.set(
-      `${assignment.vehicle_id}_${assignment.category}_${assignment.vehicle_allocation_paper.delivery_session}`,
-      assignment,
-    );
-  }
-
-  return map;
 }

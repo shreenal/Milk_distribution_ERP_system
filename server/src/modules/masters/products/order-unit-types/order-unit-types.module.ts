@@ -9,14 +9,7 @@ import { OrderUnitTypesService } from './order-unit-types.service.js';
 @Module({
   imports: [PrismaModule],
   controllers: [OrderUnitTypesController],
-  providers: [
-    OrderUnitTypesService,
-    OrderUnitTypesRepository,
-  ],
-  exports: [
-    OrderUnitTypesService,
-    OrderUnitTypesRepository,
-  ],
+  providers: [OrderUnitTypesService, OrderUnitTypesRepository],
+  exports: [OrderUnitTypesService, OrderUnitTypesRepository],
 })
 export class OrderUnitTypesModule {}
-

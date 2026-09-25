@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import {
@@ -11,37 +11,6 @@ import { Prisma } from '../../../generated/prisma/client.js';
 @Injectable()
 export class ClientTraysRepository {
   constructor(private readonly prisma: PrismaService) {}
-
-  async getPaperStatusBySheetId(
-    sheetId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    const sheet = await db.order_sheet.findUnique({
-      where: {
-        id: sheetId,
-      },
-
-      select: {
-        master_group: {
-          select: {
-            delivery_session: true,
-          },
-        },
-
-        order_paper: {
-          select: {
-            status: true,
-          },
-        },
-      },
-    });
-
-    if (!sheet?.order_paper?.status) {
-      throw new NotFoundException('Paper status not found');
-    }
-
-    return sheet.order_paper.status;
-  }
 
   async getSheetsByPaperId(
     paperId: number,
@@ -240,6 +209,35 @@ export class ClientTraysRepository {
   ) {
     if (entries.length === 0) return;
 
+    const sheetId = entries[0].order_sheet_id;
+
+    // Prune rows for this sheet that are no longer part of the submitted/
+    // recomputed complete grid (FIX: previously this method only upserted,
+    // so a row that stopped being generated — e.g. a tray type no longer
+    // resolvable for any item on the sheet, or a client explicitly removed
+    // from the submitted grid — never got deleted. See Phase 1 review F-CT5:
+    // aligning with DairyTraysRepository's own replaceTrayTransactions, which
+    // already does this).
+    const existing = await db.client_tray_transaction.findMany({
+      where: { order_sheet_id: sheetId },
+      select: { id: true, client_id: true, tray_type_id: true },
+    });
+
+    const keyOf = (r: { client_id: number; tray_type_id: number }) =>
+      `${r.client_id}_${r.tray_type_id}`;
+
+    const incomingKeys = new Set(entries.map(keyOf));
+
+    const toDeleteIds = existing
+      .filter((r) => !incomingKeys.has(keyOf(r)))
+      .map((r) => r.id);
+
+    if (toDeleteIds.length > 0) {
+      await db.client_tray_transaction.deleteMany({
+        where: { id: { in: toDeleteIds } },
+      });
+    }
+
     const values = Prisma.join(
       entries.map(
         (e) =>
@@ -295,4 +293,18 @@ export class ClientTraysRepository {
       },
     });
   }
+
+async touchClientTraysIfUnchanged(
+  sheetId: number,
+  expectedUpdatedAt: Date | null,
+  db: PrismaOrTransaction = this.prisma,
+) {
+  return db.order_sheet.updateMany({
+    where: {
+      id: sheetId,
+      ...(expectedUpdatedAt !== null && { client_trays_updated_at: expectedUpdatedAt }),
+    },
+    data: { client_trays_updated_at: new Date() },
+  });
+}
 }

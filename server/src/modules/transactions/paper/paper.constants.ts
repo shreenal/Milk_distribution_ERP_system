@@ -16,10 +16,6 @@ export const ERROR_MESSAGES = {
     current: OrderPaperStatus,
     target: OrderPaperStatus,
   ) => `Cannot transition from ${current} to ${target}`,
-  MUST_RESUBMIT_MORNING: (previousStatus: OrderPaperStatus) =>
-    `After reopening from ${previousStatus}, ` +
-    `you must resubmit morning entry before finalizing`,
-
   INVALID_DATE_FORMAT: 'Invalid date format',
   PAST_DATE_NOT_ALLOWED: 'Cannot perform operations on past dates',
   FUTURE_DATE_TOO_FAR: (maxDays: number) =>

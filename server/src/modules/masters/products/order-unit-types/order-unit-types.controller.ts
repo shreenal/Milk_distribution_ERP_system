@@ -22,9 +22,7 @@ import { UpdateOrderUnitTypeDto } from './dto/update-order-unit-type.dto.js';
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMIN')
 export class OrderUnitTypesController {
-  constructor(
-    private readonly orderUnitTypesService: OrderUnitTypesService,
-  ) {}
+  constructor(private readonly orderUnitTypesService: OrderUnitTypesService) {}
 
   @Get()
   findAll() {
@@ -54,4 +52,3 @@ export class OrderUnitTypesController {
     return this.orderUnitTypesService.delete(id);
   }
 }
-

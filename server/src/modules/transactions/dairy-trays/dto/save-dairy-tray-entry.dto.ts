@@ -1,5 +1,5 @@
 import { IsEnum, IsInt, Min } from 'class-validator';
-import { DeliverySession } from '../../../../generated/prisma/enums.js';
+import { DeliverySession } from '../../../../generated/prisma/client.js';
 
 export class SaveDairyTrayEntryDto {
   @IsInt()

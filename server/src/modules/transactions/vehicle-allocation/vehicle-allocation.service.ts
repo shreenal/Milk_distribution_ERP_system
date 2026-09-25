@@ -10,16 +10,23 @@ import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { VehicleAllocationValidationService } from './services/vehicle-allocation-validation.service.js';
 import { AllocationSummaryBuilder } from '../../../common/builders/allocation-summary.builder.js';
 import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from './vehicle-allocation.constants.js';
-import {
-  DeliverySession,
-  SupplyCategory,
-} from '../../../generated/prisma/client.js';
+import { DeliverySession } from '../../../generated/prisma/client.js';
 import { OrderItemsRepository } from '../../../common/repositories/order-items.repository.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { GroupSummaryBuilder } from '../../../common/builders/group-summary.builder.js';
+// FIX F1 (consistency review): shared with vehicle-allocation.repository.ts
+// instead of the ad-hoc key strings previously built inline here.
+import { buildAllocationKey } from '../../../common/utils/allocation-key.util.js';
+// FIX F10 (consistency review): shared with purchase.service.ts instead of
+// each service hand-rolling its own "touch if unchanged, else 409" flow.
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Vehicle allocation data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class VehicleAllocationService {
@@ -30,6 +37,8 @@ export class VehicleAllocationService {
 
     private readonly allocationSummaryBuilder: AllocationSummaryBuilder,
 
+    private readonly groupSummaryBuilder: GroupSummaryBuilder,
+
     private readonly orderItemsRepository: OrderItemsRepository,
 
     private readonly vehicleAllocationValidationService: VehicleAllocationValidationService,
@@ -39,9 +48,9 @@ export class VehicleAllocationService {
     private readonly workflowBuilder: WorkflowBuilder,
 
     private readonly prisma: PrismaService,
-  ) { }
+  ) {}
 
-  private async getGroupSummary(
+  private async getGroupSummaries(
     paperId: number,
     session: DeliverySession,
     db: PrismaOrTransaction = this.prisma,
@@ -52,7 +61,10 @@ export class VehicleAllocationService {
         db,
       );
 
-    return this.allocationSummaryBuilder.build(orderItems, session);
+    return {
+      summaries: this.allocationSummaryBuilder.build(orderItems, session),
+      groupSummaries: this.groupSummaryBuilder.build(orderItems, session),
+    };
   }
 
   async getVehicleAllocations(paperId: number, session: DeliverySession) {
@@ -67,26 +79,16 @@ export class VehicleAllocationService {
         );
       }
 
-      const [summaries, vehicles, distributors] = await Promise.all([
-        this.getGroupSummary(paperId, session, tx),
+      const [{ summaries, groupSummaries }, vehicles] = await Promise.all([
+        this.getGroupSummaries(paperId, session, tx),
         this.vehicleAllocationRepository.findVehicles(tx),
-        this.vehicleAllocationRepository.findDistributors(tx),
       ]);
-
-      const assignmentGrid =
-        this.vehicleAllocationBuilder.buildVehicleAssignmentGrid(
-          vehicles,
-          distributors,
-        );
 
       const allocationGrids =
         this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
           summaries,
           vehicles,
         );
-
-      const requirementGrids =
-        this.vehicleAllocationBuilder.buildVehicleRequirementGrids(summaries);
 
       const workflow = this.workflowBuilder.buildVehicleAllocationWorkflow(
         paper.status,
@@ -102,25 +104,23 @@ export class VehicleAllocationService {
 
       if (!vehicleAllocationPaper) {
         return {
-          paper,
+          // FIX F2/F5 (consistency review): `paper` used to be returned in
+          // full here, duplicating `status` against `workflow.status` and
+          // duplicating data already available from PaperContext on the
+          // frontend. Nothing in the reviewed VehicleAllocationPage code
+          // reads `data.paper`, so it's dropped.
           workflow,
           ...allocationGrids,
-          requirementGrids,
-          vehicleAssignments: assignmentGrid,
+          groupSummaries,
           vehicleAllocationPaperUpdatedAt: null,
         };
       }
 
-      const [savedAllocations, savedAssignments] = await Promise.all([
-        this.vehicleAllocationRepository.findVehicleAllocations(
+      const savedAllocations =
+        await this.vehicleAllocationRepository.findVehicleAllocations(
           vehicleAllocationPaper.id,
           tx,
-        ),
-        this.vehicleAllocationRepository.findVehicleAssignments(
-          vehicleAllocationPaper.id,
-          tx,
-        ),
-      ]);
+        );
 
       const allocationResult =
         this.vehicleAllocationBuilder.applyVehicleAllocations(
@@ -128,27 +128,16 @@ export class VehicleAllocationService {
           savedAllocations,
         );
 
-      const assignmentResult =
-        this.vehicleAllocationBuilder.applyVehicleAssignments(
-          assignmentGrid,
-          savedAssignments,
-        );
-
       return {
-        paper,
         workflow,
         ...allocationResult,
-        requirementGrids,
-        vehicleAssignments: assignmentResult,
+        groupSummaries,
         vehicleAllocationPaperUpdatedAt: vehicleAllocationPaper.updated_at,
       };
     });
   }
 
-  async saveVehicleAllocations(
-    paperId: number,
-    dto: SaveVehicleAllocationDto,
-  ) {
+  async saveVehicleAllocations(paperId: number, dto: SaveVehicleAllocationDto) {
     return withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
@@ -165,8 +154,19 @@ export class VehicleAllocationService {
           }
 
           const status = paper.status;
-          const session =
-            this.workflowState.getActiveExecutionSession(status);
+          const session = this.workflowState.getActiveExecutionSession(status);
+
+          // FIX F12 (consistency review): GET requires an explicit `session`
+          // and previously POST silently inferred it from paper status with
+          // nothing to catch a mismatch between what the client thought it
+          // was editing and what the server would actually write to. Now the
+          // client states which session it's saving and the server confirms
+          // it agrees, rather than silently substituting its own answer.
+          if (dto.session !== session) {
+            throw new BadRequestException(
+              `Requested session ${dto.session} does not match the paper's current active execution session (${session}). Refresh and try again.`,
+            );
+          }
 
           if (!this.workflowState.canEditVehicleAllocations(status, session)) {
             throw new BadRequestException(
@@ -181,24 +181,21 @@ export class VehicleAllocationService {
               tx,
             );
 
-          // Fast sequential stale-read check.
-          // The atomic check below is still required for genuine concurrency.
-          if (
-            dto.expectedUpdatedAt &&
-            existingPaper &&
-            new Date(dto.expectedUpdatedAt).getTime() !==
-            existingPaper.updated_at.getTime()
-          ) {
-            throw new ConflictException(
-              'Vehicle allocation data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.',
-            );
+          // Fast sequential stale-read check. The atomic check further down is
+          // still required for genuine concurrency. Standardized against
+          // Purchase's savePurchases(): if the client read an updatedAt but the
+          // paper no longer exists, that's a conflict, not "nothing to check".
+          if (dto.expectedUpdatedAt) {
+            if (!existingPaper) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            if (
+              new Date(dto.expectedUpdatedAt).getTime() !==
+              existingPaper.updated_at.getTime()
+            ) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
           }
-
-          await this.vehicleAllocationValidationService.validateVehicleAssignments(
-            paperId,
-            dto,
-            tx,
-          );
 
           await this.vehicleAllocationValidationService.validateAllocationProductLinks(
             dto,
@@ -215,46 +212,13 @@ export class VehicleAllocationService {
             dto,
           );
 
-          const vehicleAllocationPaper =
-            await this.vehicleAllocationRepository.getOrCreateVehicleAllocationPaper(
-              paperId,
-              session,
-              tx,
-            );
+          this.vehicleAllocationValidationService.validateSingleDistributorPerVehicleCategory(
+            dto,
+          );
 
-          const assignmentRows = dto.assignments.flatMap((assignment) => {
-            const rows: {
-              vehicle_allocation_paper_id: number;
-              vehicle_id: number;
-              category: SupplyCategory;
-              distributor_id: number;
-            }[] = [];
-
-            if (assignment.milkDistributorId) {
-              rows.push({
-                vehicle_allocation_paper_id: vehicleAllocationPaper.id,
-                vehicle_id: assignment.vehicleId,
-                category: SupplyCategory.MILK,
-                distributor_id: assignment.milkDistributorId,
-              });
-            }
-
-            if (assignment.nonMilkDistributorId) {
-              rows.push({
-                vehicle_allocation_paper_id: vehicleAllocationPaper.id,
-                vehicle_id: assignment.vehicleId,
-                category: SupplyCategory.NON_MILK,
-                distributor_id: assignment.nonMilkDistributorId,
-              });
-            }
-
-            return rows;
-          });
-
-          const allocationRows = dto.allocations
+          const allocationRowsBase = dto.allocations
             .filter((allocation) => allocation.allocatedQty > 0)
             .map((allocation) => ({
-              vehicle_allocation_paper_id: vehicleAllocationPaper.id,
               vehicle_id: allocation.vehicleId,
               distributor_id: allocation.distributorId,
               category: allocation.category,
@@ -262,44 +226,49 @@ export class VehicleAllocationService {
               allocated_qty: allocation.allocatedQty,
             }));
 
-          const existingAssignments = existingPaper
-            ? await this.vehicleAllocationRepository.findVehicleAssignments(
-              existingPaper.id,
-              tx,
-            )
-            : [];
-
           const existingAllocations = existingPaper
             ? await this.vehicleAllocationRepository.findVehicleAllocations(
-              existingPaper.id,
-              tx,
-            )
+                existingPaper.id,
+                tx,
+              )
             : [];
 
-          const assignmentsChanged = !sameRowSet(
-            existingAssignments.map(
-              (a) =>
-                `${a.vehicle_id}_${a.category}_${a.distributor_id}`,
-            ),
-            assignmentRows.map(
-              (a) =>
-                `${a.vehicle_id}_${a.category}_${a.distributor_id}`,
-            ),
+          // FIX F3 (consistency review): Purchase's save already refuses to
+          // silently drop previously-saved rows unless the caller passes
+          // `confirmDeletions`. Vehicle Allocation's save didn't have the
+          // same safeguard even though deleting a vehicle_allocation row has
+          // a real downstream side effect — any purchase_entry pointing at
+          // it via source_allocation_id gets SetNull'd. This mirrors
+          // Purchase's contract so a save can't silently orphan a real
+          // purchased quantity.
+          const incomingAllocationKeys = new Set(
+            allocationRowsBase.map((row) => buildAllocationKey(row)),
           );
+
+          const allocationsAboutToBeDropped = existingAllocations.filter(
+            (row) => !incomingAllocationKeys.has(buildAllocationKey(row)),
+          );
+
+          if (allocationsAboutToBeDropped.length > 0 && !dto.confirmDeletions) {
+            throw new BadRequestException({
+              message:
+                'Saving would remove existing vehicle allocations that are no longer part of the submitted data. Confirm deletion to proceed.',
+              droppedAllocations: allocationsAboutToBeDropped.map((row) => ({
+                vehicleId: row.vehicle_id,
+                distributorId: row.distributor_id,
+                category: row.category,
+                productId: row.product_id,
+                allocatedQty: Number(row.allocated_qty),
+              })),
+            });
+          }
 
           const allocationsChanged = !sameRowSet(
-            existingAllocations.map(
-              (a) =>
-                `${a.vehicle_id}_${a.distributor_id}_${a.category}_${a.product_id}_${Number(a.allocated_qty)}`,
-            ),
-            allocationRows.map(
-              (a) =>
-                `${a.vehicle_id}_${a.distributor_id}_${a.category}_${a.product_id}_${Number(a.allocated_qty)}`,
-            ),
+            existingAllocations,
+            allocationRowsBase,
           );
 
-          const hasChanges =
-            assignmentsChanged || allocationsChanged;
+          const hasChanges = allocationsChanged;
 
           /*
            * Optimistic concurrency gate.
@@ -310,20 +279,29 @@ export class VehicleAllocationService {
            * claim the expected updated_at value.
            */
           if (hasChanges && dto.expectedUpdatedAt && existingPaper) {
-            const result =
-              await this.vehicleAllocationRepository
-                .touchVehicleAllocationPaperIfUnchanged(
-                  vehicleAllocationPaper.id,
-                  new Date(dto.expectedUpdatedAt),
+            await assertNotStale(
+              () =>
+                this.vehicleAllocationRepository.touchVehicleAllocationPaperIfUnchanged(
+                  existingPaper.id,
+                  new Date(dto.expectedUpdatedAt!),
                   tx,
-                );
-
-            if (result.count !== 1) {
-              throw new ConflictException(
-                'Vehicle allocation data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.',
-              );
-            }
+                ),
+              STALE_DATA_MESSAGE,
+            );
           }
+
+          const vehicleAllocationPaper =
+            existingPaper ??
+            (await this.vehicleAllocationRepository.getOrCreateVehicleAllocationPaper(
+              paperId,
+              session,
+              tx,
+            ));
+
+          const allocationRows = allocationRowsBase.map((row) => ({
+            vehicle_allocation_paper_id: vehicleAllocationPaper.id,
+            ...row,
+          }));
 
           /*
            * No expectedUpdatedAt means this is an ordinary save.
@@ -342,13 +320,6 @@ export class VehicleAllocationService {
            * These writes happen only after the optimistic-concurrency
            * check succeeds.
            */
-          if (assignmentsChanged) {
-            await this.vehicleAllocationRepository.replaceVehicleAssignments(
-              vehicleAllocationPaper.id,
-              assignmentRows,
-              tx,
-            );
-          }
 
           if (allocationsChanged) {
             await this.vehicleAllocationRepository.replaceVehicleAllocations(
@@ -372,13 +343,35 @@ export class VehicleAllocationService {
   }
 }
 
-function sameRowSet(existing: string[], incoming: string[]): boolean {
+function sameRowSet(
+  existing: {
+    vehicle_id: number;
+    distributor_id: number;
+    category: string;
+    product_id: number;
+    allocated_qty: unknown;
+  }[],
+  incoming: {
+    vehicle_id: number;
+    distributor_id: number;
+    category: string;
+    product_id: number;
+    allocated_qty: unknown;
+  }[],
+): boolean {
   if (existing.length !== incoming.length) {
     return false;
   }
 
-  const sortedExisting = [...existing].sort();
-  const sortedIncoming = [...incoming].sort();
+  // FIX F1 (consistency review): identity part of this comparison key now
+  // comes from the same `buildAllocationKey` used everywhere else; the
+  // quantity is appended separately since this check (unlike a lookup key)
+  // needs to detect a value change, not just identify a row.
+  const toComparable = (row: (typeof existing)[number]) =>
+    `${buildAllocationKey(row)}_${Number(row.allocated_qty)}`;
+
+  const sortedExisting = existing.map(toComparable).sort();
+  const sortedIncoming = incoming.map(toComparable).sort();
 
   return sortedExisting.every(
     (value, index) => value === sortedIncoming[index],

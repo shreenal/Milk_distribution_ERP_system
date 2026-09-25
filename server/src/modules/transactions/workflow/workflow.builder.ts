@@ -9,6 +9,28 @@ import { WorkflowStateService } from './workflow-state.service.js';
 export class WorkflowBuilder {
   constructor(private readonly workflowState: WorkflowStateService) {}
 
+  buildPaperWorkflow(status: OrderPaperStatus) {
+    return {
+      status,
+      activeExecutionSession:
+        status === OrderPaperStatus.DRAFT
+          ? DeliverySession.NIGHT
+          : status === OrderPaperStatus.NIGHT_SUBMITTED
+            ? DeliverySession.MORNING
+            : null,
+
+      canSubmitNight: status === OrderPaperStatus.DRAFT,
+
+      canSubmitMorning: status === OrderPaperStatus.NIGHT_SUBMITTED,
+
+      canFinalize:
+        status === OrderPaperStatus.MORNING_SUBMITTED ||
+        status === OrderPaperStatus.REOPENED,
+
+      canReopen: status === OrderPaperStatus.FINALIZED,
+    };
+  }
+
   buildOrdersWorkflow(status: OrderPaperStatus) {
     return {
       status,

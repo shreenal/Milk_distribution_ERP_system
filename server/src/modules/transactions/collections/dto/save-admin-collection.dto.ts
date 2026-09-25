@@ -7,6 +7,7 @@ import {
   IsString,
   IsArray,
   ValidateNested,
+  IsISO8601,
 } from 'class-validator';
 
 export class AdminCollectionEntryDto {
@@ -32,4 +33,8 @@ export class SaveAdminCollectionsDto {
   @ValidateNested({ each: true })
   @Type(() => AdminCollectionEntryDto)
   entries!: AdminCollectionEntryDto[];
+
+  @IsOptional()
+  @IsISO8601()
+  expectedUpdatedAt?: string;
 }

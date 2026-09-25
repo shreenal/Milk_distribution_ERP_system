@@ -51,9 +51,7 @@ describe('OrdersService rollback (integration)', () => {
 
     const finalBillingService = new FinalBillingService();
 
-    const orderCommercialService = new OrderCommercialService(
-      ordersRepository,
-    );
+    const orderCommercialService = new OrderCommercialService(ordersRepository);
 
     const billingService = new BillingService(
       ordersRepository,
@@ -72,7 +70,7 @@ describe('OrdersService rollback (integration)', () => {
       testPrisma,
       {} as WorkflowStateService,
       {} as WorkflowBuilder,
-      {} as DependencyOrchestratorService,
+      {},
     );
   });
 
@@ -146,13 +144,14 @@ describe('OrdersService rollback (integration)', () => {
      * The test needs BillingService to create the pin inside the
      * transaction.
      */
-    const existingSheetProduct =
-      await testPrisma.order_sheet_product.findFirst({
+    const existingSheetProduct = await testPrisma.order_sheet_product.findFirst(
+      {
         where: {
           order_sheet_id: sheet!.id,
           product_id: product!.id,
         },
-      });
+      },
+    );
 
     expect(existingSheetProduct).toBeNull();
 
@@ -165,9 +164,7 @@ describe('OrdersService rollback (integration)', () => {
 
     const finalBillingService = new FinalBillingService();
 
-    const orderCommercialService = new OrderCommercialService(
-      ordersRepository,
-    );
+    const orderCommercialService = new OrderCommercialService(ordersRepository);
 
     const billingService = new BillingService(
       ordersRepository,
@@ -180,7 +177,7 @@ describe('OrdersService rollback (integration)', () => {
     service = new OrdersService(
       ordersRepository,
       {} as any,
-      new OrdersValidationService(ordersRepository) as any,
+      new OrdersValidationService(ordersRepository),
       orderCommercialService,
       billingService,
       testPrisma,
@@ -374,9 +371,7 @@ describe('OrdersService rollback (integration)', () => {
 
     const finalBillingService = new FinalBillingService();
 
-    const orderCommercialService = new OrderCommercialService(
-      ordersRepository,
-    );
+    const orderCommercialService = new OrderCommercialService(ordersRepository);
 
     const billingService = new BillingService(
       ordersRepository,
@@ -404,7 +399,7 @@ describe('OrdersService rollback (integration)', () => {
     service = new OrdersService(
       ordersRepository,
       {} as any,
-      new OrdersValidationService(ordersRepository) as any,
+      new OrdersValidationService(ordersRepository),
       orderCommercialService,
       billingService,
       testPrisma,
@@ -498,7 +493,9 @@ describe('OrdersService rollback (integration)', () => {
       },
     });
 
-    const group = await testPrisma.master_group.findFirst({ where: { is_active: true } });
+    const group = await testPrisma.master_group.findFirst({
+      where: { is_active: true },
+    });
     expect(group).not.toBeNull();
 
     await testPrisma.order_sheet.create({
@@ -510,9 +507,15 @@ describe('OrdersService rollback (integration)', () => {
     });
     expect(sheet).not.toBeNull();
 
-    const client = await testPrisma.master_client.findFirst({ where: { code: 'C001' } });
-    const productOne = await testPrisma.master_product.findFirst({ where: { code: 'GOV-COW-500' } });
-    const productTwo = await testPrisma.master_product.findFirst({ where: { code: 'GOV-COW-1000' } });
+    const client = await testPrisma.master_client.findFirst({
+      where: { code: 'C001' },
+    });
+    const productOne = await testPrisma.master_product.findFirst({
+      where: { code: 'GOV-COW-500' },
+    });
+    const productTwo = await testPrisma.master_product.findFirst({
+      where: { code: 'GOV-COW-1000' },
+    });
 
     expect(client).not.toBeNull();
     expect(productOne).not.toBeNull();
@@ -534,7 +537,7 @@ describe('OrdersService rollback (integration)', () => {
     service = new OrdersService(
       ordersRepository,
       {} as any,
-      new OrdersValidationService(ordersRepository) as any,
+      new OrdersValidationService(ordersRepository),
       orderCommercialService,
       billingService,
       testPrisma,
@@ -591,4 +594,3 @@ describe('OrdersService rollback (integration)', () => {
     expect(callCount).toBe(2);
   });
 });
-

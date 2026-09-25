@@ -1,34 +1,3 @@
-// import { Injectable } from '@nestjs/common';
-
-// export interface PurchaseBillingResult {
-//   purchaseAmount: number;
-// }
-
-// @Injectable()
-// export class PurchaseBillingService {
-//   calculate(
-//   purchasedQty: number,
-//   purchaseRate: number,
-//   unitsPerOrderUnit: number,
-//   packagingSize: number,
-//   packagingUnit: string,
-// ): PurchaseBillingResult {
-//   const packageQuantityInLitres =
-//     packagingUnit.toUpperCase() === 'ML'
-//       ? packagingSize / 1000
-//       : packagingSize;
-
-//   const purchasedLitres =
-//     purchasedQty * unitsPerOrderUnit * packageQuantityInLitres;
-
-//   return {
-//     purchaseAmount: Number(
-//       (purchasedLitres * purchaseRate).toFixed(2),
-//     ),
-//   };
-// }
-// }
-
 import { Injectable } from '@nestjs/common';
 
 export interface PurchaseBillingResult {

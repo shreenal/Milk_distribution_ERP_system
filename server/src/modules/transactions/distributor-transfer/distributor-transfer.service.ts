@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -11,6 +12,10 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { DISTRIBUTOR_TRANSFER_ERRORS } from './distributor-transfer.constants.js';
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'distributor transfer data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class DistributorTransferService {
@@ -43,7 +48,11 @@ export class DistributorTransferService {
     };
   }
 
-  async generateTransfer(paperId: number, db?: PrismaOrTransaction) {
+  async generateTransfer(
+    paperId: number,
+    db?: PrismaOrTransaction,
+    expectedUpdatedAt?: string,
+  ) {
     const run = async (tx: PrismaOrTransaction) => {
       const paper = await this.repository.findOrderPaperById(paperId, tx);
 
@@ -61,6 +70,24 @@ export class DistributorTransferService {
           DISTRIBUTOR_TRANSFER_ERRORS.GENERATE_NOT_ALLOWED,
         );
       }
+
+      if (!db && expectedUpdatedAt) {
+        if (
+          new Date(expectedUpdatedAt).getTime() !== paper.updated_at.getTime()
+        ) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
+        await assertNotStale(
+          () =>
+            this.repository.touchOrderPaperIfUnchanged(
+              paperId,
+              new Date(expectedUpdatedAt),
+              tx,
+            ),
+          STALE_DATA_MESSAGE,
+        );
+      }
+
       const sourceItems = await this.repository.getTransferSourceItems(
         paper.id,
         tx,

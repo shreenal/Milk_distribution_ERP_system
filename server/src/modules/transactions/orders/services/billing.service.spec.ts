@@ -69,25 +69,21 @@ describe('BillingService', () => {
     service = new BillingService(
       ordersRepository as any,
       orderCommercialService as any,
-      nightBillingService as any,
-      finalBillingService as any,
+      nightBillingService,
+      finalBillingService,
       trayCalculationService as any,
     );
   });
 
   describe('getTrayRulesOnce', () => {
     it('delegates tray-rule loading to TrayCalculationService', async () => {
-      trayCalculationService.getProductTrayRules.mockResolvedValue(
-        trayRules,
+      trayCalculationService.getProductTrayRules.mockResolvedValue(trayRules);
+
+      await expect(service.getTrayRulesOnce(tx)).resolves.toEqual(trayRules);
+
+      expect(trayCalculationService.getProductTrayRules).toHaveBeenCalledWith(
+        tx,
       );
-
-      await expect(
-        service.getTrayRulesOnce(tx),
-      ).resolves.toEqual(trayRules);
-
-      expect(
-        trayCalculationService.getProductTrayRules,
-      ).toHaveBeenCalledWith(tx);
     });
   });
 
@@ -113,9 +109,7 @@ describe('BillingService', () => {
         new Map(),
       );
 
-      ordersRepository.getSheetProductLinksBatch.mockResolvedValue(
-        new Map(),
-      );
+      ordersRepository.getSheetProductLinksBatch.mockResolvedValue(new Map());
 
       ordersRepository.getProductsWithPackagingBatch.mockResolvedValue(
         new Map([[10, product]]),
@@ -164,17 +158,11 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        orderCommercialService.resolve,
-      ).not.toHaveBeenCalled();
+      expect(orderCommercialService.resolve).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.createSheetProduct,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.createSheetProduct).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.upsertSheetEntry,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.upsertSheetEntry).not.toHaveBeenCalled();
 
       expect(
         ordersRepository.getProductsWithPackagingBatch,
@@ -183,9 +171,7 @@ describe('BillingService', () => {
 
     it('reuses the existing item product link and does not resolve commercial data again', async () => {
       ordersRepository.findSheetItemsByProductBatch.mockResolvedValue(
-        new Map([
-          ['1_10', existingItem],
-        ]),
+        new Map([['1_10', existingItem]]),
       );
 
       ordersRepository.getProductsWithPackagingBatch.mockResolvedValue(
@@ -211,17 +197,11 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        orderCommercialService.resolve,
-      ).not.toHaveBeenCalled();
+      expect(orderCommercialService.resolve).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.createSheetProduct,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.createSheetProduct).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getSellingRatesBatch).toHaveBeenCalledWith(
         [{ clientId: 1, productLinkId: 501 }],
         sheet.order_paper.sale_date,
         tx,
@@ -230,9 +210,7 @@ describe('BillingService', () => {
 
     it('does not recalculate the tray type for an existing item', async () => {
       ordersRepository.findSheetItemsByProductBatch.mockResolvedValue(
-        new Map([
-          ['1_10', existingItem],
-        ]),
+        new Map([['1_10', existingItem]]),
       );
 
       await service.saveNightEntriesBatch(
@@ -250,9 +228,7 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        trayCalculationService.resolveTrayRule,
-      ).not.toHaveBeenCalled();
+      expect(trayCalculationService.resolveTrayRule).not.toHaveBeenCalled();
 
       expect(ordersRepository.upsertSheetEntry).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -278,18 +254,14 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        orderCommercialService.resolve,
-      ).toHaveBeenCalledWith(
+      expect(orderCommercialService.resolve).toHaveBeenCalledWith(
         5,
         10,
         supplyRules,
         tx,
       );
 
-      expect(
-        ordersRepository.createSheetProduct,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.createSheetProduct).toHaveBeenCalledWith(
         {
           order_sheet_id: 100,
           product_id: 10,
@@ -336,17 +308,11 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        orderCommercialService.resolve,
-      ).not.toHaveBeenCalled();
+      expect(orderCommercialService.resolve).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.createSheetProduct,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.createSheetProduct).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getSellingRatesBatch).toHaveBeenCalledWith(
         [{ clientId: 1, productLinkId: 700 }],
         sheet.order_paper.sale_date,
         tx,
@@ -382,9 +348,7 @@ describe('BillingService', () => {
           ] as any,
           trayRules,
         ),
-      ).rejects.toThrow(
-        new BadRequestException('Invalid sheet product link'),
-      );
+      ).rejects.toThrow(new BadRequestException('Invalid sheet product link'));
     });
 
     it('persists resolvedViaFallback when commercial resolution falls back', async () => {
@@ -419,9 +383,7 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        ordersRepository.createSheetProduct,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.createSheetProduct).toHaveBeenCalledWith(
         expect.objectContaining({
           resolvedViaFallback: true,
         }),
@@ -465,16 +427,12 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        tx.master_product_link.findUniqueOrThrow,
-      ).toHaveBeenCalledWith({
+      expect(tx.master_product_link.findUniqueOrThrow).toHaveBeenCalledWith({
         where: { id: 999 },
         select: { distributor_id: true },
       });
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getSellingRatesBatch).toHaveBeenCalledWith(
         [{ clientId: 1, productLinkId: 999 }],
         sheet.order_paper.sale_date,
         tx,
@@ -513,17 +471,11 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        orderCommercialService.resolve,
-      ).toHaveBeenCalledTimes(1);
+      expect(orderCommercialService.resolve).toHaveBeenCalledTimes(1);
 
-      expect(
-        ordersRepository.createSheetProduct,
-      ).toHaveBeenCalledTimes(1);
+      expect(ordersRepository.createSheetProduct).toHaveBeenCalledTimes(1);
 
-      expect(
-        ordersRepository.upsertSheetEntry,
-      ).toHaveBeenCalledTimes(2);
+      expect(ordersRepository.upsertSheetEntry).toHaveBeenCalledTimes(2);
     });
 
     it('batch fetches products using unique active product ids', async () => {
@@ -560,9 +512,7 @@ describe('BillingService', () => {
     });
 
     it('rejects when no selling rate exists', async () => {
-      ordersRepository.getSellingRatesBatch.mockResolvedValue(
-        new Map(),
-      );
+      ordersRepository.getSellingRatesBatch.mockResolvedValue(new Map());
 
       await expect(
         service.saveNightEntriesBatch(
@@ -581,9 +531,7 @@ describe('BillingService', () => {
         ),
       ).rejects.toThrow(BadRequestException);
 
-      expect(
-        ordersRepository.upsertSheetEntry,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.upsertSheetEntry).not.toHaveBeenCalled();
     });
 
     it('rejects when the resolved product is missing from the product map', async () => {
@@ -607,9 +555,7 @@ describe('BillingService', () => {
           trayRules,
         ),
       ).rejects.toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.PRODUCT_NOT_FOUND(10),
-        ),
+        new BadRequestException(ERROR_MESSAGES.PRODUCT_NOT_FOUND(10)),
       );
     });
 
@@ -629,13 +575,12 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        trayCalculationService.resolveTrayRule,
-      ).toHaveBeenCalledWith(product, trayRules);
+      expect(trayCalculationService.resolveTrayRule).toHaveBeenCalledWith(
+        product,
+        trayRules,
+      );
 
-      expect(
-        ordersRepository.upsertSheetEntry,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.upsertSheetEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           tray_type_id: 7,
         }),
@@ -663,13 +608,7 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        nightBillingService.calculate,
-      ).toHaveBeenCalledWith(
-        12,
-        125,
-        1,
-      );
+      expect(nightBillingService.calculate).toHaveBeenCalledWith(12, 125, 1);
     });
 
     it('writes zeroed final billing fields for an existing zero-quantity item', async () => {
@@ -679,9 +618,7 @@ describe('BillingService', () => {
       };
 
       ordersRepository.findSheetItemsByProductBatch.mockResolvedValue(
-        new Map([
-          ['1_10', existingItem],
-        ]),
+        new Map([['1_10', existingItem]]),
       );
 
       ordersRepository.getProductsWithPackagingBatch.mockResolvedValue(
@@ -707,9 +644,7 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        ordersRepository.upsertSheetEntry,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.upsertSheetEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           delivered_qty: 0,
           final_selling_rate: 100,
@@ -742,9 +677,7 @@ describe('BillingService', () => {
         trayRules,
       );
 
-      expect(
-        ordersRepository.upsertSheetEntry,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.upsertSheetEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           ordered_qty: 12,
           night_selling_rate: 100,
@@ -774,9 +707,7 @@ describe('BillingService', () => {
 
     beforeEach(() => {
       ordersRepository.findSheetItemsByProductBatch.mockResolvedValue(
-        new Map([
-          ['1_10', existingItem],
-        ]),
+        new Map([['1_10', existingItem]]),
       );
 
       ordersRepository.getSellingRatesBatch.mockResolvedValue(
@@ -793,22 +724,15 @@ describe('BillingService', () => {
     });
 
     it('updates an existing item with delivered quantity and final billing values', async () => {
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
-          {
-            clientId: 1,
-            productId: 10,
-            deliveredQty: 8,
-          },
-        ] as any,
-      );
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 8,
+        },
+      ]);
 
-      expect(
-        tx.order_sheet_items.update,
-      ).toHaveBeenCalledWith({
+      expect(tx.order_sheet_items.update).toHaveBeenCalledWith({
         where: {
           order_sheet_id_client_id_product_link_id: {
             order_sheet_id: 100,
@@ -832,26 +756,17 @@ describe('BillingService', () => {
         new Map(),
       );
 
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
-          {
-            clientId: 1,
-            productId: 10,
-            deliveredQty: 0,
-          },
-        ] as any,
-      );
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 0,
+        },
+      ]);
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.getSellingRatesBatch).not.toHaveBeenCalled();
 
-      expect(
-        tx.order_sheet_items.update,
-      ).not.toHaveBeenCalled();
+      expect(tx.order_sheet_items.update).not.toHaveBeenCalled();
     });
 
     it('rejects a missing item when delivered quantity is positive', async () => {
@@ -860,27 +775,18 @@ describe('BillingService', () => {
       );
 
       await expect(
-        service.saveMorningEntriesBatch(
-          tx,
-          sheet,
-          100,
-          [
-            {
-              clientId: 1,
-              productId: 10,
-              deliveredQty: 5,
-            },
-          ] as any,
-        ),
+        service.saveMorningEntriesBatch(tx, sheet, 100, [
+          {
+            clientId: 1,
+            productId: 10,
+            deliveredQty: 5,
+          },
+        ] as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.NO_ORDERED_QUANTITY(1, 10),
-        ),
+        new BadRequestException(ERROR_MESSAGES.NO_ORDERED_QUANTITY(1, 10)),
       );
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.getSellingRatesBatch).not.toHaveBeenCalled();
     });
 
     it('returns without doing anything when every entry is skipped', async () => {
@@ -888,50 +794,34 @@ describe('BillingService', () => {
         new Map(),
       );
 
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
-          {
-            clientId: 1,
-            productId: 10,
-            deliveredQty: 0,
-          },
-          {
-            clientId: 2,
-            productId: 20,
-            deliveredQty: 0,
-          },
-        ] as any,
-      );
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 0,
+        },
+        {
+          clientId: 2,
+          productId: 20,
+          deliveredQty: 0,
+        },
+      ]);
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.getSellingRatesBatch).not.toHaveBeenCalled();
 
-      expect(
-        tx.order_sheet_items.update,
-      ).not.toHaveBeenCalled();
+      expect(tx.order_sheet_items.update).not.toHaveBeenCalled();
     });
 
     it('uses the existing pinned product link when fetching the selling rate', async () => {
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
-          {
-            clientId: 1,
-            productId: 10,
-            deliveredQty: 8,
-          },
-        ] as any,
-      );
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 8,
+        },
+      ]);
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getSellingRatesBatch).toHaveBeenCalledWith(
         [
           {
             clientId: 1,
@@ -944,51 +834,33 @@ describe('BillingService', () => {
     });
 
     it('rejects when the selling rate is missing', async () => {
-      ordersRepository.getSellingRatesBatch.mockResolvedValue(
-        new Map(),
-      );
+      ordersRepository.getSellingRatesBatch.mockResolvedValue(new Map());
 
       await expect(
-        service.saveMorningEntriesBatch(
-          tx,
-          sheet,
-          100,
-          [
-            {
-              clientId: 1,
-              productId: 10,
-              deliveredQty: 8,
-            },
-          ] as any,
-        ),
-      ).rejects.toThrow(
-        new BadRequestException(
-          'No rate configured for client 1 product 10',
-        ),
-      );
-
-      expect(
-        tx.order_sheet_items.update,
-      ).not.toHaveBeenCalled();
-    });
-
-    it('delegates final billing calculation with delivered quantity and product values', async () => {
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
+        service.saveMorningEntriesBatch(tx, sheet, 100, [
           {
             clientId: 1,
             productId: 10,
             deliveredQty: 8,
           },
-        ] as any,
+        ] as any),
+      ).rejects.toThrow(
+        new BadRequestException('No rate configured for client 1 product 10'),
       );
 
-      expect(
-        finalBillingService.calculate,
-      ).toHaveBeenCalledWith(
+      expect(tx.order_sheet_items.update).not.toHaveBeenCalled();
+    });
+
+    it('delegates final billing calculation with delivered quantity and product values', async () => {
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 8,
+        },
+      ]);
+
+      expect(finalBillingService.calculate).toHaveBeenCalledWith(
         8,
         100,
         18,
@@ -1007,27 +879,18 @@ describe('BillingService', () => {
       };
 
       ordersRepository.findSheetItemsByProductBatch.mockResolvedValue(
-        new Map([
-          ['1_10', itemWithoutGst],
-        ]),
+        new Map([['1_10', itemWithoutGst]]),
       );
 
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
-          {
-            clientId: 1,
-            productId: 10,
-            deliveredQty: 8,
-          },
-        ] as any,
-      );
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 8,
+        },
+      ]);
 
-      expect(
-        finalBillingService.calculate,
-      ).toHaveBeenCalledWith(
+      expect(finalBillingService.calculate).toHaveBeenCalledWith(
         8,
         100,
         0,
@@ -1078,27 +941,20 @@ describe('BillingService', () => {
           finalBillAmount: 220,
         });
 
-      await service.saveMorningEntriesBatch(
-        tx,
-        sheet,
-        100,
-        [
-          {
-            clientId: 1,
-            productId: 10,
-            deliveredQty: 8,
-          },
-          {
-            clientId: 2,
-            productId: 20,
-            deliveredQty: 4,
-          },
-        ] as any,
-      );
+      await service.saveMorningEntriesBatch(tx, sheet, 100, [
+        {
+          clientId: 1,
+          productId: 10,
+          deliveredQty: 8,
+        },
+        {
+          clientId: 2,
+          productId: 20,
+          deliveredQty: 4,
+        },
+      ]);
 
-      expect(
-        ordersRepository.getSellingRatesBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getSellingRatesBatch).toHaveBeenCalledWith(
         [
           { clientId: 1, productLinkId: 501 },
           { clientId: 2, productLinkId: 502 },
@@ -1107,9 +963,7 @@ describe('BillingService', () => {
         tx,
       );
 
-      expect(
-        tx.order_sheet_items.update,
-      ).toHaveBeenCalledTimes(2);
+      expect(tx.order_sheet_items.update).toHaveBeenCalledTimes(2);
     });
   });
 });

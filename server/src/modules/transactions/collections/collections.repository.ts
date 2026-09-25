@@ -29,22 +29,6 @@ export class CollectionsRepository {
     });
   }
 
-  async getClientsByGroupId(
-    groupId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.master_client.findMany({
-      where: {
-        delivery_group_id: groupId,
-        is_active: true,
-      },
-
-      orderBy: {
-        code: 'asc',
-      },
-    });
-  }
-
   async getClientsByGroupAndCategory(
     groupId: number,
     category: SupplyCategory,
@@ -199,4 +183,18 @@ export class CollectionsRepository {
       (a, b) => a.code?.localeCompare(b.code ?? '') ?? 0,
     );
   }
+
+async touchCollectionsIfUnchanged(
+  sheetId: number,
+  expectedUpdatedAt: Date | null,
+  db: PrismaOrTransaction = this.prisma,
+) {
+  return db.order_sheet.updateMany({
+    where: {
+      id: sheetId,
+      ...(expectedUpdatedAt !== null && { collections_updated_at: expectedUpdatedAt }),
+    },
+    data: { collections_updated_at: new Date() },
+  });
+}
 }

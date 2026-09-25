@@ -9,18 +9,9 @@ import { ProductOrderUnitsRepository } from './product-order-units.repository.js
 import { ProductOrderUnitsService } from './product-order-units.service.js';
 
 @Module({
-  imports: [
-    PrismaModule,
-    OrderUnitTypesModule,
-  ],
+  imports: [PrismaModule, OrderUnitTypesModule],
   controllers: [ProductOrderUnitsController],
-  providers: [
-    ProductOrderUnitsService,
-    ProductOrderUnitsRepository,
-  ],
-  exports: [
-    ProductOrderUnitsService,
-    ProductOrderUnitsRepository,
-  ],
+  providers: [ProductOrderUnitsService, ProductOrderUnitsRepository],
+  exports: [ProductOrderUnitsService, ProductOrderUnitsRepository],
 })
 export class ProductOrderUnitsModule {}

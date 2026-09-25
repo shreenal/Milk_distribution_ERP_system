@@ -16,8 +16,14 @@ import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
-import { SaveNightEntriesDto } from './dto/save-night-entries.dto.js';
-import { SaveMorningEntriesDto } from './dto/save-morning-entries.dto.js';
+import {
+  SaveNightEntriesDto,
+  SaveNightEntriesRequestDto,
+} from './dto/save-night-entries.dto.js';
+import {
+  SaveMorningEntriesDto,
+  SaveMorningEntriesRequestDto,
+} from './dto/save-morning-entries.dto.js';
 import { Query, ParseEnumPipe } from '@nestjs/common';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { AddProductDto } from './dto/add-product.dto.js';
@@ -55,11 +61,12 @@ export class OrdersController {
   @Roles('EMPLOYEE')
   async saveNightEntries(
     @Param('sheetId') sheetId: string,
-    @Body() entries: SaveNightEntriesDto[],
+    @Body() dto: SaveNightEntriesRequestDto,
   ) {
     return await this.ordersService.saveNightEntriesService(
       Number(sheetId),
-      entries,
+      dto.entries,
+      dto.expectedUpdatedAt,
     );
   }
 
@@ -68,14 +75,13 @@ export class OrdersController {
   async saveMorningEntries(
     @Param('sheetId')
     sheetId: string,
-
-    @Body()
-    entries: SaveMorningEntriesDto[],
+    @Body() dto: SaveMorningEntriesRequestDto,
   ) {
     return this.ordersService.saveMorningEntriesService(
       Number(sheetId),
 
-      entries,
+      dto.entries,
+      dto.expectedUpdatedAt,
     );
   }
 

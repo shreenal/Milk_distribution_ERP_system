@@ -23,7 +23,6 @@ import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { AddProductDto } from './dto/add-product.dto.js';
-import { OrderCommercialService } from './services/order-commercial.service.js';
 import { BillingService } from './services/billing.service.js';
 import { DependencyOrchestratorService } from '../dependencies/dependency-orchestrator.service.js';
 import {
@@ -31,6 +30,11 @@ import {
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
+import { ConflictException } from '@nestjs/common';
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Order data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class OrdersService {
@@ -42,8 +46,6 @@ export class OrdersService {
     private readonly ordersBuilder: OrdersBuilder,
 
     private readonly validationService: OrdersValidationService,
-
-    private readonly orderCommercialService: OrderCommercialService,
 
     private readonly billingService: BillingService,
 
@@ -100,6 +102,8 @@ export class OrdersService {
         sheet.order_paper.status,
       );
 
+      const itemsUpdatedAt = sheet.order_items_updated_at;
+
       const morningEntrySaved =
         sheet.order_paper.status === OrderPaperStatus.NIGHT_SUBMITTED &&
         sheet.order_morning_entry_saved_at !== null;
@@ -119,6 +123,8 @@ export class OrdersService {
         sheet,
 
         workflow,
+
+        itemsUpdatedAt,
 
         ...orderBilling,
       };
@@ -170,28 +176,12 @@ export class OrdersService {
             );
           }
 
-          const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-            sheet.group_id,
-            tx,
-          );
-
           await this.validationService.validateProduct(dto.productId, tx);
-          // Resolve commercial context exactly once, at deliberate add-time —
-          // this is now the *only* place product_link_id gets fixed for an
-          // explicitly-added product.
-          const commercialContext = await this.orderCommercialService.resolve(
-            sheet.group_id,
-            dto.productId,
-            supplyRules,
-            tx,
-          );
 
           await this.ordersRepository.createSheetProduct(
             {
               order_sheet_id: sheetId,
               product_id: dto.productId,
-              product_link_id: commercialContext.productLinkId,
-              resolvedViaFallback: commercialContext.resolvedViaFallback,
             },
             tx,
           );
@@ -274,6 +264,7 @@ export class OrdersService {
   async saveNightEntriesService(
     sheetId: number,
     entries: SaveNightEntriesDto[],
+    expectedUpdatedAt?: string,
   ) {
     try {
       if (!sheetId || sheetId <= 0) {
@@ -304,16 +295,26 @@ export class OrdersService {
               );
             }
 
-            const supplyRules = await this.ordersRepository.getGroupSupplyRules(
-              sheet.group_id,
-              tx,
-            );
+            if (expectedUpdatedAt) {
+              await assertNotStale(
+                () =>
+                  this.ordersRepository.touchOrderItemsIfUnchanged(
+                    sheetId,
+                    new Date(expectedUpdatedAt),
+                    tx,
+                  ),
+                STALE_DATA_MESSAGE,
+              );
+            } else {
+              await this.ordersRepository.touchOrderItemsIfUnchanged(sheetId, null, tx);
+            }
 
-            const productMap = await this.validationService.validateEntriesBatch(
-              entries,
-              sheet.group_id,
-              tx,
-            );
+            const productMap =
+              await this.validationService.validateEntriesBatch(
+                entries,
+                sheet.group_id,
+                tx,
+              );
 
             const trayRules = await this.billingService.getTrayRulesOnce(tx);
 
@@ -341,7 +342,6 @@ export class OrdersService {
             await this.billingService.saveNightEntriesBatch(
               tx,
               sheet,
-              supplyRules,
               sheetId,
               entries,
               trayRules,
@@ -382,6 +382,7 @@ export class OrdersService {
   async saveMorningEntriesService(
     sheetId: number,
     entries: SaveMorningEntriesDto[],
+    expectedUpdatedAt?: string,
   ) {
     try {
       if (!sheetId || sheetId <= 0) {
@@ -412,10 +413,25 @@ export class OrdersService {
               );
             }
 
+            if (expectedUpdatedAt) {
+              await assertNotStale(
+                () =>
+                  this.ordersRepository.touchOrderItemsIfUnchanged(
+                    sheetId,
+                    new Date(expectedUpdatedAt),
+                    tx,
+                  ),
+                STALE_DATA_MESSAGE,
+              );
+            } else {
+              await this.ordersRepository.touchOrderItemsIfUnchanged(sheetId, null, tx);
+            }
+
             await this.validationService.validateEntriesBatch(
               entries,
               sheet.group_id,
               tx,
+              false, // morning only records delivery for already-resolved items
             );
 
             const existingItemMap =

@@ -1,39 +1,23 @@
 import { Injectable } from '@nestjs/common';
 import {
-  Prisma,
   SupplyCategory,
   DeliverySession,
 } from '../../generated/prisma/client.js';
 
-export type Product = Prisma.master_productGetPayload<{
-  include: {
-    master_brand: true;
-    master_product_group: true;
-    master_product_type: true;
-    master_packaging_type: true;
-  };
-}>;
+import {
+  Product,
+  OrderItemWithSupplyContext,
+  SummaryRow,
+} from '../../types/order-item.types.js';
 
-export type OrderItemWithSupplyContext = {
-  groupId: number;
-  groupName: string;
-  productId: number;
-  orderedQty: number;
-  distributorId: number;
-  deliverySession: DeliverySession;
-  category: SupplyCategory;
-  master_product: Product;
-};
+import { accumulateProductField } from './row-aggregation.util.js';
 
-export type SummaryRow = {
-  groupId: number;
-  groupName: string;
-  [key: string]: string | number;
-};
+export type { Product, OrderItemWithSupplyContext, SummaryRow };
 
 export type AllocationSummary = {
   summaryKey: string;
   distributorId: number;
+  distributorName: string;
   category: SupplyCategory;
   brandId: number;
   brandName: string;
@@ -67,6 +51,7 @@ export class AllocationSummaryBuilder {
         summary = {
           summaryKey,
           distributorId: item.distributorId,
+          distributorName: item.distributorName,
           category: item.category,
           brandId,
           brandName,
@@ -91,25 +76,9 @@ export class AllocationSummaryBuilder {
         summary.rows.push(row);
       }
 
-      const field = `product_${item.productId}`;
-      const currentValue = typeof row[field] === 'number' ? row[field] : 0;
-      row[field] = currentValue + Number(item.orderedQty ?? 0);
+      accumulateProductField(row, item.productId, Number(item.orderedQty ?? 0));
     }
 
-    const summaries: AllocationSummary[] = [];
-
-    for (const summary of summariesMap.values()) {
-      summaries.push({
-        summaryKey: summary.summaryKey,
-        distributorId: summary.distributorId,
-        category: summary.category,
-        brandId: summary.brandId,
-        brandName: summary.brandName,
-        products: summary.products,
-        rows: summary.rows,
-      });
-    }
-
-    return summaries;
+    return Array.from(summariesMap.values());
   }
 }

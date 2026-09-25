@@ -50,16 +50,30 @@ export class PaperRepository {
   }
 
   async findLatestPaper(db: PrismaOrTransaction = this.prisma) {
-    return db.order_paper.findFirst({
-      orderBy: {
-        order_date: 'desc',
-      },
+  return db.order_paper.findFirst({
+    orderBy: {
+      order_date: 'desc',
+    },
 
-      include: {
-        order_sheet: true,
+    include: {
+      order_sheet: {
+        include: {
+          master_group: {
+            select: {
+              id: true,
+              name: true,
+              delivery_session: true,
+            },
+          },
+        },
+
+        orderBy: {
+          id: 'asc',
+        },
       },
-    });
-  }
+    },
+  });
+}
 
   async findPaperById(paperId: number, db: PrismaOrTransaction = this.prisma) {
     return db.order_paper.findUnique({
@@ -81,42 +95,6 @@ export class PaperRepository {
 
           orderBy: {
             id: 'asc',
-          },
-        },
-      },
-    });
-  }
-
-  async findPaperByOrderDateRange(
-    today: Date,
-    tomorrow: Date,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_paper.findFirst({
-      where: {
-        order_date: {
-          gte: today,
-          lt: tomorrow,
-        },
-      },
-    });
-  }
-
-  async getSheetItems(sheetId: number, db: PrismaOrTransaction = this.prisma) {
-    return db.order_sheet_items.findMany({
-      where: {
-        order_sheet_id: sheetId,
-      },
-
-      include: {
-        master_client: true,
-
-        master_product: {
-          include: {
-            master_brand: true,
-            master_product_group: true,
-            master_packaging_type: true,
-            master_product_type: true,
           },
         },
       },

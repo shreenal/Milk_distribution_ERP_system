@@ -4,23 +4,12 @@ import { ProductColumnNode } from '../common/builders/product-columns.builder.js
 export type {
   OrderItemWithSupplyContext,
   Product,
-} from '../common/builders/allocation-summary.builder.js';
+} from './order-item.types.js';
 import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
 
 export type Vehicle = {
   id: number;
   vehicle_name: string | null;
-};
-
-export type Distributor = {
-  id: number;
-  name: string;
-};
-
-export type VehicleAssignment = {
-  vehicle_id: number;
-  distributor_id: number;
-  category: SupplyCategory;
 };
 
 export type VehicleAllocation = {
@@ -39,24 +28,10 @@ export type VehicleAllocationRow = {
   [key: string]: string | number | null;
 };
 
-export type VehicleAssignmentRow = {
-  vehicleId: number;
-  vehicleName: string | null;
-  milkDistributorId: number | null;
-  nonMilkDistributorId: number | null;
-};
-
-export type VehicleAssignmentGrid = {
-  assignments: VehicleAssignmentRow[];
-  distributors: {
-    id: number;
-    name: string;
-  }[];
-};
-
 export type AllocationGrid = {
   distributor: {
     id: number;
+    name: string;
   };
 
   category: SupplyCategory;
@@ -177,21 +152,3 @@ export interface VehicleAllocationResponse {
 
   sections: VehicleAllocationSection[];
 }
-
-export type VehicleAllocationRequirementGrid = {
-  distributor: {
-    id: number;
-  };
-  category: SupplyCategory;
-  brand: {
-    id: number;
-    name: string;
-  };
-  columns: ProductColumnNode[];
-  rows: {
-    groupId: number;
-    groupName: string;
-    [key: string]: string | number;
-  }[];
-  totals: Record<string, number>;
-};

@@ -10,7 +10,6 @@ import { AuthModule } from './modules/transactions/auth/auth.module.js';
 import { VehicleAllocationModule } from './modules/transactions/vehicle-allocation/vehicle-allocation.module.js';
 import { PaperModule } from './modules/transactions/paper/paper.module.js';
 import { PurchaseModule } from './modules/transactions/purchase/purchase.module.js';
-import { DeliverySummaryModule } from './modules/transactions/delivery-summary/delivery-summary.module.js';
 import { CashSettlementModule } from './modules/transactions/cash-settlement/cash-settlement.module.js';
 import { DistributorTransferModule } from './modules/transactions/distributor-transfer/distributor-transfer.module.js';
 import { DairyTraysModule } from './modules/transactions/dairy-trays/dairy-trays.module.js';
@@ -39,7 +38,6 @@ import { TrayRulesModule } from './modules/masters/products/tray-rules/tray-rule
 import { ProcurementRulesModule } from './modules/masters/distribution/procurement-rules/procurement-rules.module.js';
 import { TransferRulesModule } from './modules/masters/distribution/transfer-rules/transfer-rules.module.js';
 import { ConfigModule } from '@nestjs/config';
-import { GroupSupplyRulesModule } from './modules/masters/distribution/group-supply-rules/group-supply-rules.module.js';
 import { DistributorProductPrioritiesModule } from './modules/masters/distribution/distributor-product-priorities/distributor-product-priorities.module.js';
 import { ReportModule } from './modules/reports/report.module.js';
 import { DependencyModule } from './modules/transactions/dependencies/dependency.module.js';
@@ -59,7 +57,6 @@ import { ProductOrderUnitsModule } from './modules/masters/products/product-orde
     AuthModule,
     PaperModule,
     PurchaseModule,
-    DeliverySummaryModule,
     CashSettlementModule,
     DistributorTransferModule,
     DairyTraysModule,
@@ -89,11 +86,9 @@ import { ProductOrderUnitsModule } from './modules/masters/products/product-orde
     TrayRulesModule,
     ProcurementRulesModule,
     TransferRulesModule,
-    GroupSupplyRulesModule,
     DistributorProductPrioritiesModule,
     ReportModule,
     DependencyModule,
-
   ],
   controllers: [AppController],
   providers: [AppService],

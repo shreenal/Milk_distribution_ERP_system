@@ -53,7 +53,6 @@ async function main() {
     await prisma.purchase_paper.deleteMany();
 
     await prisma.vehicle_allocation.deleteMany();
-    await prisma.vehicle_distribution_assignment.deleteMany();
     await prisma.vehicle_allocation_paper.deleteMany();
 
     await prisma.master_client_rate_product.deleteMany();
@@ -61,15 +60,14 @@ async function main() {
     await prisma.distributor_product_priority.deleteMany();
 
     await prisma.master_product_link.deleteMany();
+    await prisma.product_tray_rule.deleteMany();
     await prisma.master_tray_type.deleteMany();
     await prisma.master_product.deleteMany();
 
     await prisma.product_order_unit.deleteMany();
     await prisma.master_order_unit_type.deleteMany();
 
-    await prisma.product_tray_rule.deleteMany();
     await prisma.distributor_procurement_rule.deleteMany();
-    await prisma.master_group_supply_rule.deleteMany();
     await prisma.distributor_transfer_rule.deleteMany();
     await prisma.master_client_category.deleteMany();
 
@@ -286,13 +284,6 @@ async function main() {
     const pgLassi = await prisma.master_product_group.create({
         data: {
             name: 'Lassi',
-            category: SupplyCategory.NON_MILK,
-        },
-    });
-
-    const pgButtermilk = await prisma.master_product_group.create({
-        data: {
-            name: 'Buttermilk',
             category: SupplyCategory.NON_MILK,
         },
     });
@@ -984,8 +975,8 @@ async function main() {
     // 17) GROUPS
     // 10 groups.
     // Note:
-    // master_group still has distributor_id in schema.
-    // But category-specific sourcing is driven by master_group_supply_rule.
+    // master_group is used for delivery grouping.
+// Category-specific sourcing is driven by master_client_category.
     // ------------------------------------------------------------
     const groups: Array<{
         id: number;
@@ -1016,44 +1007,6 @@ async function main() {
             delivery_session: group.delivery_session,
         });
     }
-
-
-    // ------------------------------------------------------------
-    // 18) GROUP SUPPLY RULES
-    // Scenario:
-    // - Groups 1-9 milk -> Distributor A
-    // - Group 10 milk -> Distributor B
-    // - Groups 1-10 non-milk -> Distributor C
-    // ------------------------------------------------------------
-    const groupSupplyRulesData: Array<{
-        group_id: number;
-        category: SupplyCategory;
-        distributor_id: number;
-        is_active: boolean;
-    }> = [];
-
-    for (let i = 0; i < groups.length; i++) {
-        const group = groups[i];
-        const milkDistributorId = i < 9 ? distributorA.id : distributorB.id;
-
-        groupSupplyRulesData.push({
-            group_id: group.id,
-            category: SupplyCategory.MILK,
-            distributor_id: milkDistributorId,
-            is_active: true,
-        });
-
-        groupSupplyRulesData.push({
-            group_id: group.id,
-            category: SupplyCategory.NON_MILK,
-            distributor_id: distributorC.id,
-            is_active: true,
-        });
-    }
-
-    await prisma.master_group_supply_rule.createMany({
-        data: groupSupplyRulesData,
-    });
 
 
     // DECISION (B3/D5): distributorB is intentionally receive-only — it never supplies stock
@@ -1113,14 +1066,10 @@ async function main() {
     //   Distributor C -> eligible
     //   Distributor A/B -> NOT eligible
     //
-    // Group defaults:
-    //
-    // Groups 1-9:
-    //   MILK -> Distributor A
-    //
-    // Group 10:
-    //   MILK -> Distributor B
-    //
+    // Fallback priorities are group-specific.
+// The primary supplier comes from master_client_category.
+// These rows determine which eligible distributor is tried next
+// if the client's primary supplier has no product link.
     // Therefore:
     //
     // Groups 1-9:
@@ -1217,8 +1166,8 @@ async function main() {
             is_active: true,
         },
 
-        // D4: Group 1's NON_MILK primary distributor for Govind Curd is C (via
-        // master_group_supply_rule); distributor A is eligible as the priority-1 alternate
+       // D4: Group 1's NON_MILK primary distributor for Govind Curd is C
+// via master_client_category; distributor A is eligible as the priority-1 alternate.
         // (see the matching distributor_procurement_rule and master_product_link above) so a
         // test can deactivate C's link and force resolution onto A, the same way the MILK
         // fallback cases above work.
@@ -1304,16 +1253,25 @@ async function main() {
     const clientCategoryRows: {
         client_id: number;
         category: SupplyCategory;
+        supplier_distributor_id: number;
     }[] = [];
 
     for (let index = 0; index < clients.length; index++) {
         const client = clients[index];
         const clientSerial = index + 1;
 
+        const groupIndex = Math.floor(index / 3);
+
+        const milkDistributorId =
+            groupIndex < 9
+                ? distributorA.id
+                : distributorB.id;
+
         // Every client purchases Milk.
         clientCategoryRows.push({
             client_id: client.id,
             category: SupplyCategory.MILK,
+            supplier_distributor_id: milkDistributorId,
         });
 
         // Every third seeded client also purchases Non-Milk.
@@ -1321,6 +1279,7 @@ async function main() {
             clientCategoryRows.push({
                 client_id: client.id,
                 category: SupplyCategory.NON_MILK,
+                supplier_distributor_id: distributorC.id,
             });
         }
     }
@@ -1328,23 +1287,21 @@ async function main() {
     await prisma.master_client_category.createMany({
         data: clientCategoryRows,
     });
+
+    const clientCategorySupplierMap = new Map(
+        clientCategoryRows.map((row) => [
+            `${row.client_id}_${row.category}`,
+            row.supplier_distributor_id,
+        ]),
+    );
     // ------------------------------------------------------------
     // 20) CLIENT SELLING RATES
     // master_client_rate_product now points to master_product_link
     // Only create rates for categories the client is allowed to buy.
     //
-    // DECISION (B1): this loop resolves each client's distributor via the group's *primary*
-    // master_group_supply_rule only — it deliberately does NOT replicate
-    // OrderCommercialService's priority/eligibility fallback algorithm. Where the primary
-    // distributor has no product_link for a given product (e.g. Group 10's milk distributor,
-    // distributorB, has no link to any Shakti product), no master_client_rate_product row is
-    // created for that pair, and getSellingRate correctly falls through to the
-    // distributor_product_rate for whichever distributor OrderCommercialService actually
-    // resolves at order time. Duplicating the resolution algorithm here would risk the seed's
-    // notion of "the right distributor" silently drifting out of sync with the real service —
-    // two independent implementations of the same business rule is a bug magnet, not a safety
-    // net. Relying on the fallback is simpler and, as a side effect, gives every such
-    // combination free baseline coverage of the fallback-rate lookup path itself.
+   // Client selling rates use the supplier already resolved in
+// master_client_category for each client/category.
+// This keeps seeded client rates aligned with client-specific sourcing.
     // ------------------------------------------------------------
 
     const allProducts = await prisma.master_product.findMany({
@@ -1371,13 +1328,6 @@ async function main() {
         effective_to: Date | null;
         is_active: boolean;
     }> = [];
-
-    const groupSupplyRuleMap = new Map(
-        groupSupplyRulesData.map((rule) => [
-            `${rule.group_id}_${rule.category}`,
-            rule.distributor_id,
-        ]),
-    );
 
     // Build client -> allowed categories
     const clientCategories = new Map<number, Set<SupplyCategory>>();
@@ -1406,8 +1356,8 @@ async function main() {
                 continue;
             }
 
-            const distributorId = groupSupplyRuleMap.get(
-                `${client.delivery_group_id}_${category}`,
+            const distributorId = clientCategorySupplierMap.get(
+                `${client.id}_${category}`,
             );
 
             if (!distributorId) {

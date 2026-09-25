@@ -1,8 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mocked } from 'vitest';
-import {
-  GatepassDatePolicy,
-} from '../../../../generated/prisma/client.js';
+import { GatepassDatePolicy } from '../../../../generated/prisma/client.js';
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 import { PurchaseRepository } from '../purchase.repository.js';
 import { PurchaseCommercialService } from './purchase-commercial.service.js';
@@ -22,10 +20,7 @@ describe('PurchaseCommercialService', () => {
     prisma = {} as Mocked<PrismaService>;
     db = {};
 
-    service = new PurchaseCommercialService(
-      purchaseRepository,
-      prisma,
-    );
+    service = new PurchaseCommercialService(purchaseRepository, prisma);
   });
 
   describe('resolve', () => {
@@ -57,11 +52,7 @@ describe('PurchaseCommercialService', () => {
 
       expect(
         purchaseRepository.findProductLinkRateForDate,
-      ).toHaveBeenCalledWith(
-        101,
-        new Date('2026-06-15T00:00:00.000Z'),
-        db,
-      );
+      ).toHaveBeenCalledWith(101, new Date('2026-06-15T00:00:00.000Z'), db);
 
       expect(result).toEqual({
         productLinkId: 101,
@@ -89,15 +80,9 @@ describe('PurchaseCommercialService', () => {
 
       expect(
         purchaseRepository.findProductLinkRateForDate,
-      ).toHaveBeenCalledWith(
-        101,
-        new Date('2026-06-14T00:00:00.000Z'),
-        db,
-      );
+      ).toHaveBeenCalledWith(101, new Date('2026-06-14T00:00:00.000Z'), db);
 
-      expect(result.gatepassDate).toEqual(
-        new Date('2026-06-14T00:00:00.000Z'),
-      );
+      expect(result.gatepassDate).toEqual(new Date('2026-06-14T00:00:00.000Z'));
     });
 
     it('passes activeOnly=true to the product-link lookup', async () => {
@@ -266,9 +251,7 @@ describe('PurchaseCommercialService', () => {
         GatepassDatePolicy.SAME_DAY,
       );
 
-      expect(result).toEqual(
-        new Date('2026-06-15T00:00:00.000Z'),
-      );
+      expect(result).toEqual(new Date('2026-06-15T00:00:00.000Z'));
     });
 
     it('returns the previous calendar day for PREVIOUS_DAY', () => {
@@ -279,9 +262,7 @@ describe('PurchaseCommercialService', () => {
         GatepassDatePolicy.PREVIOUS_DAY,
       );
 
-      expect(result).toEqual(
-        new Date('2026-06-14T00:00:00.000Z'),
-      );
+      expect(result).toEqual(new Date('2026-06-14T00:00:00.000Z'));
     });
 
     it('handles the first day of a month', () => {
@@ -292,9 +273,7 @@ describe('PurchaseCommercialService', () => {
         GatepassDatePolicy.PREVIOUS_DAY,
       );
 
-      expect(result).toEqual(
-        new Date('2026-05-31T00:00:00.000Z'),
-      );
+      expect(result).toEqual(new Date('2026-05-31T00:00:00.000Z'));
     });
 
     it('handles the first day of a year', () => {
@@ -305,19 +284,14 @@ describe('PurchaseCommercialService', () => {
         GatepassDatePolicy.PREVIOUS_DAY,
       );
 
-      expect(result).toEqual(
-        new Date('2025-12-31T00:00:00.000Z'),
-      );
+      expect(result).toEqual(new Date('2025-12-31T00:00:00.000Z'));
     });
 
     it('does not mutate the supplied date', () => {
       const saleDate = new Date('2026-06-15T00:00:00.000Z');
       const originalTime = saleDate.getTime();
 
-      service.resolveGatepassDateFor(
-        saleDate,
-        GatepassDatePolicy.PREVIOUS_DAY,
-      );
+      service.resolveGatepassDateFor(saleDate, GatepassDatePolicy.PREVIOUS_DAY);
 
       expect(saleDate.getTime()).toBe(originalTime);
     });

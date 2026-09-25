@@ -4,8 +4,6 @@ export const PURCHASE_ERROR_MESSAGES = {
   VEHICLE_ALLOCATIONS_REQUIRED:
     'Vehicle allocations must be completed before purchasing',
 
-  NO_VEHICLE_ASSIGNMENTS: 'No vehicle assignments found',
-
   EDIT_NOT_ALLOWED: 'Purchases cannot be edited in current workflow state',
 
   NEGATIVE_PURCHASE_QTY: 'Purchased quantity cannot be negative',
@@ -16,9 +14,6 @@ export const PURCHASE_ERROR_MESSAGES = {
 
   INVALID_DISTRIBUTOR: (distributorId: number) =>
     `Invalid distributor ${distributorId}`,
-
-  VEHICLE_DISTRIBUTOR_MISMATCH: (vehicleId: number, distributorId: number) =>
-    `Vehicle ${vehicleId} is not assigned to distributor ${distributorId} for this product category`,
 
   PROCUREMENT_RULE_MISSING: (distributorId: number, productId: number) =>
     `Distributor ${distributorId} cannot procure product ${productId}`,
@@ -36,9 +31,4 @@ export const PURCHASE_ERROR_MESSAGES = {
 
   PURCHASE_MISSING: (vehicleId: number, productId: number) =>
     `Purchase missing for vehicle ${vehicleId} product ${productId}`,
-
-  INVALID_RATE_IDENTIFIERS: 'Distributor rate contains invalid identifiers',
-
-  VEHICLE_ASSIGNMENT_NOT_FOUND: (vehicleId: number) =>
-    `Vehicle assignment not found for vehicle ${vehicleId}`,
 } as const;

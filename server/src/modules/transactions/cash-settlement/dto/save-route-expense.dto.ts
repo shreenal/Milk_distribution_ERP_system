@@ -1,4 +1,12 @@
-import { IsArray, IsInt, IsNumber, Min, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsInt,
+  IsISO8601,
+  IsNumber,
+  IsOptional,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 import { Type } from 'class-transformer';
 
@@ -9,6 +17,10 @@ export class SaveRouteExpensesDto {
   })
   @Type(() => RouteExpenseDto)
   expenses!: RouteExpenseDto[];
+
+  @IsOptional()
+  @IsISO8601()
+  expectedUpdatedAt?: string;
 }
 
 export class RouteExpenseDto {

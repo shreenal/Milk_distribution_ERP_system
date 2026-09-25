@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
 
 @Injectable()
 export class DistributorTransferRepository {
@@ -133,41 +134,43 @@ export class DistributorTransferRepository {
       where: { order_paper_id: orderPaperId },
     });
 
-    const keyOf = (
-      r: Pick<
-        Prisma.distributor_transferCreateManyInput,
-        'supplier_distributor_id' | 'owner_distributor_id' | 'product_id'
-      >,
-    ) =>
-      `${r.supplier_distributor_id}_${r.owner_distributor_id}_${r.product_id}`;
-
-    const existingByKey = new Map(existing.map((r) => [keyOf(r), r]));
-    const incomingByKey = new Map(data.map((r) => [keyOf(r), r]));
-
-    const toDelete = existing.filter((r) => !incomingByKey.has(keyOf(r)));
-    const toInsert = data.filter((r) => !existingByKey.has(keyOf(r)));
-    const toUpdate = data.filter((r) => {
-      const match = existingByKey.get(keyOf(r));
-      return (
-        match !== undefined &&
-        Number(match.transfer_qty) !== Number(r.transfer_qty)
-      );
-    });
-
+    const { toDelete, toInsert, toUpdate } = diffByKey<
+      (typeof existing)[number],
+      (typeof data)[number]
+    >(
+      existing,
+      data,
+      (row) =>
+        `${row.supplier_distributor_id}_${row.owner_distributor_id}_${row.product_id}`,
+      (row) =>
+        `${row.supplier_distributor_id}_${row.owner_distributor_id}_${row.product_id}`,
+      (existingRow, incomingRow) =>
+        Number(existingRow.transfer_qty) !== Number(incomingRow.transfer_qty),
+    );
     if (toDelete.length > 0) {
       await db.distributor_transfer.deleteMany({
         where: { id: { in: toDelete.map((r) => r.id) } },
       });
     }
-    for (const row of toUpdate) {
-      const existingRow = existingByKey.get(keyOf(row))!;
+    for (const { existingRow, incomingRow } of toUpdate) {
       await db.distributor_transfer.update({
         where: { id: existingRow.id },
-        data: { transfer_qty: row.transfer_qty },
+        data: { transfer_qty: incomingRow.transfer_qty },
       });
     }
     if (toInsert.length > 0) {
       await db.distributor_transfer.createMany({ data: toInsert });
     }
+  }
+
+  async touchOrderPaperIfUnchanged(
+    paperId: number,
+    expectedUpdatedAt: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.updateMany({
+      where: { id: paperId, updated_at: expectedUpdatedAt },
+      data: {},
+    });
   }
 }

@@ -1,7 +1,6 @@
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 
 export const QUANTITY_PRECISION = {
-
   MAX_ORDERED_QTY: 10000,
   MAX_DELIVERED_QTY: 10000,
 
@@ -10,24 +9,10 @@ export const QUANTITY_PRECISION = {
   AMOUNT_DECIMAL_PLACES: 2,
 } as const;
 
-export const DATE_CONFIG = {
-  MAX_FUTURE_DAYS: 30,
-
-  TIMEZONE: 'Asia/Kolkata',
-
-  DAY_START_HOURS: 0,
-  DAY_START_MINUTES: 0,
-  DAY_START_SECONDS: 0,
-} as const;
-
 export const ERROR_MESSAGES = {
   // Sheet/Paper errors
   INVALID_SHEET_ID: 'Invalid sheet ID provided',
   SHEET_NOT_FOUND: 'Order sheet not found',
-  INVALID_PAPER_ID: 'Invalid paper ID provided',
-  PAPER_NOT_FOUND: 'Order paper not found',
-
-  NO_ACTIVE_GROUPS: 'No active groups found to generate sheets',
   PRODUCT_NOT_FOUND: (id: number) => `Product with ID ${id} not found`,
   PRODUCT_INACTIVE: (name: string) =>
     `Product "${name}" is inactive and cannot be ordered`,
@@ -36,8 +21,6 @@ export const ERROR_MESSAGES = {
   CLIENT_NOT_FOUND: (id: number) => `Client with ID ${id} not found`,
   CLIENT_INACTIVE: (name: string) =>
     `Client "${name}" is inactive and cannot be ordered`,
-  PRODUCT_NOT_IN_GROUP: (productId: number, groupId: number) =>
-    `Product ${productId} does not belong to group ${groupId}`,
   CLIENT_NOT_IN_GROUP: (clientId: number, groupId: number) =>
     `Client ${clientId} does not belong to group ${groupId}`,
 
@@ -50,8 +33,8 @@ export const ERROR_MESSAGES = {
     `Night entry incomplete for sheet "${groupName}"`,
 
   INVALID_QUANTITY_PRECISION: (qty: number) =>
-  `Invalid quantity: ${qty}. ` +
-  `Quantity must be specified to at most 2 decimal places.`,
+    `Invalid quantity: ${qty}. ` +
+    `Quantity must be specified to at most 2 decimal places.`,
   QUANTITY_NEGATIVE: (fieldName: string, value: number) =>
     `${fieldName} cannot be negative: ${value}`,
   QUANTITY_EXCEEDS_MAX: (fieldName: string, value: number, max: number) =>
@@ -82,7 +65,4 @@ export const ERROR_MESSAGES = {
 export const SUCCESS_MESSAGES = {
   NIGHT_ENTRIES_SAVED: 'Night entries saved successfully',
   MORNING_ENTRIES_SAVED: 'Morning entries saved successfully',
-
-  ENTRIES_DEDUPLICATED: (removed: number) =>
-    `Saved successfully (${removed} duplicate(s) merged)`,
 } as const;

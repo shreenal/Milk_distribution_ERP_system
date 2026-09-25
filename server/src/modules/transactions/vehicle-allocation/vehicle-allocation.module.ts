@@ -8,6 +8,7 @@ import { ProductColumnsBuilder } from '../../../common/builders/product-columns.
 import { VehicleAllocationValidationService } from './services/vehicle-allocation-validation.service.js';
 import { OrderItemsRepository } from '../../../common/repositories/order-items.repository.js';
 import { AllocationSummaryBuilder } from '../../../common/builders/allocation-summary.builder.js';
+import { GroupSummaryBuilder } from '../../../common/builders/group-summary.builder.js';
 
 @Module({
   imports: [WorkflowModule],
@@ -22,6 +23,7 @@ import { AllocationSummaryBuilder } from '../../../common/builders/allocation-su
     VehicleAllocationValidationService,
     OrderItemsRepository,
     AllocationSummaryBuilder,
+    GroupSummaryBuilder,
   ],
 
   exports: [

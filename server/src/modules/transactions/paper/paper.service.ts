@@ -12,6 +12,7 @@ import {
 } from '../dependencies/dependency.constant.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 
 @Injectable()
 export class PaperService {
@@ -20,6 +21,7 @@ export class PaperService {
     private readonly paperRepository: PaperRepository,
     private readonly paperValidationService: PaperValidationService,
     private readonly workflowState: WorkflowStateService,
+    private readonly workflowBuilder: WorkflowBuilder,
     private readonly prisma: PrismaService,
     private readonly dependencyOrchestrator: DependencyOrchestratorService,
   ) {}
@@ -153,8 +155,8 @@ export class PaperService {
       if (todayPaper) {
         return {
           type: 'TODAY',
-
           paper: todayPaper,
+          workflow: this.workflowBuilder.buildPaperWorkflow(todayPaper.status),
         };
       }
 
@@ -166,8 +168,8 @@ export class PaperService {
 
       return {
         type: 'LATEST',
-
         paper: latestPaper,
+        workflow: this.workflowBuilder.buildPaperWorkflow(latestPaper.status),
       };
     } catch (error) {
       this.logger.error('Failed to fetch today/latest paper', error);
@@ -183,7 +185,10 @@ export class PaperService {
       throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
     }
 
-    return paper;
+    return {
+      paper,
+      workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+    };
   }
 
   async getPapersService(date?: string) {
@@ -204,10 +209,18 @@ export class PaperService {
         throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
       }
 
-      return paper;
+      return {
+        paper,
+        workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+      };
     }
 
-    return this.paperRepository.findAllPapers();
+    const papers = await this.paperRepository.findAllPapers();
+
+    return papers.map((paper) => ({
+      paper,
+      workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+    }));
   }
 
   async submitNightEntryService(paperId: number) {

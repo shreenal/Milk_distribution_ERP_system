@@ -107,9 +107,9 @@ describe('NightBillingService', () => {
     });
 
     it('throws for an unsupported packaging unit', () => {
-      expect(() =>
-        service.calculate(10, 100, 20, 500, 'KG'),
-      ).toThrow('Unsupported packaging unit for litre billing: KG');
+      expect(() => service.calculate(10, 100, 20, 500, 'KG')).toThrow(
+        'Unsupported packaging unit for litre billing: KG',
+      );
     });
 
     it('returns exactly the NightBillingResult shape', () => {

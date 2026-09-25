@@ -29,7 +29,7 @@ export class ProductsService {
     private readonly productTypesRepository: ProductTypesRepository,
     private readonly packagingTypesRepository: PackagingTypesRepository,
     private readonly productOrderUnitsRepository: ProductOrderUnitsRepository,
-  ) { }
+  ) {}
 
   async findAll() {
     return this.productsRepository.findAll();
@@ -90,10 +90,9 @@ export class ProductsService {
       }
     }
 
-    const productOrderUnit =
-      await this.productOrderUnitsRepository.findById(
-        dto.product_order_unit_id,
-      );
+    const productOrderUnit = await this.productOrderUnitsRepository.findById(
+      dto.product_order_unit_id,
+    );
 
     if (!productOrderUnit) {
       throw new NotFoundException(
@@ -144,15 +143,12 @@ export class ProductsService {
         ? dto.packaging_type_id
         : existingProduct.packaging_type_id;
 
-    const packagingSize =
-      dto.packaging_size ?? existingProduct.packaging_size;
+    const packagingSize = dto.packaging_size ?? existingProduct.packaging_size;
 
-    const packagingUnit =
-      dto.packaging_unit ?? existingProduct.packaging_unit;
+    const packagingUnit = dto.packaging_unit ?? existingProduct.packaging_unit;
 
     const productOrderUnitId =
-      dto.product_order_unit_id ??
-      existingProduct.product_order_unit_id;
+      dto.product_order_unit_id ?? existingProduct.product_order_unit_id;
 
     const brand = await this.brandsRepository.findById(brandId);
 
@@ -198,9 +194,7 @@ export class ProductsService {
     }
 
     const productOrderUnit =
-      await this.productOrderUnitsRepository.findById(
-        productOrderUnitId,
-      );
+      await this.productOrderUnitsRepository.findById(productOrderUnitId);
 
     if (!productOrderUnit) {
       throw new NotFoundException(
@@ -257,8 +251,7 @@ export class ProductsService {
       link.client_rates.some((rate) => rate.is_active),
     );
 
-    const orderUnitConfigured =
-      configuration.product_order_unit !== null;
+    const orderUnitConfigured = configuration.product_order_unit !== null;
     const issues: string[] = [];
 
     let status: ProductConfigurationStatus;
@@ -266,15 +259,11 @@ export class ProductsService {
     if (!orderUnitConfigured) {
       status = ProductConfigurationStatus.UNCONFIGURED;
 
-      issues.push(
-        'Product Order Unit configuration must be selected.',
-      );
+      issues.push('Product Order Unit configuration must be selected.');
     } else if (!distributorConfigured) {
       status = ProductConfigurationStatus.UNCONFIGURED;
 
-      issues.push(
-        'No active distributor is configured for this product.',
-      );
+      issues.push('No active distributor is configured for this product.');
     } else if (!distributorRatesConfigured) {
       status = ProductConfigurationStatus.PARTIAL;
 

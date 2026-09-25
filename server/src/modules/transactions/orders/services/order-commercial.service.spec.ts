@@ -29,9 +29,7 @@ describe('OrderCommercialService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    service = new OrderCommercialService(
-      ordersRepository as any,
-    );
+    service = new OrderCommercialService(ordersRepository as any);
   });
 
   describe('resolve', () => {
@@ -61,15 +59,7 @@ describe('OrderCommercialService', () => {
 
       expect(
         ordersRepository.getEligibleDistributorsForProduct,
-      ).toHaveBeenCalledWith(
-        5,
-        10,
-        100,
-        200,
-        SupplyCategory.MILK,
-        101,
-        tx,
-      );
+      ).toHaveBeenCalledWith(5, 10, 100, 200, SupplyCategory.MILK, 101, tx);
 
       expect(result).toEqual({
         distributorId: 101,
@@ -88,9 +78,7 @@ describe('OrderCommercialService', () => {
         },
       };
 
-      ordersRepository.getProductWithGroup.mockResolvedValue(
-        nonMilkProduct,
-      );
+      ordersRepository.getProductWithGroup.mockResolvedValue(nonMilkProduct);
 
       ordersRepository.getEligibleDistributorsForProduct.mockResolvedValue([
         {
@@ -115,15 +103,7 @@ describe('OrderCommercialService', () => {
 
       expect(
         ordersRepository.getEligibleDistributorsForProduct,
-      ).toHaveBeenCalledWith(
-        5,
-        10,
-        100,
-        200,
-        SupplyCategory.NON_MILK,
-        202,
-        tx,
-      );
+      ).toHaveBeenCalledWith(5, 10, 100, 200, SupplyCategory.NON_MILK, 202, tx);
 
       expect(result.distributorId).toBe(202);
       expect(result.productLinkId).toBe(502);
@@ -153,9 +133,7 @@ describe('OrderCommercialService', () => {
         ordersRepository.getEligibleDistributorsForProduct,
       ).not.toHaveBeenCalled();
 
-      expect(
-        ordersRepository.getProductLinksBatch,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.getProductLinksBatch).not.toHaveBeenCalled();
     });
 
     it('rejects when the non-milk distributor supply rule is missing', async () => {
@@ -166,9 +144,7 @@ describe('OrderCommercialService', () => {
         },
       };
 
-      ordersRepository.getProductWithGroup.mockResolvedValue(
-        nonMilkProduct,
-      );
+      ordersRepository.getProductWithGroup.mockResolvedValue(nonMilkProduct);
 
       await expect(
         service.resolve(
@@ -190,9 +166,7 @@ describe('OrderCommercialService', () => {
     it('rejects when there are no eligible distributors', async () => {
       ordersRepository.getProductWithGroup.mockResolvedValue(product);
 
-      ordersRepository.getEligibleDistributorsForProduct.mockResolvedValue(
-        [],
-      );
+      ordersRepository.getEligibleDistributorsForProduct.mockResolvedValue([]);
 
       await expect(
         service.resolve(
@@ -210,9 +184,7 @@ describe('OrderCommercialService', () => {
         ),
       );
 
-      expect(
-        ordersRepository.getProductLinksBatch,
-      ).not.toHaveBeenCalled();
+      expect(ordersRepository.getProductLinksBatch).not.toHaveBeenCalled();
     });
 
     it('selects the primary distributor when its product link exists', async () => {
@@ -270,9 +242,7 @@ describe('OrderCommercialService', () => {
       ]);
 
       ordersRepository.getProductLinksBatch.mockResolvedValue(
-        new Map([
-          [102, { id: 502 }],
-        ]),
+        new Map([[102, { id: 502 }]]),
       );
 
       const result = await service.resolve(
@@ -399,9 +369,7 @@ describe('OrderCommercialService', () => {
         tx,
       );
 
-      expect(
-        ordersRepository.getProductLinksBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getProductLinksBatch).toHaveBeenCalledWith(
         [101, 102, 103],
         10,
         tx,
@@ -495,25 +463,13 @@ describe('OrderCommercialService', () => {
         tx,
       );
 
-      expect(
-        ordersRepository.getProductWithGroup,
-      ).toHaveBeenCalledWith(10, tx);
+      expect(ordersRepository.getProductWithGroup).toHaveBeenCalledWith(10, tx);
 
       expect(
         ordersRepository.getEligibleDistributorsForProduct,
-      ).toHaveBeenCalledWith(
-        5,
-        10,
-        100,
-        200,
-        SupplyCategory.MILK,
-        101,
-        tx,
-      );
+      ).toHaveBeenCalledWith(5, 10, 100, 200, SupplyCategory.MILK, 101, tx);
 
-      expect(
-        ordersRepository.getProductLinksBatch,
-      ).toHaveBeenCalledWith(
+      expect(ordersRepository.getProductLinksBatch).toHaveBeenCalledWith(
         [101],
         10,
         tx,

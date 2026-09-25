@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { buildPurchaseKey } from '../../../common/utils/allocation-key.util.js';
+import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
 
 @Injectable()
 export class PurchaseRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findOrderPaperById(
     paperId: number,
@@ -44,39 +46,6 @@ export class PurchaseRepository {
     });
   }
 
-  async findVehicleAssignmentsByPaperId(
-    paperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.vehicle_distribution_assignment.findMany({
-      where: {
-        vehicle_allocation_paper: {
-          order_paper_id: paperId,
-        },
-      },
-
-      include: {
-        master_vehicle: true,
-
-        master_distributor: true,
-        vehicle_allocation_paper: {
-          select: {
-            delivery_session: true,
-          },
-        },
-      },
-
-      orderBy: [
-        {
-          vehicle_id: 'asc',
-        },
-        {
-          category: 'asc',
-        },
-      ],
-    });
-  }
-
   async findPurchaseEntries(
     purchasePaperId: number,
     db: PrismaOrTransaction = this.prisma,
@@ -108,39 +77,25 @@ export class PurchaseRepository {
       where: { purchase_paper_id: purchasePaperId },
     });
 
-    const keyOf = (
-      row: Pick<
-        Prisma.purchase_entryCreateManyInput,
-        | 'vehicle_id'
-        | 'distributor_id'
-        | 'category'
-        | 'product_id'
-        | 'delivery_session'
-      >,
-    ) =>
-      `${row.vehicle_id}_${row.distributor_id}_${row.category}_${row.product_id}_${row.delivery_session}`;
-
-    const existingByKey = new Map(existing.map((r) => [keyOf(r), r]));
-    const incomingByKey = new Map(data.map((r) => [keyOf(r), r]));
-
-    const toDelete = existing.filter((r) => !incomingByKey.has(keyOf(r)));
-    const toInsert = data.filter((r) => !existingByKey.has(keyOf(r)));
-
-    const toUpdate = data.filter((r) => {
-      const match = existingByKey.get(keyOf(r));
-      if (!match) return false;
-      return (
+    // FIX F1/F9 (consistency review): key composition and diffing now come
+    // from shared utilities (see vehicle-allocation.repository.ts for the
+    // equivalent vehicle_allocation version of this same pattern).
+    const { toDelete, toInsert, toUpdate } = diffByKey(
+      existing,
+      data,
+      buildPurchaseKey,
+      buildPurchaseKey,
+      (match, r) =>
         Number(match.purchased_qty) !== Number(r.purchased_qty) ||
         Number(match.purchase_rate) !== Number(r.purchase_rate) ||
         Number(match.purchase_amount) !== Number(r.purchase_amount) ||
         match.source_allocation_id !== r.source_allocation_id ||
         Number(match.source_allocated_qty ?? NaN) !==
-        Number(r.source_allocated_qty ?? NaN) ||
+          Number(r.source_allocated_qty ?? NaN) ||
         (match.tray_type_id ?? null) !== (r.tray_type_id ?? null) ||
         match.product_link_id !== r.product_link_id ||
-        match.gatepass_date.getTime() !== new Date(r.gatepass_date).getTime()
-      );
-    });
+        match.gatepass_date.getTime() !== new Date(r.gatepass_date).getTime(),
+    );
 
     if (toDelete.length > 0) {
       await db.purchase_entry.deleteMany({
@@ -148,19 +103,18 @@ export class PurchaseRepository {
       });
     }
 
-    for (const row of toUpdate) {
-      const existingRow = existingByKey.get(keyOf(row))!;
+    for (const { existingRow, incomingRow } of toUpdate) {
       await db.purchase_entry.update({
         where: { id: existingRow.id },
         data: {
-          purchased_qty: row.purchased_qty,
-          purchase_rate: row.purchase_rate,
-          purchase_amount: row.purchase_amount,
-          source_allocation_id: row.source_allocation_id,
-          source_allocated_qty: row.source_allocated_qty,
-          tray_type_id: row.tray_type_id,
-          gatepass_date: row.gatepass_date,
-          product_link_id: row.product_link_id,
+          purchased_qty: incomingRow.purchased_qty,
+          purchase_rate: incomingRow.purchase_rate,
+          purchase_amount: incomingRow.purchase_amount,
+          source_allocation_id: incomingRow.source_allocation_id,
+          source_allocated_qty: incomingRow.source_allocated_qty,
+          tray_type_id: incomingRow.tray_type_id,
+          gatepass_date: incomingRow.gatepass_date,
+          product_link_id: incomingRow.product_link_id,
         },
       });
     }
@@ -236,6 +190,8 @@ export class PurchaseRepository {
 
       include: {
         master_vehicle: true,
+
+        distributor: true,
 
         vehicle_allocation_paper: {
           select: {

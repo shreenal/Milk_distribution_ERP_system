@@ -2,10 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { buildAllocationKey } from '../../../common/utils/allocation-key.util.js';
+import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
 
 @Injectable()
 export class VehicleAllocationRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findOrderPaperById(
     paperId: number,
@@ -14,82 +16,6 @@ export class VehicleAllocationRepository {
     return db.order_paper.findUnique({
       where: {
         id: paperId,
-      },
-    });
-  }
-
-  async findDistributorProcurementRules(db: PrismaOrTransaction = this.prisma) {
-    return db.distributor_procurement_rule.findMany({
-      where: {
-        is_active: true,
-      },
-    });
-  }
-
-  async findOrderSheetsByPaperId(
-    paperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet.findMany({
-      where: {
-        order_paper_id: paperId,
-      },
-      include: {
-        master_group: {
-          select: {
-            id: true,
-            name: true,
-            delivery_session: true,
-          },
-        },
-      },
-    });
-  }
-
-  async findSheetItemsByPaperId(
-    paperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet_items.findMany({
-      where: {
-        order_sheet: {
-          order_paper_id: paperId,
-        },
-      },
-      include: {
-        master_product: {
-          include: {
-            master_brand: true,
-            master_product_group: true,
-            master_product_type: true,
-            master_packaging_type: true,
-          },
-        },
-      },
-    });
-  }
-
-  async findDistributors(db: PrismaOrTransaction = this.prisma) {
-    return db.master_distributor.findMany({
-      where: {
-        is_active: true,
-      },
-      orderBy: {
-        id: 'asc',
-      },
-    });
-  }
-
-  async findProducts(db: PrismaOrTransaction = this.prisma) {
-    return db.master_product.findMany({
-      include: {
-        master_brand: true,
-        master_product_group: true,
-        master_product_type: true,
-        master_packaging_type: true,
-      },
-      orderBy: {
-        id: 'asc',
       },
     });
   }
@@ -178,38 +104,6 @@ export class VehicleAllocationRepository {
     });
   }
 
-  async findVehicleAllocationsByPaperId(
-    orderPaperId: number,
-    deliverySession: DeliverySession,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.vehicle_allocation.findMany({
-      where: {
-        vehicle_allocation_paper: {
-          order_paper_id: orderPaperId,
-          delivery_session: deliverySession,
-        },
-      },
-      include: {
-        master_vehicle: true,
-        master_product: {
-          include: {
-            master_brand: true,
-            master_product_group: true,
-            master_product_type: true,
-            master_packaging_type: true,
-          },
-        },
-      },
-      orderBy: [
-        { vehicle_id: 'asc' },
-        { distributor_id: 'asc' },
-        { category: 'asc' },
-        { product_id: 'asc' },
-      ],
-    });
-  }
-
   async replaceVehicleAllocations(
     vehicleAllocationPaperId: number,
     data: Prisma.vehicle_allocationCreateManyInput[],
@@ -219,26 +113,17 @@ export class VehicleAllocationRepository {
       where: { vehicle_allocation_paper_id: vehicleAllocationPaperId },
     });
 
-    const keyOf = (
-      row: Pick<
-        Prisma.vehicle_allocationCreateManyInput,
-        'vehicle_id' | 'distributor_id' | 'category' | 'product_id'
-      >,
-    ) =>
-      `${row.vehicle_id}_${row.distributor_id}_${row.category}_${row.product_id}`;
-
-    const existingByKey = new Map(existing.map((r) => [keyOf(r), r]));
-    const incomingByKey = new Map(data.map((r) => [keyOf(r), r]));
-
-    const toDelete = existing.filter((r) => !incomingByKey.has(keyOf(r)));
-    const toInsert = data.filter((r) => !existingByKey.has(keyOf(r)));
-    const toUpdate = data.filter((r) => {
-      const match = existingByKey.get(keyOf(r));
-      return (
-        match !== undefined &&
-        Number(match.allocated_qty) !== Number(r.allocated_qty)
-      );
-    });
+    // FIX F1/F9 (consistency review): key composition and diffing now come
+    // from shared utilities (see purchase.repository.ts for the equivalent
+    // purchase_entry version of this same pattern).
+    const { toDelete, toInsert, toUpdate } = diffByKey(
+      existing,
+      data,
+      buildAllocationKey,
+      buildAllocationKey,
+      (existingRow, incomingRow) =>
+        Number(existingRow.allocated_qty) !== Number(incomingRow.allocated_qty),
+    );
 
     // Rows genuinely removed from this session's plan. Any purchase_entry
     // pointing at these via source_allocation_id will be SetNull'd by the
@@ -257,11 +142,10 @@ export class VehicleAllocationRepository {
     // allocated_qty now differs from what was purchased against), which is
     // the accurate, intended signal — not a side effect of an unrelated
     // row being touched.
-    for (const row of toUpdate) {
-      const existingRow = existingByKey.get(keyOf(row))!;
+    for (const { existingRow, incomingRow } of toUpdate) {
       await db.vehicle_allocation.update({
         where: { id: existingRow.id },
-        data: { allocated_qty: row.allocated_qty },
+        data: { allocated_qty: incomingRow.allocated_qty },
       });
     }
 
@@ -269,22 +153,6 @@ export class VehicleAllocationRepository {
     if (toInsert.length > 0) {
       await db.vehicle_allocation.createMany({ data: toInsert });
     }
-  }
-
-  async findVehicleAssignments(
-    vehicleAllocationPaperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.vehicle_distribution_assignment.findMany({
-      where: {
-        vehicle_allocation_paper_id: vehicleAllocationPaperId,
-      },
-      include: {
-        master_vehicle: true,
-        master_distributor: true,
-      },
-      orderBy: [{ vehicle_id: 'asc' }, { category: 'asc' }],
-    });
   }
 
   async getProductLink(
@@ -308,44 +176,6 @@ export class VehicleAllocationRepository {
         is_active: true,
       },
     });
-  }
-
-  async deleteVehicleAssignments(
-    vehicleAllocationPaperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.vehicle_distribution_assignment.deleteMany({
-      where: {
-        vehicle_allocation_paper_id: vehicleAllocationPaperId,
-      },
-    });
-  }
-
-  async createVehicleAssignments(
-    data: Prisma.vehicle_distribution_assignmentCreateManyInput[],
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.vehicle_distribution_assignment.createMany({
-      data,
-    });
-  }
-
-  async replaceVehicleAssignments(
-    vehicleAllocationPaperId: number,
-    data: Prisma.vehicle_distribution_assignmentCreateManyInput[],
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    await db.vehicle_distribution_assignment.deleteMany({
-      where: {
-        vehicle_allocation_paper_id: vehicleAllocationPaperId,
-      },
-    });
-
-    if (data.length > 0) {
-      await db.vehicle_distribution_assignment.createMany({
-        data,
-      });
-    }
   }
 
   async touchVehicleAllocationPaperIfUnchanged(

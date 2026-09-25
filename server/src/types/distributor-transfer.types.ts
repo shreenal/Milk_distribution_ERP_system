@@ -6,21 +6,21 @@ export type TransferSourceItem = Prisma.order_sheet_itemsGetPayload<{
     order_sheet: {
       include: {
         master_group: {
-          include: {
-            supply_rules: {
-              include: {
-                distributor: true;
-              };
-            };
+          select: {
+            id: true;
+            name: true;
+            delivery_session: true;
           };
         };
       };
     };
+
     master_client: {
       include: {
         owner_distributor: true;
       };
     };
+
     master_product: {
       include: {
         master_brand: true;
@@ -29,6 +29,7 @@ export type TransferSourceItem = Prisma.order_sheet_itemsGetPayload<{
         master_packaging_type: true;
       };
     };
+
     product_link: {
       include: {
         distributor: true;

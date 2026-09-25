@@ -7,6 +7,7 @@ import {
   IsISO8601,
   IsOptional,
   Min,
+  Max,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -33,6 +34,10 @@ class PurchaseEntryDto {
 
   @IsNumber()
   @Min(0)
+  // FIX F11 (consistency review): matches the same bound now applied to
+  // Vehicle Allocation's allocatedQty and Orders' orderedQty/deliveredQty
+  // (see orders.constants.ts QUANTITY_PRECISION.MAX_ORDERED_QTY).
+  @Max(10000)
   purchasedQty!: number;
 }
 

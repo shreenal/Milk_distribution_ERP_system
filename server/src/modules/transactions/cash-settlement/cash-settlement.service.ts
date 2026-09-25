@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 
 import { CashSettlementRepository } from './cash-settlement.repository.js';
 import { CashSettlementBuilder } from './cash-settlement.builder.js';
@@ -13,6 +13,10 @@ import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Cash Settlement data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class CashSettlementService {
@@ -84,6 +88,28 @@ export class CashSettlementService {
             expensesBySheet.set(expense.sheetId, existing);
           }
 
+          if (dto.expectedUpdatedAt) {
+            const paper = await this.repository.getCashSettlementData(
+              paperId,
+              tx,
+            ); // or a lighter findUnique on order_paper if preferred
+            if (
+              new Date(dto.expectedUpdatedAt).getTime() !==
+              paper!.updated_at.getTime()
+            ) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            await assertNotStale(
+              () =>
+                this.repository.touchOrderPaperIfUnchanged(
+                  paperId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          }
+
           for (const [sheetId, expenses] of expensesBySheet) {
             await this.repository.replaceRouteExpenses(sheetId, expenses, tx);
           }
@@ -117,6 +143,27 @@ export class CashSettlementService {
     return withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
+          if (dto.expectedUpdatedAt) {
+            const paper = await this.repository.getCashSettlementData(
+              paperId,
+              tx,
+            ); // or a lighter findUnique on order_paper if preferred
+            if (
+              new Date(dto.expectedUpdatedAt).getTime() !==
+              paper!.updated_at.getTime()
+            ) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            await assertNotStale(
+              () =>
+                this.repository.touchOrderPaperIfUnchanged(
+                  paperId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          }
           for (const denomination of dto.denominations) {
             await this.repository.saveRouteDenomination(denomination, tx);
           }
@@ -148,6 +195,28 @@ export class CashSettlementService {
     return withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
+          if (dto.expectedUpdatedAt) {
+            const paper = await this.repository.getCashSettlementData(
+              paperId,
+              tx,
+            ); // or a lighter findUnique on order_paper if preferred
+            if (
+              new Date(dto.expectedUpdatedAt).getTime() !==
+              paper!.updated_at.getTime()
+            ) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            await assertNotStale(
+              () =>
+                this.repository.touchOrderPaperIfUnchanged(
+                  paperId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          }
+
           await this.repository.replaceDirectCollections(
             paperId,
             dto.directCollections,
@@ -179,6 +248,28 @@ export class CashSettlementService {
     return withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
+          if (dto.expectedUpdatedAt) {
+            const paper = await this.repository.getCashSettlementData(
+              paperId,
+              tx,
+            ); // or a lighter findUnique on order_paper if preferred
+            if (
+              new Date(dto.expectedUpdatedAt).getTime() !==
+              paper!.updated_at.getTime()
+            ) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            await assertNotStale(
+              () =>
+                this.repository.touchOrderPaperIfUnchanged(
+                  paperId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          }
+
           await this.repository.replaceBankDeposits(
             paperId,
             dto.bankDeposits,

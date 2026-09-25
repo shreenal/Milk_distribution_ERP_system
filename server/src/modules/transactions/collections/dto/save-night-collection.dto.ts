@@ -1,4 +1,12 @@
-import { IsArray, ValidateNested, IsInt, Min, IsNumber } from 'class-validator';
+import {
+  IsArray,
+  ValidateNested,
+  IsInt,
+  Min,
+  IsNumber,
+  IsISO8601,
+  IsOptional,
+} from 'class-validator';
 
 import { Type } from 'class-transformer';
 
@@ -17,4 +25,8 @@ export class SaveNightCollectionsDto {
   @ValidateNested({ each: true })
   @Type(() => NightCollectionEntryDto)
   entries!: NightCollectionEntryDto[];
+
+  @IsOptional()
+  @IsISO8601()
+  expectedUpdatedAt?: string;
 }

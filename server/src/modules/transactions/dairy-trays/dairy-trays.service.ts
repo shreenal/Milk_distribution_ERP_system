@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -13,6 +14,10 @@ import { DairyTraysPropagationService } from './services/dairy-trays-propagation
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Dairy Trays data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class DairyTraysService {
@@ -118,6 +123,24 @@ export class DairyTraysService {
               paperId,
               tx,
             );
+
+          if (dto.expectedUpdatedAt) {
+            if (
+              new Date(dto.expectedUpdatedAt).getTime() !==
+              dairyTrayPaper.updated_at.getTime()
+            ) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            await assertNotStale(
+              () =>
+                this.dairyTraysRepository.touchDairyTrayPaperIfUnchanged(
+                  dairyTrayPaper.id,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          }
 
           const [vehicles, trayTypes] = await Promise.all([
             this.dairyTraysRepository.getVehicles(tx),

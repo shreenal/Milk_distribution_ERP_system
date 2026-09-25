@@ -4,14 +4,33 @@ import { Prisma, SupplyCategory } from '../../../../generated/prisma/client.js';
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 
 import { CreateClientCategoryDto } from './dto/create-client-category.dto.js';
+import { UpdateClientCategoryDto } from './dto/update-client-category.dto.js';
 
 const clientCategoryInclude = {
   master_client: true,
+  supplier_distributor: true,
 } satisfies Prisma.master_client_categoryInclude;
 
 @Injectable()
 export class ClientCategoriesRepository {
   constructor(private readonly prisma: PrismaService) {}
+
+  findDistributorById(distributorId: number) {
+    return this.prisma.master_distributor.findUnique({
+      where: { id: distributorId },
+    });
+  }
+
+  async hasActiveProcurementRuleForCategory(
+    distributorId: number,
+    category: SupplyCategory,
+  ) {
+    const rule = await this.prisma.distributor_procurement_rule.findFirst({
+      where: { distributor_id: distributorId, category, is_active: true },
+      select: { id: true },
+    });
+    return rule !== null;
+  }
 
   findAll() {
     return this.prisma.master_client_category.findMany({
@@ -48,6 +67,23 @@ export class ClientCategoriesRepository {
 
   create(dto: CreateClientCategoryDto) {
     return this.prisma.master_client_category.create({
+      data: dto,
+      include: clientCategoryInclude,
+    });
+  }
+
+  update(
+    clientId: number,
+    category: SupplyCategory,
+    dto: UpdateClientCategoryDto,
+  ) {
+    return this.prisma.master_client_category.update({
+      where: {
+        client_id_category: {
+          client_id: clientId,
+          category,
+        },
+      },
       data: dto,
       include: clientCategoryInclude,
     });

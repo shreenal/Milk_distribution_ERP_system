@@ -6,7 +6,6 @@ import {
 } from '../../../common/builders/product-columns.builder.js';
 
 import {
-  VehicleAssignment,
   PurchaseEntry,
   PurchaseGrid,
   PurchaseGridItem,
@@ -24,7 +23,10 @@ import {
 } from '../../../common/builders/allocation-summary.builder.js';
 import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 import { PurchaseBillingService } from './services/purchase-billing.service.js';
-
+// FIX F1 (consistency review): shared with purchase.service.ts,
+// purchase.repository.ts and vehicle-allocation.repository.ts instead of a
+// locally-defined `buildRowKey`.
+import { buildPurchaseKey } from '../../../common/utils/allocation-key.util.js';
 /**
  * FIX F5: a purchase_entry that no longer maps onto any row in the current
  * grid (vehicle reassigned to a different distributor, product removed from
@@ -51,11 +53,11 @@ export class PurchaseBuilder {
     private readonly productColumnsBuilder: ProductColumnsBuilder,
     private readonly purchaseVarianceCalculator: PurchaseVarianceCalculator,
     private readonly purchaseBillingService: PurchaseBillingService,
-  ) { }
+  ) {}
 
   buildPurchaseGrids(
     summaries: AllocationSummary[],
-    vehicleAssignments: VehicleAssignment[],
+    allocations: VehicleAllocation[],
   ): PurchaseGrid {
     const purchaseGrids: PurchaseGridItem[] = [];
 
@@ -75,25 +77,47 @@ export class PurchaseBuilder {
 
       const productFields = initializeProductFields(columns);
 
-      const assignedVehicles = vehicleAssignments.filter(
-        (assignment) =>
-          assignment.distributor_id === summary.distributorId &&
-          assignment.category === summary.category,
+      const relevantAllocations = allocations.filter(
+        (allocation) =>
+          allocation.distributor_id === summary.distributorId &&
+          allocation.category === summary.category,
       );
 
-      if (assignedVehicles.length === 0) {
+      if (relevantAllocations.length === 0) {
         continue;
       }
 
-      const distributorName =
-        assignedVehicles[0]?.master_distributor.name ?? '';
+      const distributorName = relevantAllocations[0]?.distributor.name ?? '';
 
-      const rows = assignedVehicles.map((assignment) => ({
-        vehicleId: assignment.vehicle_id,
-        deliverySession: assignment.vehicle_allocation_paper.delivery_session,
-        vehicleName: assignment.master_vehicle.vehicle_name,
+      const vehicleMap = new Map<
+        string,
+        {
+          vehicleId: number;
+          deliverySession: DeliverySession;
+          vehicleName: string | null;
+        }
+      >();
+
+      for (const allocation of relevantAllocations) {
+        const key = `${allocation.vehicle_id}_${allocation.vehicle_allocation_paper.delivery_session}`;
+
+        if (!vehicleMap.has(key)) {
+          vehicleMap.set(key, {
+            vehicleId: allocation.vehicle_id,
+            deliverySession:
+              allocation.vehicle_allocation_paper.delivery_session,
+            vehicleName: allocation.master_vehicle.vehicle_name,
+          });
+        }
+      }
+
+      const rows = Array.from(vehicleMap.values()).map((vehicle) => ({
+        vehicleId: vehicle.vehicleId,
+        deliverySession: vehicle.deliverySession,
+        vehicleName: vehicle.vehicleName,
         ...structuredClone(productFields),
       }));
+
       purchaseGrids.push({
         distributor: {
           id: summary.distributorId,
@@ -216,13 +240,13 @@ export class PurchaseBuilder {
       }
 
       currentAllocationMap.set(
-        this.buildRowKey(
-          allocation.vehicle_id,
-          allocation.distributor_id,
-          allocation.category,
-          allocation.product_id,
-          allocation.vehicle_allocation_paper.delivery_session,
-        ),
+        buildPurchaseKey({
+          vehicleId: allocation.vehicle_id,
+          distributorId: allocation.distributor_id,
+          category: allocation.category,
+          productId: allocation.product_id,
+          deliverySession: allocation.vehicle_allocation_paper.delivery_session,
+        }),
         allocation,
       );
     }
@@ -254,13 +278,7 @@ export class PurchaseBuilder {
         continue;
       }
 
-      const key = this.buildRowKey(
-        entry.vehicle_id,
-        entry.distributor_id,
-        entry.category,
-        entry.product_id,
-        entry.delivery_session,
-      );
+      const key = buildPurchaseKey(entry);
 
       const currentAllocation = currentAllocationMap.get(key);
 
@@ -275,7 +293,7 @@ export class PurchaseBuilder {
         sourceAllocationId == null ||
         currentAllocation.id !== sourceAllocationId ||
         Number(currentAllocation.allocated_qty) !==
-        Number(sourceAllocatedQty ?? NaN);
+          Number(sourceAllocatedQty ?? NaN);
 
       row[quantityField] = Number(entry.purchased_qty);
       row[rateField] = Number(entry.purchase_rate);
@@ -324,6 +342,27 @@ export class PurchaseBuilder {
     return result;
   }
 
+  applyPurchaseTotals(purchaseGrids: PurchaseGrid) {
+    const result = structuredClone(purchaseGrids);
+
+    for (const grid of result.purchases) {
+      for (const row of grid.rows) {
+        const totalAmount = Object.entries(row)
+          .filter(
+            ([field, value]) =>
+              field.startsWith('product_') &&
+              field.endsWith('_amount') &&
+              typeof value === 'number',
+          )
+          .reduce((total, [, value]) => total + Number(value), 0);
+
+        row.totalAmount = totalAmount;
+      }
+    }
+
+    return result;
+  }
+
   applyVarianceMetadata(
     purchaseGrids: PurchaseGrid,
     allocations: VehicleAllocation[],
@@ -335,25 +374,19 @@ export class PurchaseBuilder {
 
     for (const allocation of allocations) {
       allocationMap.set(
-        this.buildRowKey(
-          allocation.vehicle_id,
-          allocation.distributor_id,
-          allocation.category,
-          allocation.product_id,
-          allocation.vehicle_allocation_paper.delivery_session,
-        ),
+        buildPurchaseKey({
+          vehicleId: allocation.vehicle_id,
+          distributorId: allocation.distributor_id,
+          category: allocation.category,
+          productId: allocation.product_id,
+          deliverySession: allocation.vehicle_allocation_paper.delivery_session,
+        }),
         allocation,
       );
     }
 
     for (const entry of purchaseEntries) {
-      const key = this.buildRowKey(
-        entry.vehicle_id,
-        entry.distributor_id,
-        entry.category,
-        entry.product_id,
-        entry.delivery_session,
-      );
+      const key = buildPurchaseKey(entry);
 
       const allocation = allocationMap.get(key);
 
@@ -427,16 +460,6 @@ export class PurchaseBuilder {
     }
 
     return row;
-  }
-
-  private buildRowKey(
-    vehicleId: number,
-    distributorId: number,
-    category: SupplyCategory,
-    productId: number,
-    deliverySession: DeliverySession,
-  ) {
-    return `${vehicleId}_${distributorId}_${category}_${productId}_${deliverySession}`;
   }
 }
 

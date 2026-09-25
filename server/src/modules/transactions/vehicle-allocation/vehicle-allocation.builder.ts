@@ -6,20 +6,16 @@ import {
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import {
   Vehicle,
-  Distributor,
-  VehicleAssignment,
   VehicleAllocation,
   DynamicProductFields,
   VehicleAllocationRow,
-  VehicleAssignmentRow,
-  VehicleAssignmentGrid,
   AllocationGrid,
   AllocationGridResult,
   Product,
-  VehicleAllocationRequirementGrid,
 } from '../../../types/vehicle-allocation.types.js';
 
 import { AllocationSummary } from '../../../common/builders/allocation-summary.builder.js';
+import { sumNumericFields } from '../../../common/builders/row-aggregation.util.js';
 
 @Injectable()
 export class VehicleAllocationBuilder {
@@ -33,43 +29,6 @@ export class VehicleAllocationBuilder {
       products,
       includePackagingType,
     );
-  }
-
-  buildVehicleRequirementGrids(
-    summaries: AllocationSummary[],
-  ): VehicleAllocationRequirementGrid[] {
-    return summaries.map((summary) => {
-      const columns = this.buildVehicleCapacityColumns(
-        summary.products,
-        summary.category === SupplyCategory.NON_MILK,
-      );
-
-      const totals: Record<string, number> = {};
-
-      for (const row of summary.rows) {
-        for (const [key, value] of Object.entries(row)) {
-          if (key === 'groupId' || key === 'groupName') {
-            continue;
-          }
-
-          totals[key] = (totals[key] ?? 0) + Number(value ?? 0);
-        }
-      }
-
-      return {
-        distributor: {
-          id: summary.distributorId,
-        },
-        category: summary.category,
-        brand: {
-          id: summary.brandId,
-          name: summary.brandName,
-        },
-        columns,
-        rows: summary.rows,
-        totals,
-      };
-    });
   }
 
   buildVehicleAllocationGrids(
@@ -98,21 +57,19 @@ export class VehicleAllocationBuilder {
         });
       }
 
-      const totals: DynamicProductFields = {};
-
-      for (const row of summary.rows) {
-        for (const [key, value] of Object.entries(row)) {
-          if (key === 'groupId' || key === 'groupName') {
-            continue;
-          }
-
-          totals[key] = (totals[key] ?? 0) + Number(value ?? 0);
-        }
-      }
+      const totals: DynamicProductFields = sumNumericFields(summary.rows, [
+        'groupId',
+        'groupName',
+      ]);
 
       allocations.push({
         distributor: {
           id: summary.distributorId,
+          // FIX F6 (consistency review): Vehicle Allocation previously
+          // returned only the distributor id, forcing the UI to display a
+          // raw number (see VehicleAllocationSection.tsx) while Purchase's
+          // equivalent response already included a name.
+          name: summary.distributorName,
         },
         category: summary.category,
         brand: {
@@ -156,52 +113,6 @@ export class VehicleAllocationBuilder {
 
       if (row) {
         row[field] = Number(allocation.allocated_qty);
-      }
-    }
-
-    return result;
-  }
-
-  buildVehicleAssignmentGrid(
-    vehicles: Vehicle[],
-    distributors: Distributor[],
-  ): VehicleAssignmentGrid {
-    return {
-      assignments: vehicles.map((vehicle) => ({
-        vehicleId: vehicle.id,
-        vehicleName: vehicle.vehicle_name,
-        milkDistributorId: null,
-        nonMilkDistributorId: null,
-      })),
-      distributors: distributors.map((distributor) => ({
-        id: distributor.id,
-        name: distributor.name,
-      })),
-    };
-  }
-
-  applyVehicleAssignments(
-    assignmentGrid: VehicleAssignmentGrid,
-    savedAssignments: VehicleAssignment[],
-  ) {
-    const result = structuredClone(assignmentGrid);
-
-    for (const assignment of savedAssignments) {
-      const row = result.assignments.find(
-        (vehicle: VehicleAssignmentRow) =>
-          vehicle.vehicleId === assignment.vehicle_id,
-      );
-
-      if (!row) {
-        continue;
-      }
-
-      if (assignment.category === SupplyCategory.MILK) {
-        row.milkDistributorId = assignment.distributor_id;
-      }
-
-      if (assignment.category === SupplyCategory.NON_MILK) {
-        row.nonMilkDistributorId = assignment.distributor_id;
       }
     }
 

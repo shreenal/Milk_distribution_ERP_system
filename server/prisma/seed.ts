@@ -33,7 +33,6 @@ async function main() {
     await prisma.purchase_paper.deleteMany();
 
     await prisma.vehicle_allocation.deleteMany();
-    await prisma.vehicle_distribution_assignment.deleteMany();
     await prisma.vehicle_allocation_paper.deleteMany();
 
     await prisma.master_client_rate_product.deleteMany();
@@ -41,7 +40,6 @@ async function main() {
     await prisma.distributor_product_priority.deleteMany();
     await prisma.product_tray_rule.deleteMany();
     await prisma.distributor_procurement_rule.deleteMany();
-    await prisma.master_group_supply_rule.deleteMany();
     await prisma.distributor_transfer_rule.deleteMany();
     await prisma.master_client_category.deleteMany();
 
@@ -324,9 +322,9 @@ async function main() {
     });
 
     // ------------------------------------------------------------
-// 12) PRODUCT ORDER UNIT CONFIGURATIONS
-// Reusable commercial/order-unit configurations.
-// ------------------------------------------------------------
+    // 12) PRODUCT ORDER UNIT CONFIGURATIONS
+    // Reusable commercial/order-unit configurations.
+    // ------------------------------------------------------------
 
     const productOrderUnits = await prisma.product_order_unit.createManyAndReturn({
         data: [
@@ -388,8 +386,8 @@ async function main() {
     );
 
     // ------------------------------------------------------------
-// 13) PRODUCTS
-// ------------------------------------------------------------
+    // 13) PRODUCTS
+    // ------------------------------------------------------------
     const products = [
         await prisma.master_product.create({
             data: {
@@ -984,8 +982,8 @@ async function main() {
     // 18) GROUPS
     // 10 groups.
     // Note:
-    // master_group still has distributor_id in schema.
-    // But category-specific sourcing is driven by master_group_supply_rule.
+  // master_group is used for delivery grouping.
+// Category-specific sourcing is driven by master_client_category.
     // ------------------------------------------------------------
     const groups: Array<{
         id: number;
@@ -1016,45 +1014,6 @@ async function main() {
             delivery_session: group.delivery_session,
         });
     }
-
-
-    // ------------------------------------------------------------
-    // 19) GROUP SUPPLY RULES
-    // Scenario:
-    // - Groups 1-9 milk -> Distributor A
-    // - Group 10 milk -> Distributor B
-    // - Groups 1-10 non-milk -> Distributor C
-    // ------------------------------------------------------------
-    const groupSupplyRulesData: Array<{
-        group_id: number;
-        category: SupplyCategory;
-        distributor_id: number;
-        is_active: boolean;
-    }> = [];
-
-    for (let i = 0; i < groups.length; i++) {
-        const group = groups[i];
-        const milkDistributorId = i < 9 ? distributorA.id : distributorB.id;
-
-        groupSupplyRulesData.push({
-            group_id: group.id,
-            category: SupplyCategory.MILK,
-            distributor_id: milkDistributorId,
-            is_active: true,
-        });
-
-        groupSupplyRulesData.push({
-            group_id: group.id,
-            category: SupplyCategory.NON_MILK,
-            distributor_id: distributorC.id,
-            is_active: true,
-        });
-    }
-
-    await prisma.master_group_supply_rule.createMany({
-        data: groupSupplyRulesData,
-    });
-
 
     await prisma.distributor_transfer_rule.createMany({
         data: [
@@ -1284,16 +1243,25 @@ async function main() {
     const clientCategoryRows: {
         client_id: number;
         category: SupplyCategory;
+        supplier_distributor_id: number;
     }[] = [];
 
     for (let index = 0; index < clients.length; index++) {
         const client = clients[index];
         const clientSerial = index + 1;
 
+        const groupIndex = Math.floor(index / 3);
+
+        const milkDistributorId =
+            groupIndex < 9
+                ? distributorA.id
+                : distributorB.id;
+
         // Every client purchases Milk.
         clientCategoryRows.push({
             client_id: client.id,
             category: SupplyCategory.MILK,
+            supplier_distributor_id: milkDistributorId,
         });
 
         // Every third seeded client also purchases Non-Milk.
@@ -1301,6 +1269,7 @@ async function main() {
             clientCategoryRows.push({
                 client_id: client.id,
                 category: SupplyCategory.NON_MILK,
+                supplier_distributor_id: distributorC.id,
             });
         }
     }
@@ -1308,6 +1277,13 @@ async function main() {
     await prisma.master_client_category.createMany({
         data: clientCategoryRows,
     });
+
+    const clientCategorySupplierMap = new Map(
+        clientCategoryRows.map((row) => [
+            `${row.client_id}_${row.category}`,
+            row.supplier_distributor_id,
+        ]),
+    );
     // ------------------------------------------------------------
     // 21) CLIENT SELLING RATES
     // master_client_rate_product now points to master_product_link
@@ -1339,13 +1315,6 @@ async function main() {
         is_active: boolean;
     }> = [];
 
-    const groupSupplyRuleMap = new Map(
-        groupSupplyRulesData.map((rule) => [
-            `${rule.group_id}_${rule.category}`,
-            rule.distributor_id,
-        ]),
-    );
-
     // Build client -> allowed categories
     const clientCategories = new Map<number, Set<SupplyCategory>>();
 
@@ -1373,8 +1342,8 @@ async function main() {
                 continue;
             }
 
-            const distributorId = groupSupplyRuleMap.get(
-                `${client.delivery_group_id}_${category}`,
+            const distributorId = clientCategorySupplierMap.get(
+                `${client.id}_${category}`,
             );
 
             if (!distributorId) {

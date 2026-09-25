@@ -1,5 +1,3 @@
-Based strictly on the code you provided, I would fill it like this:
-
 # BUSINESS DEPENDENCY REGISTER
 
 ## Dependency: orders → vehicle-allocations

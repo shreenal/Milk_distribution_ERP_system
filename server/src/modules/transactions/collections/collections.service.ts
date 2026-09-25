@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+} from '@nestjs/common';
 
 import { CollectionBuilder } from './collections.builder.js';
 import { CollectionsRepository } from './collections.repository.js';
@@ -18,6 +22,10 @@ import { CollectionsValidationService } from './services/collections-validation.
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Collections data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class CollectionsService {
@@ -27,7 +35,7 @@ export class CollectionsService {
     private readonly collectionsValidationService: CollectionsValidationService,
     private readonly workflowState: WorkflowStateService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
 
   async getCollectionGrid(sheetId: number) {
     return this.prisma.$transaction(async (tx) => {
@@ -115,6 +123,24 @@ export class CollectionsService {
           ) {
             throw new BadRequestException(
               COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
+            );
+          }
+
+          if (dto.expectedUpdatedAt) {
+            await assertNotStale(
+              () =>
+                this.collectionsRepository.touchCollectionsIfUnchanged(
+                  sheetId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          } else {
+            await this.collectionsRepository.touchCollectionsIfUnchanged(
+              sheetId,
+              null,
+              tx,
             );
           }
 

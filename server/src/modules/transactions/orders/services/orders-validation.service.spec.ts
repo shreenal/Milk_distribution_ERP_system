@@ -63,9 +63,7 @@ describe('OrdersValidationService', () => {
     it('rejects when the product does not exist', async () => {
       db.master_product.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.validateProduct(10, db as any),
-      ).rejects.toThrow(
+      await expect(service.validateProduct(10, db as any)).rejects.toThrow(
         new BadRequestException(ERROR_MESSAGES.PRODUCT_NOT_FOUND(10)),
       );
     });
@@ -76,9 +74,7 @@ describe('OrdersValidationService', () => {
         is_active: false,
       });
 
-      await expect(
-        service.validateProduct(10, db as any),
-      ).rejects.toThrow(
+      await expect(service.validateProduct(10, db as any)).rejects.toThrow(
         new BadRequestException(ERROR_MESSAGES.PRODUCT_INACTIVE('10')),
       );
     });
@@ -111,9 +107,7 @@ describe('OrdersValidationService', () => {
     it('rejects when the client does not exist', async () => {
       db.master_client.findUnique.mockResolvedValue(null);
 
-      await expect(
-        service.validateClient(20, db as any),
-      ).rejects.toThrow(
+      await expect(service.validateClient(20, db as any)).rejects.toThrow(
         new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_FOUND(20)),
       );
     });
@@ -125,9 +119,7 @@ describe('OrdersValidationService', () => {
         is_active: false,
       });
 
-      await expect(
-        service.validateClient(20, db as any),
-      ).rejects.toThrow(
+      await expect(service.validateClient(20, db as any)).rejects.toThrow(
         new BadRequestException(ERROR_MESSAGES.CLIENT_INACTIVE('Client A')),
       );
     });
@@ -166,9 +158,7 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateClientInGroup(20, 5, db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(20, 5),
-        ),
+        new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(20, 5)),
       );
     });
   });
@@ -178,10 +168,7 @@ describe('OrdersValidationService', () => {
       db.master_client.findUnique.mockResolvedValue({
         id: 20,
         name: 'Client A',
-        categories: [
-          { category: 'DAIRY' },
-          { category: 'MILK' },
-        ],
+        categories: [{ category: 'DAIRY' }, { category: 'MILK' }],
       });
 
       db.master_product.findUnique.mockResolvedValue({
@@ -266,9 +253,7 @@ describe('OrdersValidationService', () => {
           { clientId: 1, productId: 10 },
         ]),
       ).toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.DUPLICATE_ENTRIES(['1-10']),
-        ),
+        new BadRequestException(ERROR_MESSAGES.DUPLICATE_ENTRIES(['1-10'])),
       );
     });
 
@@ -373,11 +358,12 @@ describe('OrdersValidationService', () => {
     it('resolves the tray rule using the supplied product and rules', () => {
       trayCalculationService.resolveTrayRule.mockReturnValue(null);
 
-      service.validateOrderedQuantity(10, product as any, trayRules);
+      service.validateOrderedQuantity(10, product, trayRules);
 
-      expect(
-        trayCalculationService.resolveTrayRule,
-      ).toHaveBeenCalledWith(product, trayRules);
+      expect(trayCalculationService.resolveTrayRule).toHaveBeenCalledWith(
+        product,
+        trayRules,
+      );
     });
   });
 
@@ -426,9 +412,7 @@ describe('OrdersValidationService', () => {
 
   describe('validateNightEntriesComplete', () => {
     it('accepts a sheet containing at least one item', async () => {
-      ordersRepository.getSheetItems.mockResolvedValue([
-        { id: 1 },
-      ]);
+      ordersRepository.getSheetItems.mockResolvedValue([{ id: 1 }]);
 
       await expect(
         service.validateNightEntriesComplete(100, 'Morning', db as any),
@@ -441,24 +425,16 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateNightEntriesComplete(100, 'Morning', db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.NO_ORDERS_IN_SHEET('Morning'),
-        ),
+        new BadRequestException(ERROR_MESSAGES.NO_ORDERS_IN_SHEET('Morning')),
       );
     });
 
     it('passes the sheet id and db to the repository', async () => {
       ordersRepository.getSheetItems.mockResolvedValue([{ id: 1 }]);
 
-      await service.validateNightEntriesComplete(
-        100,
-        'Morning',
-        db as any,
-      );
+      await service.validateNightEntriesComplete(100, 'Morning', db as any);
 
-      expect(
-        ordersRepository.getSheetItems,
-      ).toHaveBeenCalledWith(100, db);
+      expect(ordersRepository.getSheetItems).toHaveBeenCalledWith(100, db);
     });
   });
 
@@ -499,9 +475,7 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateMorningEntriesComplete(100, db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          'Delivered quantity missing for: P001',
-        ),
+        new BadRequestException('Delivered quantity missing for: P001'),
       );
     });
 
@@ -516,9 +490,7 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateMorningEntriesComplete(100, db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          'Delivered quantity missing for: P001',
-        ),
+        new BadRequestException('Delivered quantity missing for: P001'),
       );
     });
 
@@ -541,9 +513,7 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateMorningEntriesComplete(100, db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          'Delivered quantity missing for: P001, P003',
-        ),
+        new BadRequestException('Delivered quantity missing for: P001, P003'),
       );
     });
   });
@@ -575,9 +545,7 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateQuantitySanity(100, db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          'Negative quantities not allowed: P001',
-        ),
+        new BadRequestException('Negative quantities not allowed: P001'),
       );
     });
 
@@ -598,9 +566,7 @@ describe('OrdersValidationService', () => {
       await expect(
         service.validateQuantitySanity(100, db as any),
       ).rejects.toThrow(
-        new BadRequestException(
-          'Negative quantities not allowed: P001, P002',
-        ),
+        new BadRequestException('Negative quantities not allowed: P001, P002'),
       );
     });
 
@@ -637,9 +603,10 @@ describe('OrdersValidationService', () => {
 
       await service.validateQuantitySanity(100, db as any);
 
-      expect(
-        ordersRepository.getQuantityValidationItems,
-      ).toHaveBeenCalledWith(100, db);
+      expect(ordersRepository.getQuantityValidationItems).toHaveBeenCalledWith(
+        100,
+        db,
+      );
     });
   });
 
@@ -671,9 +638,7 @@ describe('OrdersValidationService', () => {
           5,
           db as any,
         ),
-      ).resolves.toEqual(
-        expect.any(Map),
-      );
+      ).resolves.toEqual(expect.any(Map));
     });
 
     it('deduplicates client ids before querying', async () => {
@@ -754,9 +719,7 @@ describe('OrdersValidationService', () => {
           db as any,
         ),
       ).rejects.toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.CLIENT_INACTIVE('Client A'),
-        ),
+        new BadRequestException(ERROR_MESSAGES.CLIENT_INACTIVE('Client A')),
       );
     });
 
@@ -780,9 +743,7 @@ describe('OrdersValidationService', () => {
           db as any,
         ),
       ).rejects.toThrow(
-        new BadRequestException(
-          ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(1, 5),
-        ),
+        new BadRequestException(ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(1, 5)),
       );
     });
 

@@ -64,16 +64,6 @@ export class PaperValidationService {
       db,
     );
 
-    await this.vehicleAllocationValidationService.validateVehicleAssignmentsForNightSubmit(
-      paperId,
-      db,
-    );
-
-    await this.distributorTransferValidationService.validateGenerationReadiness(
-      paperId,
-      db,
-    );
-
     return paper;
   }
 
@@ -122,14 +112,14 @@ export class PaperValidationService {
       db,
     );
 
-    await this.vehicleAllocationValidationService.validateVehicleAssignmentsForMorningSubmit(
+    await this.purchaseValidationService.validatePurchasesComplete(paperId, db);
+
+    await this.dairyTraysValidationService.validateDairyTraysComplete(
       paperId,
       db,
     );
 
-    await this.purchaseValidationService.validatePurchasesComplete(paperId, db);
-
-    await this.dairyTraysValidationService.validateDairyTraysComplete(
+    await this.distributorTransferValidationService.validateGenerationReadiness(
       paperId,
       db,
     );

@@ -8,7 +8,7 @@ import { UpdateProductDto } from './dto/update-product.dto.js';
 
 @Injectable()
 export class ProductsRepository {
-  constructor(private readonly prisma: PrismaService) { }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findAll() {
     return this.prisma.master_product.findMany({
@@ -17,7 +17,7 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
-        product_order_unit: { include: { order_unit_type: true, }, },
+        product_order_unit: { include: { order_unit_type: true } },
       },
       orderBy: [
         {
@@ -47,7 +47,7 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
-        product_order_unit: { include: { order_unit_type: true, }, },
+        product_order_unit: { include: { order_unit_type: true } },
       },
       orderBy: [
         {
@@ -75,7 +75,7 @@ export class ProductsRepository {
         master_product_group: true,
         master_product_type: true,
         master_packaging_type: true,
-        product_order_unit: { include: { order_unit_type: true, }, },
+        product_order_unit: { include: { order_unit_type: true } },
       },
     });
   }

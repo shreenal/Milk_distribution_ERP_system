@@ -1,11 +1,6 @@
 import { Type } from 'class-transformer';
 
-import {
-  IsEnum,
-  IsInt,
-  IsNumber,
-  Min,
-} from 'class-validator';
+import { IsEnum, IsInt, IsNumber, Min } from 'class-validator';
 
 import { PricingUnit } from '../../../../../generated/prisma/client.js';
 

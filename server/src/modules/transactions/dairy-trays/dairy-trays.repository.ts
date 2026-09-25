@@ -33,10 +33,20 @@ export class DairyTraysRepository {
     orderPaperId: number,
     db: PrismaOrTransaction = this.prisma,
   ) {
+    // Deliberately not an upsert: `upsert(..., update: {})` still issues an
+    // UPDATE when the row exists, and @updatedAt bumps `updated_at` on that
+    // no-op update. This method is called from the read path
+    // (getDairyTrayGrid) as well as the write path — an upsert here would
+    // make `dairy_tray_paper.updated_at` advance on every page view,
+    // breaking it as a concurrency anchor.
+    const existing = await db.dairy_tray_paper.findUnique({
+      where: { order_paper_id: orderPaperId },
+    });
+    if (existing) {
+      return existing;
+    }
     return db.dairy_tray_paper.create({
-      data: {
-        order_paper_id: orderPaperId,
-      },
+      data: { order_paper_id: orderPaperId },
     });
   }
 
@@ -307,5 +317,16 @@ export class DairyTraysRepository {
     ON CONFLICT (dairy_tray_paper_id, delivery_session, vehicle_id, tray_type_id)
     DO UPDATE SET trays_returned = EXCLUDED.trays_returned
   `);
+  }
+
+  async touchDairyTrayPaperIfUnchanged(
+    dairyTrayPaperId: number,
+    expectedUpdatedAt: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.dairy_tray_paper.updateMany({
+      where: { id: dairyTrayPaperId, updated_at: expectedUpdatedAt },
+      data: {},
+    });
   }
 }

@@ -3,6 +3,7 @@ import {
   Logger,
   BadRequestException,
   NotFoundException,
+  ConflictException,
 } from '@nestjs/common';
 import { ClientTraysRepository } from './client-trays.repository.js';
 import { ClientTraysBuilder } from './client-trays.builder.js';
@@ -21,6 +22,10 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { TransactionClient } from '../../../types/transaction.types.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+
+const STALE_DATA_MESSAGE =
+  'Client Trays data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 @Injectable()
 export class ClientTraysService {
@@ -40,7 +45,7 @@ export class ClientTraysService {
     private readonly clientTraysPropagationService: ClientTraysPropagationService,
 
     private readonly prisma: PrismaService,
-  ) {}
+  ) { }
   async getTraySheetService(sheetId: number, tx?: TransactionClient) {
     const run = async (t: TransactionClient) => {
       const sheet = await this.clienttraysRepository.findSheetById(sheetId, t);
@@ -125,7 +130,11 @@ export class ClientTraysService {
     return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
-  async saveTrayEntriesService(sheetId: number, entries: SaveTrayReturnDto[]) {
+  async saveTrayEntriesService(
+    sheetId: number,
+    entries: SaveTrayReturnDto[],
+    expectedUpdatedAt?: string,
+  ) {
     await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
@@ -145,6 +154,24 @@ export class ClientTraysService {
           if (!this.workflowStateService.canEditClientTrays(status)) {
             throw new BadRequestException(
               CLIENT_TRAY_ERROR_MESSAGES.TRAY_EDIT_NOT_ALLOWED,
+            );
+          }
+
+          if (expectedUpdatedAt) {
+            await assertNotStale(
+              () =>
+                this.clienttraysRepository.touchClientTraysIfUnchanged(
+                  sheetId,
+                  new Date(expectedUpdatedAt),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          } else {
+            await this.clienttraysRepository.touchClientTraysIfUnchanged(
+              sheetId,
+              null,
+              tx,
             );
           }
 

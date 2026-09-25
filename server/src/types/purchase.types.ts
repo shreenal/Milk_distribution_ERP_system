@@ -8,16 +8,20 @@ export type {
   OrderItemWithSupplyContext,
   Product,
   SummaryRow,
-} from '../common/builders/allocation-summary.builder.js';
+} from './order-item.types.js';
 
 export type VehicleAllocation = Prisma.vehicle_allocationGetPayload<{
   include: {
     master_vehicle: true;
+
+    distributor: true;
+
     vehicle_allocation_paper: {
       select: {
         delivery_session: true;
       };
     };
+
     master_product: {
       include: {
         master_brand: true;
@@ -79,23 +83,6 @@ export type PurchaseRateDefault = {
   purchaseRate: number;
   pricingQuantity: number;
   deliverySession: DeliverySession;
-};
-
-export type VehicleAssignment = {
-  vehicle_id: number;
-  distributor_id: number;
-  category: SupplyCategory;
-  master_vehicle: {
-    id: number;
-    vehicle_name: string | null;
-  };
-  master_distributor: {
-    id: number;
-    name: string;
-  };
-  vehicle_allocation_paper: {
-    delivery_session: DeliverySession;
-  };
 };
 
 export enum PurchaseVarianceSeverity {

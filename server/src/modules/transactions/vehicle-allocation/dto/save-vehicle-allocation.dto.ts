@@ -5,11 +5,16 @@ import {
   IsArray,
   ValidateNested,
   IsOptional,
+  IsBoolean,
   IsEnum,
   IsISO8601,
   Min,
+  Max,
 } from 'class-validator';
-import { SupplyCategory } from '../../../../generated/prisma/client.js';
+import {
+  DeliverySession,
+  SupplyCategory,
+} from '../../../../generated/prisma/client.js';
 
 class VehicleAllocationItemDto {
   @IsInt()
@@ -26,20 +31,13 @@ class VehicleAllocationItemDto {
 
   @IsNumber()
   @Min(0)
+  // FIX F11 (consistency review): Orders bounds ordered quantity to 10000
+  // (see orders.constants.ts QUANTITY_PRECISION.MAX_ORDERED_QTY) but
+  // Vehicle Allocation and Purchase quantities had no upper bound at all.
+  // Same numeric policy applied here for consistency across the three
+  // modules that write a "quantity of product" value.
+  @Max(10000)
   allocatedQty!: number;
-}
-
-class VehicleAssignmentItemDto {
-  @IsInt()
-  vehicleId!: number;
-
-  @IsOptional()
-  @IsInt()
-  milkDistributorId?: number | null;
-
-  @IsOptional()
-  @IsInt()
-  nonMilkDistributorId?: number | null;
 }
 
 export class SaveVehicleAllocationDto {
@@ -48,10 +46,15 @@ export class SaveVehicleAllocationDto {
   @Type(() => VehicleAllocationItemDto)
   allocations!: VehicleAllocationItemDto[];
 
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => VehicleAssignmentItemDto)
-  assignments!: VehicleAssignmentItemDto[];
+  /**
+   * FIX F12 (consistency review): GET requires an explicit `session` query
+   * param but POST previously inferred it silently from paper status with
+   * no way to catch a mismatch. The client now states which session it
+   * believes it's saving; the service (see VehicleAllocationService)
+   * validates this against the server-computed active session.
+   */
+  @IsEnum(DeliverySession)
+  session!: DeliverySession;
 
   /**
    * FIX F6: the vehicle_allocation_paper.updated_at the client last read
@@ -62,4 +65,14 @@ export class SaveVehicleAllocationDto {
   @IsOptional()
   @IsISO8601()
   expectedUpdatedAt?: string;
+
+  /**
+   * FIX F3 (consistency review): mirrors SavePurchaseDto.confirmDeletions.
+   * If the save would remove previously-saved allocation rows that aren't
+   * present in `allocations`, the service rejects the save with a list of
+   * what would be dropped unless this flag is explicitly set to true.
+   */
+  @IsOptional()
+  @IsBoolean()
+  confirmDeletions?: boolean;
 }

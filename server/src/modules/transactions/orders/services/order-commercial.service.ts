@@ -17,12 +17,9 @@ export class OrderCommercialService {
   constructor(private readonly ordersRepository: OrdersRepository) {}
 
   async resolve(
+    clientId: number,
     sheetGroupId: number,
     productId: number,
-    supplyRules: {
-      milkDistributorId: number | null;
-      nonMilkDistributorId: number | null;
-    },
     tx: Prisma.TransactionClient,
   ): Promise<CommercialContext> {
     const product = await this.ordersRepository.getProductWithGroup(
@@ -32,14 +29,19 @@ export class OrderCommercialService {
 
     const category = product.master_product_group.category;
 
+    const clientCategorySupplier =
+      await this.ordersRepository.getClientCategorySupplier(
+        clientId,
+        category,
+        tx,
+      );
+
     const primaryDistributorId =
-      category === SupplyCategory.MILK
-        ? supplyRules.milkDistributorId
-        : supplyRules.nonMilkDistributorId;
+      clientCategorySupplier?.supplier_distributor_id;
 
     if (!primaryDistributorId) {
       throw new BadRequestException(
-        `Missing ${category} distributor supply rule for group ${sheetGroupId}`,
+        `Missing ${category} supplier for client ${clientId}`,
       );
     }
 

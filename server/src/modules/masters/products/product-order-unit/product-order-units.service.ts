@@ -1,7 +1,4 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { ProductOrderUnitsRepository } from './product-order-units.repository.js';
 import { OrderUnitTypesRepository } from '../order-unit-types/order-unit-types.repository.js';

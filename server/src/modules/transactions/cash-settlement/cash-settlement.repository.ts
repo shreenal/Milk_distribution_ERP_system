@@ -5,6 +5,7 @@ import { RouteDenominationDto } from './dto/save-route-denominations.dto.js';
 import { DirectCollectionDto } from './dto/save-direct-collections.dto.js';
 import { BankDepositDto } from './dto/save-bank-deposit.dto.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
 
 @Injectable()
 export class CashSettlementRepository {
@@ -127,27 +128,56 @@ export class CashSettlementRepository {
     collections: DirectCollectionDto[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    await db.cash_direct_collection.deleteMany({
-      where: {
-        order_paper_id: paperId,
-      },
+    const existing = await db.cash_direct_collection.findMany({
+      where: { order_paper_id: paperId },
     });
 
-    if (collections.length > 0) {
-      await db.cash_direct_collection.createMany({
-        data: collections.map((collection) => ({
-          order_paper_id: paperId,
-          employee_id: collection.employeeId,
-          note_2000: collection.note2000,
-          note_500: collection.note500,
-          note_200: collection.note200,
-          note_100: collection.note100,
-          note_50: collection.note50,
-          note_20: collection.note20,
-          note_10: collection.note10,
-          coins: collection.coins,
-        })),
+    const keyOf = (r: { employee_id: number }) => `${r.employee_id}`;
+    const incoming = collections.map((c) => ({
+      order_paper_id: paperId,
+      employee_id: c.employeeId,
+      note_2000: c.note2000,
+      note_500: c.note500,
+      note_200: c.note200,
+      note_100: c.note100,
+      note_50: c.note50,
+      note_20: c.note20,
+      note_10: c.note10,
+      coins: c.coins,
+    }));
+
+    const { toDelete, toInsert, toUpdate } = diffByKey<
+      (typeof existing)[number],
+      (typeof incoming)[number]
+    >(
+      existing,
+      incoming,
+      (r) => `${r.employee_id}`,
+      (r) => `${r.employee_id}`,
+      (e, r) =>
+        e.note_2000 !== r.note_2000 ||
+        e.note_500 !== r.note_500 ||
+        e.note_200 !== r.note_200 ||
+        e.note_100 !== r.note_100 ||
+        e.note_50 !== r.note_50 ||
+        e.note_20 !== r.note_20 ||
+        e.note_10 !== r.note_10 ||
+        Number(e.coins) !== Number(r.coins),
+    );
+
+    if (toDelete.length > 0) {
+      await db.cash_direct_collection.deleteMany({
+        where: { id: { in: toDelete.map((r) => r.id) } },
       });
+    }
+    for (const { existingRow, incomingRow } of toUpdate) {
+      await db.cash_direct_collection.update({
+        where: { id: existingRow.id },
+        data: incomingRow,
+      });
+    }
+    if (toInsert.length > 0) {
+      await db.cash_direct_collection.createMany({ data: toInsert });
     }
   }
 
@@ -223,5 +253,16 @@ export class CashSettlementRepository {
         })),
       });
     }
+  }
+
+  async touchOrderPaperIfUnchanged(
+    paperId: number,
+    expectedUpdatedAt: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.updateMany({
+      where: { id: paperId, updated_at: expectedUpdatedAt },
+      data: {},
+    });
   }
 }

@@ -97,10 +97,6 @@ export class ProductColumnsBuilder {
         packagingTypeNode.children.push({
           headerName: sizeLabel,
 
-          // field:
-          //   quantityType === 'ordered'
-          //     ? `product_${product.id}_ordered`
-          //     : `product_${product.id}_delivered`,
           field: `product_${product.id}`,
 
           productId: product.id,
@@ -112,10 +108,6 @@ export class ProductColumnsBuilder {
         productTypeNode.children.push({
           headerName: sizeLabel,
 
-          // field:
-          //   quantityType === 'ordered'
-          //     ? `product_${product.id}_ordered`
-          //     : `product_${product.id}_delivered`,
           field: `product_${product.id}`,
 
           productId: product.id,

@@ -39,7 +39,7 @@ export class ClientTraysValidationService {
 
   async validateTrayCalculationExists(
     sheetId: number,
-    db: PrismaOrTransaction = this.clientTraysRepository['prisma'],
+    db: PrismaOrTransaction,
   ): Promise<void> {
     const transactions = await this.clientTraysRepository.getTrayTransactions(
       sheetId,

@@ -1,35 +1,16 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { PricingUnit, Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
+import {
+  PricingUnit,
+  Prisma,
+  SupplyCategory,
+} from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
 @Injectable()
 export class OrdersRepository {
-  constructor(private readonly prisma: PrismaService) { }
-
-  async getActiveGroups(db: PrismaOrTransaction = this.prisma) {
-    return db.master_group.findMany({
-      where: {
-        is_active: true,
-      },
-    });
-  }
-
-  async generateOrderSheets(
-    paperId: number,
-    groups: { id: number }[],
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet.createMany({
-      data: groups.map((group) => ({
-        order_paper_id: paperId,
-
-        group_id: group.id,
-      })),
-      skipDuplicates: true,
-    });
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   async findSheetById(sheetId: number, db: PrismaOrTransaction = this.prisma) {
     return db.order_sheet.findUnique({
@@ -273,12 +254,7 @@ export class OrdersRepository {
   }
 
   async createSheetProduct(
-    data: {
-      order_sheet_id: number;
-      product_id: number;
-      product_link_id: number;
-      resolvedViaFallback?: boolean;
-    },
+    data: { order_sheet_id: number; product_id: number },
     db: PrismaOrTransaction = this.prisma,
   ) {
     return db.order_sheet_product.upsert({
@@ -292,8 +268,6 @@ export class OrdersRepository {
       create: {
         order_sheet_id: data.order_sheet_id,
         product_id: data.product_id,
-        product_link_id: data.product_link_id,
-        resolved_via_fallback: data.resolvedViaFallback ?? false,
       },
     });
   }
@@ -375,139 +349,139 @@ export class OrdersRepository {
   }
 
   async upsertSheetEntry(
-  data: {
-    order_sheet_id: number;
-    client_id: number;
-    product_id: number;
-    product_link_id: number;
+    data: {
+      order_sheet_id: number;
+      client_id: number;
+      product_id: number;
+      product_link_id: number;
 
-    ordered_qty?: number;
-    delivered_qty?: number;
+      ordered_qty?: number;
+      delivered_qty?: number;
 
-    night_selling_rate?: number;
-    night_bill_amount?: number;
+      night_selling_rate?: number;
+      night_bill_amount?: number;
 
-    final_selling_rate?: number;
-    final_gst_percentage?: number;
-    final_gst_amount?: number;
-    final_taxable_amount?: number;
-    final_bill_amount?: number;
+      final_selling_rate?: number;
+      final_gst_percentage?: number;
+      final_gst_amount?: number;
+      final_taxable_amount?: number;
+      final_bill_amount?: number;
 
-    tray_type_id?: number | null;
+      tray_type_id?: number | null;
 
-    // Required for creation; frozen after creation.
-    units_per_order_unit: number;
-    pricing_quantity: number;
-    pricing_unit: PricingUnit;
-  },
-  db: PrismaOrTransaction = this.prisma,
-) {
-  return db.order_sheet_items.upsert({
-    where: {
-      order_sheet_id_client_id_product_link_id: {
+      // Required for creation; frozen after creation.
+      units_per_order_unit: number;
+      pricing_quantity: number;
+      pricing_unit: PricingUnit;
+    },
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_items.upsert({
+      where: {
+        order_sheet_id_client_id_product_link_id: {
+          order_sheet_id: data.order_sheet_id,
+          client_id: data.client_id,
+          product_link_id: data.product_link_id,
+        },
+      },
+
+      update: {
+        ...(data.ordered_qty !== undefined && {
+          ordered_qty: data.ordered_qty,
+        }),
+
+        ...(data.delivered_qty !== undefined && {
+          delivered_qty: data.delivered_qty,
+        }),
+
+        ...(data.night_selling_rate !== undefined && {
+          night_selling_rate: data.night_selling_rate,
+        }),
+
+        ...(data.night_bill_amount !== undefined && {
+          night_bill_amount: data.night_bill_amount,
+        }),
+
+        ...(data.final_selling_rate !== undefined && {
+          final_selling_rate: data.final_selling_rate,
+        }),
+
+        ...(data.final_gst_percentage !== undefined && {
+          final_gst_percentage: data.final_gst_percentage,
+        }),
+
+        ...(data.final_gst_amount !== undefined && {
+          final_gst_amount: data.final_gst_amount,
+        }),
+
+        ...(data.final_taxable_amount !== undefined && {
+          final_taxable_amount: data.final_taxable_amount,
+        }),
+
+        ...(data.final_bill_amount !== undefined && {
+          final_bill_amount: data.final_bill_amount,
+        }),
+
+        // Intentionally NOT updated:
+        // tray_type_id
+        // units_per_order_unit
+        // pricing_quantity
+        // pricing_unit
+      },
+
+      create: {
         order_sheet_id: data.order_sheet_id,
         client_id: data.client_id,
+        product_id: data.product_id,
         product_link_id: data.product_link_id,
+
+        ...(data.ordered_qty !== undefined && {
+          ordered_qty: data.ordered_qty,
+        }),
+
+        ...(data.delivered_qty !== undefined && {
+          delivered_qty: data.delivered_qty,
+        }),
+
+        ...(data.night_selling_rate !== undefined && {
+          night_selling_rate: data.night_selling_rate,
+        }),
+
+        ...(data.night_bill_amount !== undefined && {
+          night_bill_amount: data.night_bill_amount,
+        }),
+
+        ...(data.final_selling_rate !== undefined && {
+          final_selling_rate: data.final_selling_rate,
+        }),
+
+        ...(data.final_gst_percentage !== undefined && {
+          final_gst_percentage: data.final_gst_percentage,
+        }),
+
+        ...(data.final_gst_amount !== undefined && {
+          final_gst_amount: data.final_gst_amount,
+        }),
+
+        ...(data.final_taxable_amount !== undefined && {
+          final_taxable_amount: data.final_taxable_amount,
+        }),
+
+        ...(data.final_bill_amount !== undefined && {
+          final_bill_amount: data.final_bill_amount,
+        }),
+
+        ...(data.tray_type_id !== undefined && {
+          tray_type_id: data.tray_type_id,
+        }),
+
+        // Required snapshot fields.
+        units_per_order_unit: data.units_per_order_unit,
+        pricing_quantity: data.pricing_quantity,
+        pricing_unit: data.pricing_unit,
       },
-    },
-
-    update: {
-      ...(data.ordered_qty !== undefined && {
-        ordered_qty: data.ordered_qty,
-      }),
-
-      ...(data.delivered_qty !== undefined && {
-        delivered_qty: data.delivered_qty,
-      }),
-
-      ...(data.night_selling_rate !== undefined && {
-        night_selling_rate: data.night_selling_rate,
-      }),
-
-      ...(data.night_bill_amount !== undefined && {
-        night_bill_amount: data.night_bill_amount,
-      }),
-
-      ...(data.final_selling_rate !== undefined && {
-        final_selling_rate: data.final_selling_rate,
-      }),
-
-      ...(data.final_gst_percentage !== undefined && {
-        final_gst_percentage: data.final_gst_percentage,
-      }),
-
-      ...(data.final_gst_amount !== undefined && {
-        final_gst_amount: data.final_gst_amount,
-      }),
-
-      ...(data.final_taxable_amount !== undefined && {
-        final_taxable_amount: data.final_taxable_amount,
-      }),
-
-      ...(data.final_bill_amount !== undefined && {
-        final_bill_amount: data.final_bill_amount,
-      }),
-
-      // Intentionally NOT updated:
-      // tray_type_id
-      // units_per_order_unit
-      // pricing_quantity
-      // pricing_unit
-    },
-
-    create: {
-      order_sheet_id: data.order_sheet_id,
-      client_id: data.client_id,
-      product_id: data.product_id,
-      product_link_id: data.product_link_id,
-
-      ...(data.ordered_qty !== undefined && {
-        ordered_qty: data.ordered_qty,
-      }),
-
-      ...(data.delivered_qty !== undefined && {
-        delivered_qty: data.delivered_qty,
-      }),
-
-      ...(data.night_selling_rate !== undefined && {
-        night_selling_rate: data.night_selling_rate,
-      }),
-
-      ...(data.night_bill_amount !== undefined && {
-        night_bill_amount: data.night_bill_amount,
-      }),
-
-      ...(data.final_selling_rate !== undefined && {
-        final_selling_rate: data.final_selling_rate,
-      }),
-
-      ...(data.final_gst_percentage !== undefined && {
-        final_gst_percentage: data.final_gst_percentage,
-      }),
-
-      ...(data.final_gst_amount !== undefined && {
-        final_gst_amount: data.final_gst_amount,
-      }),
-
-      ...(data.final_taxable_amount !== undefined && {
-        final_taxable_amount: data.final_taxable_amount,
-      }),
-
-      ...(data.final_bill_amount !== undefined && {
-        final_bill_amount: data.final_bill_amount,
-      }),
-
-      ...(data.tray_type_id !== undefined && {
-        tray_type_id: data.tray_type_id,
-      }),
-
-      // Required snapshot fields.
-      units_per_order_unit: data.units_per_order_unit,
-      pricing_quantity: data.pricing_quantity,
-      pricing_unit: data.pricing_unit,
-    },
-  });
-}
+    });
+  }
 
   async getProductCategory(
     productId: number,
@@ -531,31 +505,22 @@ export class OrdersRepository {
     return product.master_product_group.category;
   }
 
-  async getGroupSupplyRules(
-    groupId: number,
+  async getClientCategorySupplier(
+    clientId: number,
+    category: SupplyCategory,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    const rules = await db.master_group_supply_rule.findMany({
+    return db.master_client_category.findUnique({
       where: {
-        group_id: groupId,
-        is_active: true,
+        client_id_category: {
+          client_id: clientId,
+          category,
+        },
       },
       select: {
-        category: true,
-        distributor_id: true,
+        supplier_distributor_id: true,
       },
     });
-
-    const milkRule = rules.find((r) => r.category === SupplyCategory.MILK);
-
-    const nonMilkRule = rules.find(
-      (r) => r.category === SupplyCategory.NON_MILK,
-    );
-
-    return {
-      milkDistributorId: milkRule?.distributor_id ?? null,
-      nonMilkDistributorId: nonMilkRule?.distributor_id ?? null,
-    };
   }
 
   async getProductWithGroup(
@@ -579,82 +544,6 @@ export class OrdersRepository {
     }
 
     return product;
-  }
-
-  async getSellingRate(
-    clientId: number,
-    productLinkId: number,
-    effectiveDate: Date,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ) {
-    const clientRate = await prismaClient.master_client_rate_product.findFirst({
-      where: {
-        client_id: clientId,
-        product_link_id: productLinkId,
-        is_active: true,
-        effective_from: { lte: effectiveDate },
-        OR: [{ effective_to: null }, { effective_to: { gte: effectiveDate } }],
-      },
-      orderBy: {
-        effective_from: 'desc',
-      },
-    });
-
-    // Get most recent applicable rate
-
-    if (clientRate) {
-      return clientRate.selling_rate;
-    }
-
-    const distributorRate =
-      await prismaClient.distributor_product_rate.findFirst({
-        where: {
-          product_link_id: productLinkId,
-          is_active: true,
-          effective_from: { lte: effectiveDate },
-          OR: [
-            { effective_to: null },
-            { effective_to: { gte: effectiveDate } },
-          ],
-        },
-        orderBy: {
-          effective_from: 'desc',
-        },
-      });
-    if (!distributorRate) {
-      throw new BadRequestException(
-        `No active distributor rate found for product link ${productLinkId} on ${effectiveDate.toISOString()}`,
-      );
-    }
-
-    return distributorRate.selling_rate;
-  }
-
-  async getSellingRateForDistributor(
-    clientId: number,
-    productId: number,
-    distributorId: number,
-    effectiveDate: Date,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ) {
-    const productLink = await this.getProductLink(
-      distributorId,
-      productId,
-      prismaClient,
-    );
-
-    if (!productLink) {
-      throw new BadRequestException(
-        `No product link found for distributor ${distributorId} and product ${productId}`,
-      );
-    }
-
-    return this.getSellingRate(
-      clientId,
-      productLink.id,
-      effectiveDate,
-      prismaClient,
-    );
   }
 
   async getProductLink(
@@ -843,26 +732,26 @@ export class OrdersRepository {
     return new Map(links.map((l) => [l.product_id, l]));
   }
 
-   async getProductsWithPackagingBatch(
-  productIds: number[],
-  db: PrismaOrTransaction,
-) {
-  const products = await db.master_product.findMany({
-    where: { id: { in: productIds } },
-    include: {
-      master_packaging_type: true,
-      product_order_unit: {
-        select: {
-          units_per_order_unit: true,
-          pricing_quantity: true,
-          pricing_unit: true,
+  async getProductsWithPackagingBatch(
+    productIds: number[],
+    db: PrismaOrTransaction,
+  ) {
+    const products = await db.master_product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        master_packaging_type: true,
+        product_order_unit: {
+          select: {
+            units_per_order_unit: true,
+            pricing_quantity: true,
+            pricing_unit: true,
+          },
         },
       },
-    },
-  });
- 
-  return new Map(products.map((p) => [p.id, p]));
-}
+    });
+
+    return new Map(products.map((p) => [p.id, p]));
+  }
 
   async getSellingRatesBatch(
     pairs: { clientId: number; productLinkId: number }[],
@@ -955,4 +844,18 @@ export class OrdersRepository {
     });
     return new Map(links.map((l) => [l.distributor_id, l]));
   }
+
+async touchOrderItemsIfUnchanged(
+  sheetId: number,
+  expectedUpdatedAt: Date | null,
+  db: PrismaOrTransaction = this.prisma,
+) {
+  return db.order_sheet.updateMany({
+    where: {
+      id: sheetId,
+      ...(expectedUpdatedAt !== null && { order_items_updated_at: expectedUpdatedAt }),
+    },
+    data: { order_items_updated_at: new Date() },
+  });
+}
 }

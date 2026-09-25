@@ -143,9 +143,7 @@ describe('PurchaseRepository', () => {
 
       await repository.findVehicleAssignmentsByPaperId(10, db);
 
-      expect(
-        db.vehicle_distribution_assignment.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.vehicle_distribution_assignment.findMany).toHaveBeenCalledWith({
         where: {
           vehicle_allocation_paper: {
             order_paper_id: 10,
@@ -267,11 +265,7 @@ describe('PurchaseRepository', () => {
     it('should preserve existing row identity when incoming data is unchanged', async () => {
       db.purchase_entry.findMany.mockResolvedValue(existingRows);
 
-      await repository.replacePurchaseEntries(
-        50,
-        [unchangedRow] as any,
-        db,
-      );
+      await repository.replacePurchaseEntries(50, [unchangedRow] as any, db);
 
       expect(db.purchase_entry.update).not.toHaveBeenCalled();
       expect(db.purchase_entry.createMany).not.toHaveBeenCalled();
@@ -286,9 +280,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should update an existing row when quantity changes', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       const incoming = {
@@ -296,11 +288,7 @@ describe('PurchaseRepository', () => {
         purchased_qty: 12,
       };
 
-      await repository.replacePurchaseEntries(
-        50,
-        [incoming] as any,
-        db,
-      );
+      await repository.replacePurchaseEntries(50, [incoming] as any, db);
 
       expect(db.purchase_entry.update).toHaveBeenCalledWith({
         where: {
@@ -320,9 +308,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should insert a genuinely new purchase entry', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.createMany.mockResolvedValue({
         count: 1,
       });
@@ -365,9 +351,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat product_link_id as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -385,9 +369,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat gatepass_date as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -405,9 +387,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat tray_type_id as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -425,9 +405,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat source_allocation_id as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -445,9 +423,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat source_allocated_qty as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -465,9 +441,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat purchase rate as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -485,9 +459,7 @@ describe('PurchaseRepository', () => {
     });
 
     it('should treat purchase amount as an update comparator', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
       db.purchase_entry.update.mockResolvedValue({ id: 1 });
 
       await repository.replacePurchaseEntries(
@@ -535,18 +507,14 @@ describe('PurchaseRepository', () => {
     });
 
     it('should preserve an existing row when only incoming data contains an equivalent Date value', async () => {
-      db.purchase_entry.findMany.mockResolvedValue([
-        existingRows[0],
-      ]);
+      db.purchase_entry.findMany.mockResolvedValue([existingRows[0]]);
 
       await repository.replacePurchaseEntries(
         50,
         [
           {
             ...unchangedRow,
-            gatepass_date: new Date(
-              '2026-06-15T00:00:00.000Z',
-            ),
+            gatepass_date: new Date('2026-06-15T00:00:00.000Z'),
           },
         ] as any,
         db,
@@ -580,9 +548,7 @@ describe('PurchaseRepository', () => {
             source_allocated_qty: 25,
             tray_type_id: 6,
             product_link_id: 201,
-            gatepass_date: new Date(
-              '2026-06-15T00:00:00.000Z',
-            ),
+            gatepass_date: new Date('2026-06-15T00:00:00.000Z'),
           },
         ] as any,
         db,
@@ -701,9 +667,7 @@ describe('PurchaseRepository', () => {
 
       await repository.findDistributorProcurementRules(db);
 
-      expect(
-        db.distributor_procurement_rule.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.distributor_procurement_rule.findMany).toHaveBeenCalledWith({
         where: {
           is_active: true,
         },
@@ -764,14 +728,9 @@ describe('PurchaseRepository', () => {
     it('should find allocation papers belonging to an order paper', async () => {
       db.vehicle_allocation_paper.findMany.mockResolvedValue([]);
 
-      await repository.findVehicleAllocationPapersForOrderPaper(
-        10,
-        db,
-      );
+      await repository.findVehicleAllocationPapersForOrderPaper(10, db);
 
-      expect(
-        db.vehicle_allocation_paper.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.vehicle_allocation_paper.findMany).toHaveBeenCalledWith({
         where: {
           order_paper_id: 10,
         },
@@ -781,9 +740,7 @@ describe('PurchaseRepository', () => {
 
   describe('findProductLinkRateForDate', () => {
     it('should find an active rate covering the effective date', async () => {
-      const effectiveDate = new Date(
-        '2026-06-15T00:00:00.000Z',
-      );
+      const effectiveDate = new Date('2026-06-15T00:00:00.000Z');
 
       db.distributor_product_rate.findFirst.mockResolvedValue({
         id: 500,
@@ -797,9 +754,7 @@ describe('PurchaseRepository', () => {
 
       expect(result).toEqual({ id: 500 });
 
-      expect(
-        db.distributor_product_rate.findFirst,
-      ).toHaveBeenCalledWith({
+      expect(db.distributor_product_rate.findFirst).toHaveBeenCalledWith({
         where: {
           product_link_id: 200,
           is_active: true,
@@ -889,25 +844,20 @@ describe('PurchaseRepository', () => {
     it('should return null when the product link does not exist', async () => {
       db.master_product_link.findUnique.mockResolvedValue(null);
 
-      const result =
-        await repository.findPurchaseRateForDistributorProduct(
-          20,
-          30,
-          new Date('2026-06-15T00:00:00.000Z'),
-          db,
-        );
+      const result = await repository.findPurchaseRateForDistributorProduct(
+        20,
+        30,
+        new Date('2026-06-15T00:00:00.000Z'),
+        db,
+      );
 
       expect(result).toBeNull();
 
-      expect(
-        db.distributor_product_rate.findFirst,
-      ).not.toHaveBeenCalled();
+      expect(db.distributor_product_rate.findFirst).not.toHaveBeenCalled();
     });
 
     it('should resolve the rate through the product link', async () => {
-      const effectiveDate = new Date(
-        '2026-06-15T00:00:00.000Z',
-      );
+      const effectiveDate = new Date('2026-06-15T00:00:00.000Z');
 
       db.master_product_link.findUnique.mockResolvedValue({
         id: 200,
@@ -918,22 +868,19 @@ describe('PurchaseRepository', () => {
         purchase_rate: 25,
       });
 
-      const result =
-        await repository.findPurchaseRateForDistributorProduct(
-          20,
-          30,
-          effectiveDate,
-          db,
-        );
+      const result = await repository.findPurchaseRateForDistributorProduct(
+        20,
+        30,
+        effectiveDate,
+        db,
+      );
 
       expect(result).toEqual({
         id: 500,
         purchase_rate: 25,
       });
 
-      expect(
-        db.distributor_product_rate.findFirst,
-      ).toHaveBeenCalledWith({
+      expect(db.distributor_product_rate.findFirst).toHaveBeenCalledWith({
         where: {
           product_link_id: 200,
           is_active: true,
@@ -966,11 +913,7 @@ describe('PurchaseRepository', () => {
         delivery_session: DeliverySession.MORNING,
       });
 
-      const result =
-        await repository.findLatestVehicleAllocationPaper(
-          10,
-          db,
-        );
+      const result = await repository.findLatestVehicleAllocationPaper(10, db);
 
       expect(result).toEqual({
         id: 50,
@@ -978,9 +921,7 @@ describe('PurchaseRepository', () => {
         delivery_session: DeliverySession.MORNING,
       });
 
-      expect(
-        db.vehicle_allocation_paper.findFirst,
-      ).toHaveBeenCalledWith({
+      expect(db.vehicle_allocation_paper.findFirst).toHaveBeenCalledWith({
         where: {
           order_paper_id: 10,
         },
@@ -1017,9 +958,7 @@ describe('PurchaseRepository', () => {
         db,
       );
 
-      expect(
-        db.master_product_link.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.master_product_link.findMany).toHaveBeenCalledWith({
         where: {
           OR: [
             {
@@ -1058,9 +997,7 @@ describe('PurchaseRepository', () => {
         true,
       );
 
-      expect(
-        db.master_product_link.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.master_product_link.findMany).toHaveBeenCalledWith({
         where: {
           OR: [
             {
@@ -1082,10 +1019,7 @@ describe('PurchaseRepository', () => {
     it('should return an empty map when no links are returned', async () => {
       db.master_product_link.findMany.mockResolvedValue([]);
 
-      const result = await repository.getProductLinksBatch(
-        [],
-        db,
-      );
+      const result = await repository.getProductLinksBatch([], db);
 
       expect(result).toEqual(new Map());
     });
@@ -1093,21 +1027,15 @@ describe('PurchaseRepository', () => {
 
   describe('findProductLinkRatesForDateBatch', () => {
     it('should resolve the applicable rate for each requested link and date', async () => {
-      const firstDate = new Date(
-        '2026-06-15T00:00:00.000Z',
-      );
-      const secondDate = new Date(
-        '2026-06-16T00:00:00.000Z',
-      );
+      const firstDate = new Date('2026-06-15T00:00:00.000Z');
+      const secondDate = new Date('2026-06-16T00:00:00.000Z');
 
       const rates = [
         {
           id: 501,
           product_link_id: 200,
           purchase_rate: 25,
-          effective_from: new Date(
-            '2026-06-01T00:00:00.000Z',
-          ),
+          effective_from: new Date('2026-06-01T00:00:00.000Z'),
           effective_to: null,
           is_active: true,
         },
@@ -1115,36 +1043,29 @@ describe('PurchaseRepository', () => {
           id: 502,
           product_link_id: 201,
           purchase_rate: 30,
-          effective_from: new Date(
-            '2026-06-01T00:00:00.000Z',
-          ),
+          effective_from: new Date('2026-06-01T00:00:00.000Z'),
           effective_to: null,
           is_active: true,
         },
       ];
 
-      db.distributor_product_rate.findMany.mockResolvedValue(
-        rates,
+      db.distributor_product_rate.findMany.mockResolvedValue(rates);
+
+      const result = await repository.findProductLinkRatesForDateBatch(
+        [
+          {
+            productLinkId: 200,
+            effectiveDate: firstDate,
+          },
+          {
+            productLinkId: 201,
+            effectiveDate: secondDate,
+          },
+        ],
+        db,
       );
 
-      const result =
-        await repository.findProductLinkRatesForDateBatch(
-          [
-            {
-              productLinkId: 200,
-              effectiveDate: firstDate,
-            },
-            {
-              productLinkId: 201,
-              effectiveDate: secondDate,
-            },
-          ],
-          db,
-        );
-
-      expect(
-        db.distributor_product_rate.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.distributor_product_rate.findMany).toHaveBeenCalledWith({
         where: {
           product_link_id: {
             in: [200, 201],
@@ -1156,38 +1077,26 @@ describe('PurchaseRepository', () => {
         },
       });
 
-      expect(
-        result.get(`200_${firstDate.toISOString()}`),
-      ).toEqual(rates[0]);
+      expect(result.get(`200_${firstDate.toISOString()}`)).toEqual(rates[0]);
 
-      expect(
-        result.get(`201_${secondDate.toISOString()}`),
-      ).toEqual(rates[1]);
+      expect(result.get(`201_${secondDate.toISOString()}`)).toEqual(rates[1]);
     });
 
     it('should choose the newest effective rate covering the requested date', async () => {
-      const effectiveDate = new Date(
-        '2026-06-15T00:00:00.000Z',
-      );
+      const effectiveDate = new Date('2026-06-15T00:00:00.000Z');
 
       const olderRate = {
         id: 501,
         product_link_id: 200,
-        effective_from: new Date(
-          '2026-05-01T00:00:00.000Z',
-        ),
-        effective_to: new Date(
-          '2026-06-30T00:00:00.000Z',
-        ),
+        effective_from: new Date('2026-05-01T00:00:00.000Z'),
+        effective_to: new Date('2026-06-30T00:00:00.000Z'),
         is_active: true,
       };
 
       const newerRate = {
         id: 502,
         product_link_id: 200,
-        effective_from: new Date(
-          '2026-06-10T00:00:00.000Z',
-        ),
+        effective_from: new Date('2026-06-10T00:00:00.000Z'),
         effective_to: null,
         is_active: true,
       };
@@ -1197,49 +1106,41 @@ describe('PurchaseRepository', () => {
         olderRate,
       ]);
 
-      const result =
-        await repository.findProductLinkRatesForDateBatch(
-          [
-            {
-              productLinkId: 200,
-              effectiveDate,
-            },
-          ],
-          db,
-        );
+      const result = await repository.findProductLinkRatesForDateBatch(
+        [
+          {
+            productLinkId: 200,
+            effectiveDate,
+          },
+        ],
+        db,
+      );
 
-      expect(
-        result.get(`200_${effectiveDate.toISOString()}`),
-      ).toEqual(newerRate);
+      expect(result.get(`200_${effectiveDate.toISOString()}`)).toEqual(
+        newerRate,
+      );
     });
 
     it('should return null for a requested link/date with no applicable rate', async () => {
-      const effectiveDate = new Date(
-        '2026-06-15T00:00:00.000Z',
-      );
+      const effectiveDate = new Date('2026-06-15T00:00:00.000Z');
 
       db.distributor_product_rate.findMany.mockResolvedValue([]);
 
-      const result =
-        await repository.findProductLinkRatesForDateBatch(
-          [
-            {
-              productLinkId: 200,
-              effectiveDate,
-            },
-          ],
-          db,
-        );
+      const result = await repository.findProductLinkRatesForDateBatch(
+        [
+          {
+            productLinkId: 200,
+            effectiveDate,
+          },
+        ],
+        db,
+      );
 
-      expect(
-        result.get(`200_${effectiveDate.toISOString()}`),
-      ).toBeNull();
+      expect(result.get(`200_${effectiveDate.toISOString()}`)).toBeNull();
     });
 
     it('should query unique product link ids only once', async () => {
-      const effectiveDate = new Date(
-        '2026-06-15T00:00:00.000Z',
-      );
+      const effectiveDate = new Date('2026-06-15T00:00:00.000Z');
 
       db.distributor_product_rate.findMany.mockResolvedValue([]);
 
@@ -1251,17 +1152,13 @@ describe('PurchaseRepository', () => {
           },
           {
             productLinkId: 200,
-            effectiveDate: new Date(
-              '2026-06-16T00:00:00.000Z',
-            ),
+            effectiveDate: new Date('2026-06-16T00:00:00.000Z'),
           },
         ],
         db,
       );
 
-      expect(
-        db.distributor_product_rate.findMany,
-      ).toHaveBeenCalledWith({
+      expect(db.distributor_product_rate.findMany).toHaveBeenCalledWith({
         where: {
           product_link_id: {
             in: [200],

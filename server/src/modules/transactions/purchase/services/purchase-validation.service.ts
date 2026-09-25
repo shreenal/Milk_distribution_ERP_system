@@ -4,10 +4,9 @@ import { SavePurchaseDto } from '../dto/purchase.dto.js';
 
 import { PurchaseRepository } from '../purchase.repository.js';
 
-import { VehicleAssignment } from '../../../../types/purchase.types.js';
-
 import { PURCHASE_ERROR_MESSAGES } from '../purchase.constants.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
+import { buildPurchaseKey } from '../../../../common/utils/allocation-key.util.js';
 
 @Injectable()
 export class PurchaseValidationService {
@@ -20,17 +19,7 @@ export class PurchaseValidationService {
   ) {
     const products = await this.purchaseRepository.findProducts(db);
 
-    const vehicleAssignments: VehicleAssignment[] =
-      await this.purchaseRepository.findVehicleAssignmentsByPaperId(
-        paperId,
-        db,
-      );
-
     const validProductIds = new Set(products.map((product) => product.id));
-
-    const validVehicles = new Set(
-      vehicleAssignments.map((assignment) => assignment.vehicle_id),
-    );
 
     const allocations =
       await this.purchaseRepository.findVehicleAllocationsByPaperId(
@@ -43,15 +32,9 @@ export class PurchaseValidationService {
         PURCHASE_ERROR_MESSAGES.NO_VEHICLE_ALLOCATIONS,
       );
     }
-
-    const assignmentMap = new Map<string, VehicleAssignment>();
-
-    for (const assignment of vehicleAssignments) {
-      assignmentMap.set(
-        `${assignment.vehicle_id}_${assignment.category}_${assignment.vehicle_allocation_paper.delivery_session}`,
-        assignment,
-      );
-    }
+    const validVehicles = new Set(
+      allocations.map((allocation) => allocation.vehicle_id),
+    );
 
     const allocationMap = new Map<string, number>();
 
@@ -62,9 +45,15 @@ export class PurchaseValidationService {
         );
       }
       allocationMap.set(
-        `${allocation.vehicle_id}_${allocation.distributor_id}_${allocation.category}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`,
-        Number(allocation.allocated_qty),
-      );
+  buildPurchaseKey({
+    vehicleId: allocation.vehicle_id,
+    distributorId: allocation.distributor_id,
+    category: allocation.category,
+    productId: allocation.product_id,
+    deliverySession: allocation.vehicle_allocation_paper.delivery_session,
+  }),
+  Number(allocation.allocated_qty),
+);
     }
 
     for (const entry of dto.entries) {
@@ -90,19 +79,15 @@ export class PurchaseValidationService {
         );
       }
 
-      const assignment = assignmentMap.get(
-        `${entry.vehicleId}_${entry.category}_${entry.deliverySession}`,
-      );
-
-      if (!assignment || assignment.distributor_id !== entry.distributorId) {
-        throw new BadRequestException(
-          PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(entry.vehicleId),
-        );
-      }
-
       const allocatedQty = allocationMap.get(
-        `${entry.vehicleId}_${entry.distributorId}_${entry.category}_${entry.productId}_${entry.deliverySession}`,
-      );
+  buildPurchaseKey({
+    vehicleId: entry.vehicleId,
+    distributorId: entry.distributorId,
+    category: entry.category,
+    productId: entry.productId,
+    deliverySession: entry.deliverySession,
+  }),
+);
 
       if (allocatedQty === undefined) {
         throw new BadRequestException(
@@ -138,21 +123,6 @@ export class PurchaseValidationService {
       (allocation) => Number(allocation.allocated_qty) > 0,
     );
 
-    const vehicleAssignments: VehicleAssignment[] =
-      await this.purchaseRepository.findVehicleAssignmentsByPaperId(
-        paperId,
-        db,
-      );
-
-    const assignmentMap = new Map<string, VehicleAssignment>();
-
-    for (const assignment of vehicleAssignments) {
-      assignmentMap.set(
-        `${assignment.vehicle_id}_${assignment.category}_${assignment.vehicle_allocation_paper.delivery_session}`,
-        assignment,
-      );
-    }
-
     const purchasePaper = await this.purchaseRepository.findPurchasePaper(
       paperId,
       db,
@@ -174,11 +144,8 @@ export class PurchaseValidationService {
     );
 
     const purchaseKeys = new Set(
-      purchaseEntries.map(
-        (entry) =>
-          `${entry.distributor_id}_${entry.category}_${entry.vehicle_id}_${entry.product_id}_${entry.delivery_session}`,
-      ),
-    );
+  purchaseEntries.map((entry) => buildPurchaseKey(entry)),
+);
 
     for (const allocation of requiredAllocations) {
       if (allocation.vehicle_id == null || allocation.product_id == null) {
@@ -187,23 +154,14 @@ export class PurchaseValidationService {
         );
       }
 
-      const assignment = assignmentMap.get(
-        `${allocation.vehicle_id}_${allocation.category}_${allocation.vehicle_allocation_paper.delivery_session}`,
-      );
-
-      if (
-        !assignment ||
-        assignment.distributor_id !== allocation.distributor_id
-      ) {
-        throw new BadRequestException(
-          PURCHASE_ERROR_MESSAGES.VEHICLE_ASSIGNMENT_NOT_FOUND(
-            allocation.vehicle_id,
-          ),
-        );
-      }
-
-      const key = `${allocation.distributor_id}_${allocation.category}_${allocation.vehicle_id}_${allocation.product_id}_${allocation.vehicle_allocation_paper.delivery_session}`;
-      if (!purchaseKeys.has(key)) {
+      const key = buildPurchaseKey({
+  vehicleId: allocation.vehicle_id,
+  distributorId: allocation.distributor_id,
+  category: allocation.category,
+  productId: allocation.product_id,
+  deliverySession: allocation.vehicle_allocation_paper.delivery_session,
+});
+if (!purchaseKeys.has(key)) {
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.PURCHASE_MISSING(
             allocation.vehicle_id,

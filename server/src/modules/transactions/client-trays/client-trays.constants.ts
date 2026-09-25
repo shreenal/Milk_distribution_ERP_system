@@ -9,12 +9,7 @@ export const CLIENT_TRAY_ERROR_MESSAGES = {
   INCOMPLETE_TRAY_RETURNS: (clientName: string) =>
     `Tray returns incomplete for client "${clientName}"`,
 
-  VALIDATION_FAILED: (sheetId: number, reason: string) =>
-    `Tray validation failed for sheet ${sheetId}: ${reason}`,
-
   TRAY_EDIT_NOT_ALLOWED: 'Tray cannot be edited in the current workflow state',
-
-  UNKNOWN_VALIDATION_ERROR: 'Unknown error',
 
   CALCULATION_FAILED: 'Tray calculation failed',
 } as const;

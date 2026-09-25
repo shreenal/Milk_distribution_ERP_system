@@ -22,18 +22,14 @@ export class OrderUnitTypesService {
     const orderUnitType = await this.orderUnitTypesRepository.findById(id);
 
     if (!orderUnitType) {
-      throw new NotFoundException(
-        `Order Unit Type with ID ${id} not found.`,
-      );
+      throw new NotFoundException(`Order Unit Type with ID ${id} not found.`);
     }
 
     return orderUnitType;
   }
 
   async create(dto: CreateOrderUnitTypeDto) {
-    const existing = await this.orderUnitTypesRepository.findByName(
-      dto.name,
-    );
+    const existing = await this.orderUnitTypesRepository.findByName(dto.name);
 
     if (existing) {
       throw new ConflictException(
@@ -48,9 +44,7 @@ export class OrderUnitTypesService {
     await this.findById(id);
 
     if (dto.name !== undefined) {
-      const existing = await this.orderUnitTypesRepository.findByName(
-        dto.name,
-      );
+      const existing = await this.orderUnitTypesRepository.findByName(dto.name);
 
       if (existing && existing.id !== id) {
         throw new ConflictException(

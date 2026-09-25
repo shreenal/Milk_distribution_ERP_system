@@ -15,8 +15,8 @@ type ExistingSheetItem =
   Awaited<
     ReturnType<OrdersRepository['findSheetItemsByProductBatch']>
   > extends Map<string, infer T>
-  ? T
-  : never;
+    ? T
+    : never;
 
 @Injectable()
 export class BillingService {
@@ -26,199 +26,7 @@ export class BillingService {
     private readonly nightBillingService: NightBillingService,
     private readonly finalBillingService: FinalBillingService,
     private readonly trayCalculationService: TrayCalculationService,
-  ) { }
-
-  // async saveNightEntry(
-  //   tx: Prisma.TransactionClient,
-  //   sheet: Awaited<ReturnType<OrdersRepository['findSheetById']>>,
-  //   supplyRules: { milkDistributorId: number | null; nonMilkDistributorId: number | null },
-  //   sheetId: number,
-  //   entry: SaveNightEntriesDto,
-  //   trayRules: ProductTrayRule[],
-  // ): Promise<void> {
-  //   const existingItem = await this.ordersRepository.findSheetItemByProduct(
-  //     sheetId, entry.clientId, entry.productId, tx,
-  //   );
-
-  //   const orderedQty = Number(entry.orderedQty);
-  //   if (!existingItem && orderedQty === 0) {
-  //     return;
-  //   }
-
-  //   let distributorId: number;
-  //   let productLinkId: number;
-
-  //   if (existingItem) {
-  //     distributorId = existingItem.product_link.distributor_id;
-  //     productLinkId = existingItem.product_link_id;
-  //   } else {
-  //     const sheetProductLink = await this.ordersRepository.getSheetProductLink(
-  //       sheetId, entry.productId, tx,
-  //     );
-
-  //     if (sheetProductLink) {
-  //       const link = await tx.master_product_link.findUnique({
-  //         where: { id: sheetProductLink.product_link_id },
-  //         select: { id: true, distributor_id: true },
-  //       });
-  //       if (!link) {
-  //         throw new BadRequestException('Invalid sheet product link');
-  //       }
-  //       distributorId = link.distributor_id;
-  //       productLinkId = link.id;
-  //     } else {
-  //       const commercialContext = await this.orderCommercialService.resolve(
-  //         sheet!.group_id, entry.productId, supplyRules, tx,
-  //       );
-
-  //       const pinned = await this.ordersRepository.createSheetProduct(
-  //         {
-  //           order_sheet_id: sheetId,
-  //           product_id: entry.productId,
-  //           product_link_id: commercialContext.productLinkId,
-  //         },
-  //         tx,
-  //       );
-
-  //       if (pinned.product_link_id === commercialContext.productLinkId) {
-  //         distributorId = commercialContext.distributorId;
-  //         productLinkId = commercialContext.productLinkId;
-  //       } else {
-  //         const link = await tx.master_product_link.findUniqueOrThrow({
-  //           where: { id: pinned.product_link_id },
-  //           select: { distributor_id: true },
-  //         });
-  //         distributorId = link.distributor_id;
-  //         productLinkId = pinned.product_link_id;
-  //       }
-  //     }
-  //   }
-
-  //   // --- everything below moved OUT of the else block: runs for both
-  //   //     existing and new items, exactly as before the restructuring ---
-
-  //   const sellingRate = await this.ordersRepository.getSellingRateForDistributor(
-  //     entry.clientId, entry.productId, distributorId, sheet!.order_paper.sale_date, tx,
-  //   );
-
-  //   if (sellingRate === null || sellingRate === undefined) {
-  //     throw new BadRequestException(
-  //       ERROR_MESSAGES.NO_APPLICABLE_RATE(entry.productId, sheet!.order_paper.sale_date.toISOString()),
-  //     );
-  //   }
-
-  //   const product = await this.ordersRepository.getProductWithPackaging(entry.productId, tx);
-
-  //   let trayTypeId: number | null | undefined;
-  //   if (!existingItem) {
-  //     // uses the hoisted trayRules parameter — see fix #2 below, this
-  //     // no longer re-fetches from the DB per item
-  //     trayTypeId =
-  //       this.trayCalculationService.resolveTrayRule(product, trayRules)?.tray_type_id ?? null;
-  //   }
-
-  //   const billing = this.nightBillingService.calculate(
-  //     orderedQty, Number(sellingRate), product.master_packaging_type?.unit_multiplier ?? 1,
-  //   );
-
-  //   const zeroedOrderFields =
-  //     orderedQty === 0
-  //       ? {
-  //         delivered_qty: 0,
-  //         final_selling_rate: Number(sellingRate),
-  //         final_gst_percentage: Number(product.gst_percentage ?? 0),
-  //         final_gst_amount: 0,
-  //         final_taxable_amount: 0,
-  //         final_bill_amount: 0,
-  //       }
-  //       : {};
-
-  //   await this.ordersRepository.upsertSheetEntry(
-  //     {
-  //       order_sheet_id: sheetId,
-  //       client_id: entry.clientId,
-  //       product_id: entry.productId,
-  //       product_link_id: productLinkId,
-  //       ordered_qty: entry.orderedQty,
-  //       night_selling_rate: Number(sellingRate),
-  //       night_bill_amount: billing.nightBillAmount,
-  //       tray_type_id: trayTypeId,
-  //       ...zeroedOrderFields,
-  //     },
-  //     tx,
-  //   );
-  // }
-
-  // async saveMorningEntry(
-  //   tx: Prisma.TransactionClient,
-  //   sheet: Awaited<ReturnType<OrdersRepository['findSheetById']>>,
-  //   sheetId: number,
-  //   entry: SaveMorningEntriesDto,
-  // ): Promise<void> {
-  //   const existingItem = await this.ordersRepository.findSheetItemByProduct(
-  //     sheetId,
-  //     entry.clientId,
-  //     entry.productId,
-  //     tx,
-  //   );
-
-  //   const deliveredQty = Number(entry.deliveredQty);
-
-  //   if (!existingItem) {
-  //     if (deliveredQty === 0) {
-  //       return;
-  //     }
-  //     throw new BadRequestException(
-  //       ERROR_MESSAGES.NO_ORDERED_QUANTITY(entry.clientId, entry.productId),
-  //     );
-  //   }
-
-  //   const distributorId = existingItem.product_link.distributor_id;
-
-  //   const sellingRate =
-  //     await this.ordersRepository.getSellingRateForDistributor(
-  //       entry.clientId,
-  //       entry.productId,
-  //       distributorId,
-  //       sheet!.order_paper.sale_date,
-  //       tx,
-  //     );
-
-  //   if (sellingRate === null || sellingRate === undefined) {
-  //     throw new BadRequestException(
-  //       `No rate configured for client ${entry.clientId} product ${entry.productId}`,
-  //     );
-  //   }
-
-  //   const billing = this.finalBillingService.calculate(
-  //     Number(entry.deliveredQty),
-  //     Number(sellingRate),
-  //     Number(existingItem.master_product.gst_percentage ?? 0),
-  //     existingItem.master_product.is_gst_inclusive,
-  //     existingItem.master_product.master_packaging_type?.unit_multiplier ?? 1,
-  //   );
-
-  //   await tx.order_sheet_items.update({
-  //     where: {
-  //       order_sheet_id_client_id_product_link_id: {
-  //         order_sheet_id: sheetId,
-  //         client_id: entry.clientId,
-  //         product_link_id: existingItem.product_link_id,
-  //       },
-  //     },
-  //     data: {
-  //       delivered_qty: Number(entry.deliveredQty),
-
-  //       final_selling_rate: Number(sellingRate),
-  //       final_gst_percentage: Number(
-  //         existingItem.master_product.gst_percentage ?? 0,
-  //       ),
-  //       final_gst_amount: billing.gstAmount,
-  //       final_taxable_amount: billing.taxableAmount,
-  //       final_bill_amount: billing.finalBillAmount,
-  //     },
-  //   });
-  // }
+  ) {}
 
   async getTrayRulesOnce(tx: Prisma.TransactionClient) {
     return this.trayCalculationService.getProductTrayRules(tx);
@@ -227,15 +35,10 @@ export class BillingService {
   async saveNightEntriesBatch(
     tx: Prisma.TransactionClient,
     sheet: Awaited<ReturnType<OrdersRepository['findSheetById']>>,
-    supplyRules: {
-      milkDistributorId: number | null;
-      nonMilkDistributorId: number | null;
-    },
     sheetId: number,
     entries: SaveNightEntriesDto[],
     trayRules: ProductTrayRule[],
   ): Promise<void> {
-    // Pass 1: batch-fetch existing items + sheet-level product link pins
     const existingItemMap =
       await this.ordersRepository.findSheetItemsByProductBatch(
         sheetId,
@@ -243,22 +46,8 @@ export class BillingService {
         tx,
       );
 
-    const newProductIds = [
-      ...new Set(
-        entries
-          .filter((e) => !existingItemMap.has(`${e.clientId}_${e.productId}`))
-          .map((e) => e.productId),
-      ),
-    ];
-
-    const sheetLinkMap = await this.ordersRepository.getSheetProductLinksBatch(
-      sheetId,
-      newProductIds,
-      tx,
-    );
-
-    const resolvedLinkByProductId = new Map<
-      number,
+    const resolvedLinkByClientProduct = new Map<
+      string,
       { distributorId: number; productLinkId: number }
     >();
 
@@ -281,66 +70,32 @@ export class BillingService {
       }
 
       if (Number(entry.orderedQty) === 0) {
-        continue; // nothing to save, skip resolving entirely
+        continue;
       }
 
-      let link = resolvedLinkByProductId.get(entry.productId);
+      const clientProductKey = `${entry.clientId}_${entry.productId}`;
+
+      let link = resolvedLinkByClientProduct.get(clientProductKey);
 
       if (!link) {
-        const sheetLink = sheetLinkMap.get(entry.productId);
+        const commercialContext = await this.orderCommercialService.resolve(
+          entry.clientId,
+          sheet!.group_id,
+          entry.productId,
+          tx,
+        );
 
-        if (sheetLink) {
-          const productLink = await tx.master_product_link.findUnique({
-            where: { id: sheetLink.product_link_id },
-            select: { id: true, distributor_id: true },
-          });
-          if (!productLink) {
-            throw new BadRequestException('Invalid sheet product link');
-          }
-          link = {
-            distributorId: productLink.distributor_id,
-            productLinkId: productLink.id,
-          };
-        } else {
-          const commercialContext = await this.orderCommercialService.resolve(
-            sheet!.group_id,
-            entry.productId,
-            supplyRules,
-            tx,
-          );
-          const pinned = await this.ordersRepository.createSheetProduct(
-            {
-              order_sheet_id: sheetId,
-              product_id: entry.productId,
-              product_link_id: commercialContext.productLinkId,
-              resolvedViaFallback: commercialContext.resolvedViaFallback,
-            },
-            tx,
-          );
-          if (pinned.product_link_id === commercialContext.productLinkId) {
-            link = {
-              distributorId: commercialContext.distributorId,
-              productLinkId: commercialContext.productLinkId,
-            };
-          } else {
-            const productLink = await tx.master_product_link.findUniqueOrThrow({
-              where: { id: pinned.product_link_id },
-              select: { distributor_id: true },
-            });
-            link = {
-              distributorId: productLink.distributor_id,
-              productLinkId: pinned.product_link_id,
-            };
-          }
-        }
+        link = {
+          distributorId: commercialContext.distributorId,
+          productLinkId: commercialContext.productLinkId,
+        };
 
-        resolvedLinkByProductId.set(entry.productId, link);
+        resolvedLinkByClientProduct.set(clientProductKey, link);
       }
 
       resolutions.set(pairKey, { ...link, isNew: true });
     }
 
-    // Pass 3: batch-fetch products and rates for everything resolved
     const activeEntries = entries.filter((e) =>
       resolutions.has(`${e.clientId}_${e.productId}`),
     );
@@ -394,10 +149,6 @@ export class BillingService {
           this.trayCalculationService.resolveTrayRule(product, trayRules)
             ?.tray_type_id ?? null;
 
-        // Freeze the commercial conversion basis at creation time, from the
-        // product's current order-unit configuration. It is never
-        // re-resolved for this item again — see orders.repository.ts's
-        // upsertSheetEntry, which never updates these fields.
         const orderUnit = product.product_order_unit;
 
         if (
@@ -442,13 +193,13 @@ export class BillingService {
       const zeroedOrderFields =
         orderedQty === 0
           ? {
-            delivered_qty: 0,
-            final_selling_rate: Number(sellingRate),
-            final_gst_percentage: Number(product.gst_percentage ?? 0),
-            final_gst_amount: 0,
-            final_taxable_amount: 0,
-            final_bill_amount: 0,
-          }
+              delivered_qty: 0,
+              final_selling_rate: Number(sellingRate),
+              final_gst_percentage: Number(product.gst_percentage ?? 0),
+              final_gst_amount: 0,
+              final_taxable_amount: 0,
+              final_bill_amount: 0,
+            }
           : {};
 
       await this.ordersRepository.upsertSheetEntry(

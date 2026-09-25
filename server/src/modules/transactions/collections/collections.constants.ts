@@ -33,14 +33,3 @@ export const COLLECTION_SUCCESS_MESSAGES = {
 
   ADMIN_SAVED: 'Admin collections saved successfully',
 } as const;
-
-export const COLLECTION_FIELDS = {
-  EMPLOYEE: [
-    'cashCollection',
-    'officeAmountGiven',
-    'chequeCollection',
-    'employeeRemarks',
-  ],
-
-  ADMIN: ['onlineCollection', 'bankDeposit', 'adminRemarks'],
-} as const;

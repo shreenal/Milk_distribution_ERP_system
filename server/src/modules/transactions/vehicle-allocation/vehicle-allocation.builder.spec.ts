@@ -198,9 +198,7 @@ describe('VehicleAllocationBuilder', () => {
     });
 
     it('should include packaging columns for non-milk summaries', () => {
-      productColumnsBuilder.buildGroupedColumns.mockReturnValue(
-        nonMilkColumns,
-      );
+      productColumnsBuilder.buildGroupedColumns.mockReturnValue(nonMilkColumns);
 
       const summaries = [
         {
@@ -215,9 +213,10 @@ describe('VehicleAllocationBuilder', () => {
 
       builder.buildVehicleRequirementGrids(summaries);
 
-      expect(
-        productColumnsBuilder.buildGroupedColumns,
-      ).toHaveBeenCalledWith(products, true);
+      expect(productColumnsBuilder.buildGroupedColumns).toHaveBeenCalledWith(
+        products,
+        true,
+      );
     });
 
     it('should not include packaging columns for milk summaries', () => {
@@ -236,9 +235,10 @@ describe('VehicleAllocationBuilder', () => {
 
       builder.buildVehicleRequirementGrids(summaries);
 
-      expect(
-        productColumnsBuilder.buildGroupedColumns,
-      ).toHaveBeenCalledWith(products, false);
+      expect(productColumnsBuilder.buildGroupedColumns).toHaveBeenCalledWith(
+        products,
+        false,
+      );
     });
 
     it('should build one requirement grid per summary', () => {
@@ -307,10 +307,7 @@ describe('VehicleAllocationBuilder', () => {
         },
       ] as any;
 
-      const result = builder.buildVehicleAllocationGrids(
-        summaries,
-        vehicles,
-      );
+      const result = builder.buildVehicleAllocationGrids(summaries, vehicles);
 
       expect(result.allocations).toHaveLength(1);
       expect(result.allocations[0].rows).toEqual([
@@ -383,10 +380,7 @@ describe('VehicleAllocationBuilder', () => {
         },
       ] as any;
 
-      const result = builder.buildVehicleAllocationGrids(
-        summaries,
-        vehicles,
-      );
+      const result = builder.buildVehicleAllocationGrids(summaries, vehicles);
 
       result.allocations[0].rows[0].product_1 = 50;
 
@@ -423,10 +417,7 @@ describe('VehicleAllocationBuilder', () => {
         },
       ] as any;
 
-      const result = builder.buildVehicleAllocationGrids(
-        summaries,
-        vehicles,
-      );
+      const result = builder.buildVehicleAllocationGrids(summaries, vehicles);
 
       expect(result.allocations[0].totals).toEqual({
         product_1: 13,
@@ -458,10 +449,7 @@ describe('VehicleAllocationBuilder', () => {
         },
       ] as any;
 
-      const result = builder.buildVehicleAllocationGrids(
-        summaries,
-        vehicles,
-      );
+      const result = builder.buildVehicleAllocationGrids(summaries, vehicles);
 
       expect(result.allocations).toHaveLength(2);
     });
@@ -733,10 +721,7 @@ describe('VehicleAllocationBuilder', () => {
     ] as any;
 
     it('should create an assignment row for every vehicle', () => {
-      const result = builder.buildVehicleAssignmentGrid(
-        vehicles,
-        distributors,
-      );
+      const result = builder.buildVehicleAssignmentGrid(vehicles, distributors);
 
       expect(result.assignments).toEqual([
         {
@@ -755,10 +740,7 @@ describe('VehicleAllocationBuilder', () => {
     });
 
     it('should include every distributor with id and name', () => {
-      const result = builder.buildVehicleAssignmentGrid(
-        vehicles,
-        distributors,
-      );
+      const result = builder.buildVehicleAssignmentGrid(vehicles, distributors);
 
       expect(result.distributors).toEqual([
         {

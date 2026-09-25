@@ -29,20 +29,23 @@ export class OrderItemsRepository {
           },
         },
         product_link: {
-          select: { distributor_id: true },
+          // FIX F6 (consistency review): distributor name is now selected
+          // here too, so Vehicle Allocation (built from this repository's
+          // output) can display a distributor name the same way Purchase
+          // already does from its own, separately-included distributor
+          // relation.
+          select: {
+            distributor_id: true,
+            distributor: { select: { name: true } },
+          },
         },
       },
     });
 
     return items.map((item) => {
       const category = item.master_product.master_product_group.category;
-
-      // Authoritative source: the distributor actually resolved and billed
-      // for this line item by OrderCommercialService. The group's default
-      // supply rule is only the *starting point* of resolution and can be
-      // overridden by procurement eligibility / priority — never recompute
-      // it downstream, always read it back from product_link_id.
       const distributorId = item.product_link.distributor_id;
+      const distributorName = item.product_link.distributor.name;
 
       return {
         sheetId: item.order_sheet_id,
@@ -51,6 +54,7 @@ export class OrderItemsRepository {
         deliverySession: item.order_sheet.master_group.delivery_session,
         clientId: item.client_id,
         distributorId,
+        distributorName,
         category,
         productId: item.product_id,
         orderedQty: Number(item.ordered_qty ?? 0),

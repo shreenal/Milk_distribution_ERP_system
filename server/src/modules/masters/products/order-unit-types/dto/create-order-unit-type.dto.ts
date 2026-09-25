@@ -6,4 +6,3 @@ export class CreateOrderUnitTypeDto {
   @MaxLength(50)
   name!: string;
 }
-

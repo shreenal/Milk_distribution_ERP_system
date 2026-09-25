@@ -98,11 +98,14 @@ model master_client {
 }
 
 model master_client_category {
-  client_id     Int
-  category      SupplyCategory
-  master_client master_client  @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  client_id               Int
+  category                SupplyCategory
+  supplier_distributor_id Int
+  master_client           master_client      @relation(fields: [client_id], references: [id], onDelete: Cascade)
+  supplier_distributor    master_distributor @relation("ClientCategorySupplier", fields: [supplier_distributor_id], references: [id], onDelete: Restrict)
 
   @@id([client_id, category])
+  @@index([supplier_distributor_id])
   @@map("master_client_category")
 }
 
@@ -153,23 +156,22 @@ model master_dairy {
 }
 
 model master_distributor {
-  id                       Int                               @id @default(autoincrement())
-  name                     String                            @unique
-  contact                  String?
-  email                    String?
-  is_active                Boolean                           @default(true)
-  procurement_rules        distributor_procurement_rule[]
-  saved_owner_transfers    distributor_transfer[]            @relation("SavedTransferOwner")
-  saved_supplier_transfers distributor_transfer[]            @relation("SavedTransferSupplier")
-  transfer_owners          distributor_transfer_rule[]       @relation("TransferOwner")
-  transfer_suppliers       distributor_transfer_rule[]       @relation("TransferSupplier")
-  owned_clients            master_client[]
-  group_supply_rules       master_group_supply_rule[]
-  product_priorities       distributor_product_priority[]
-  product_links            master_product_link[]
-  purchase_entries         purchase_entry[]                  @relation("DistributorPurchases")
-  vehicle_allocation       vehicle_allocation[]
-  vehicle_assignments      vehicle_distribution_assignment[]
+  id                        Int                               @id @default(autoincrement())
+  name                      String                            @unique
+  contact                   String?
+  email                     String?
+  is_active                 Boolean                           @default(true)
+  procurement_rules         distributor_procurement_rule[]
+  saved_owner_transfers     distributor_transfer[]            @relation("SavedTransferOwner")
+  saved_supplier_transfers  distributor_transfer[]            @relation("SavedTransferSupplier")
+  transfer_owners           distributor_transfer_rule[]       @relation("TransferOwner")
+  transfer_suppliers        distributor_transfer_rule[]       @relation("TransferSupplier")
+  owned_clients             master_client[]
+  client_category_suppliers master_client_category[]          @relation("ClientCategorySupplier")
+  product_priorities        distributor_product_priority[]
+  product_links             master_product_link[]
+  purchase_entries          purchase_entry[]                  @relation("DistributorPurchases")
+  vehicle_allocation        vehicle_allocation[]
 }
 
 model master_employee {
@@ -247,25 +249,8 @@ model master_group {
   delivery_session             DeliverySession                @default(NIGHT)
   delivery_clients             master_client[]                @relation("DeliveryGroup")
   master_vehicle               master_vehicle?                @relation(fields: [vehicle_id], references: [id])
-  supply_rules                 master_group_supply_rule[]
   distributor_product_priority distributor_product_priority[]
   order_sheet                  order_sheet[]
-}
-
-model master_group_supply_rule {
-  id             Int                @id @default(autoincrement())
-  group_id       Int
-  category       SupplyCategory
-  distributor_id Int
-  is_active      Boolean            @default(true)
-  created_at     DateTime           @default(now())
-  updated_at     DateTime           @updatedAt
-  distributor    master_distributor @relation(fields: [distributor_id], references: [id])
-  group          master_group       @relation(fields: [group_id], references: [id], onDelete: Cascade)
-
-  @@unique([group_id, category])
-  @@index([group_id])
-  @@index([distributor_id])
 }
 
 model distributor_transfer_rule {
@@ -346,7 +331,7 @@ model master_product {
   display_order          Int?
   show_by_default        Boolean                        @default(false)
   product_order_unit_id  Int
-  product_order_unit     product_order_unit            @relation(fields: [product_order_unit_id], references: [id])
+  product_order_unit     product_order_unit             @relation(fields: [product_order_unit_id], references: [id])
   distributor_transfers  distributor_transfer[]
   distributor_priorities distributor_product_priority[]
   master_brand           master_brand                   @relation(fields: [brand_id], references: [id])
@@ -450,7 +435,6 @@ model master_vehicle {
   master_group            master_group[]
   purchase_entries        purchase_entry[]
   vehicle_allocation      vehicle_allocation[]
-  vehicle_assignments     vehicle_distribution_assignment[]
 }
 
 model order_paper {
@@ -482,6 +466,9 @@ model order_sheet {
   updated_at                   DateTime                  @default(now()) @updatedAt
   order_morning_entry_saved_at DateTime?
   client_tray_morning_saved_at DateTime?
+  order_items_updated_at        DateTime?
+  client_trays_updated_at       DateTime?
+  collections_updated_at        DateTime?
   cash_route_settlement        cash_route_settlement?
   client_collection            client_collection[]
   client_tray_transaction      client_tray_transaction[]
@@ -493,19 +480,17 @@ model order_sheet {
   @@unique([order_paper_id, group_id])
 }
 
-// schema.prisma — add this model
-
 model order_sheet_product {
   id                    Int      @id @default(autoincrement())
   order_sheet_id        Int
   product_id            Int
-  product_link_id       Int
+  product_link_id       Int?
   created_at            DateTime @default(now())
   resolved_via_fallback Boolean  @default(false)
 
-  order_sheet    order_sheet         @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
-  master_product master_product      @relation(fields: [product_id], references: [id])
-  product_link   master_product_link @relation(fields: [product_link_id], references: [id])
+  order_sheet    order_sheet          @relation(fields: [order_sheet_id], references: [id], onDelete: Cascade)
+  master_product master_product       @relation(fields: [product_id], references: [id])
+  product_link   master_product_link? @relation(fields: [product_link_id], references: [id])
 
   @@unique([order_sheet_id, product_id])
   @@index([order_sheet_id])
@@ -574,7 +559,6 @@ model vehicle_allocation_paper {
   delivery_session    DeliverySession
   allocations         vehicle_allocation[]
   order_paper         order_paper                       @relation(fields: [order_paper_id], references: [id], onDelete: Cascade)
-  vehicle_assignments vehicle_distribution_assignment[]
 
   @@unique([order_paper_id, delivery_session])
   @@index([order_paper_id])
@@ -597,21 +581,6 @@ model vehicle_allocation {
   sourced_purchase_entries    purchase_entry[]         @relation("PurchaseEntrySourceAllocation")
 
   @@unique([vehicle_allocation_paper_id, vehicle_id, distributor_id, category, product_id])
-}
-
-model vehicle_distribution_assignment {
-  id                          Int                      @id @default(autoincrement())
-  vehicle_allocation_paper_id Int
-  vehicle_id                  Int
-  distributor_id              Int
-  created_at                  DateTime                 @default(now())
-  updated_at                  DateTime                 @updatedAt
-  category                    SupplyCategory
-  master_distributor          master_distributor       @relation(fields: [distributor_id], references: [id])
-  vehicle_allocation_paper    vehicle_allocation_paper @relation(fields: [vehicle_allocation_paper_id], references: [id], onDelete: Cascade)
-  master_vehicle              master_vehicle           @relation(fields: [vehicle_id], references: [id])
-
-  @@unique([vehicle_allocation_paper_id, vehicle_id, category])
 }
 
 model purchase_paper {

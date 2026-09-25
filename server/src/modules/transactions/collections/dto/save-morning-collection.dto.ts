@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsISO8601,
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
@@ -33,4 +34,8 @@ export class SaveMorningCollectionsDto {
   @ValidateNested({ each: true })
   @Type(() => MorningCollectionEntryDto)
   entries!: MorningCollectionEntryDto[];
+
+  @IsOptional()
+  @IsISO8601()
+  expectedUpdatedAt?: string;
 }

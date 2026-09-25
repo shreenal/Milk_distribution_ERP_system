@@ -36,7 +36,7 @@ const prisma = new PrismaClient({ adapter });
 
 // The repository constructor expects PrismaService.
 // PrismaClient exposes the same Prisma model API required by this repository.
-const repository = new VehicleAllocationRepository(prisma as any);
+const repository = new VehicleAllocationRepository(prisma);
 
 let testSequence = 0;
 
@@ -167,11 +167,7 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
 
   describe('replaceVehicleAllocations', () => {
     it('updates an existing allocation in place and preserves its id', async () => {
-      const {
-        vehicle1,
-        distributorA,
-        productCow500,
-      } = await getSeedData();
+      const { vehicle1, distributorA, productCow500 } = await getSeedData();
 
       const orderPaper = await createOrderPaper();
       const allocationPaper = await createAllocationPaper(orderPaper.id);
@@ -476,12 +472,8 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
     });
 
     it('uses distributor, category, product, and vehicle as the allocation identity', async () => {
-      const {
-        vehicle1,
-        distributorA,
-        distributorB,
-        productCow500,
-      } = await getSeedData();
+      const { vehicle1, distributorA, distributorB, productCow500 } =
+        await getSeedData();
 
       const orderPaper = await createOrderPaper();
       const allocationPaper = await createAllocationPaper(orderPaper.id);
@@ -588,10 +580,7 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
         allocatedQty: '20.00',
       });
 
-      await repository.replaceVehicleAllocations(
-        allocationPaper.id,
-        [],
-      );
+      await repository.replaceVehicleAllocations(allocationPaper.id, []);
 
       const rows = await getAllocations(allocationPaper.id);
 
@@ -599,11 +588,7 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
     });
 
     it('preserves Decimal quantities correctly', async () => {
-      const {
-        vehicle1,
-        distributorA,
-        productCow500,
-      } = await getSeedData();
+      const { vehicle1, distributorA, productCow500 } = await getSeedData();
 
       const orderPaper = await createOrderPaper();
       const allocationPaper = await createAllocationPaper(orderPaper.id);
@@ -637,11 +622,7 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
     });
 
     it('sets purchase_entry.source_allocation_id to NULL when an allocation is deleted', async () => {
-      const {
-        vehicle1,
-        distributorA,
-        productCow500,
-      } = await getSeedData();
+      const { vehicle1, distributorA, productCow500 } = await getSeedData();
 
       const orderPaper = await createOrderPaper();
       const allocationPaper = await createAllocationPaper(orderPaper.id);
@@ -700,10 +681,7 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
 
       expect(before!.source_allocation_id).toBe(allocation.id);
 
-      await repository.replaceVehicleAllocations(
-        allocationPaper.id,
-        [],
-      );
+      await repository.replaceVehicleAllocations(allocationPaper.id, []);
 
       const after = await prisma.purchase_entry.findUnique({
         where: { id: purchaseEntry.id },
@@ -770,9 +748,7 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
 
       expect(after).toHaveLength(2);
 
-      expect(after.map((row) => row.id)).toEqual(
-        before.map((row) => row.id),
-      );
+      expect(after.map((row) => row.id)).toEqual(before.map((row) => row.id));
 
       for (const beforeRow of before) {
         const afterRow = after.find((row) => row.id === beforeRow.id);
@@ -786,152 +762,151 @@ describe('VehicleAllocationRepository - PostgreSQL integration', () => {
         );
       }
 
-      expect(after.map((row) => row.id)).toEqual([
-        first.id,
-        second.id,
-      ]);
+      expect(after.map((row) => row.id)).toEqual([first.id, second.id]);
     });
   });
 
   describe('replaceVehicleAssignments', () => {
     async function createAssignment(params: {
-        paperId: number;
-        vehicleId: number;
-        distributorId: number;
-        category: SupplyCategory;
+      paperId: number;
+      vehicleId: number;
+      distributorId: number;
+      category: SupplyCategory;
     }) {
-        return prisma.vehicle_distribution_assignment.create({
-            data: {
-                vehicle_allocation_paper_id: params.paperId,
-                vehicle_id: params.vehicleId,
-                distributor_id: params.distributorId,
-                category: params.category,
-            },
-        });
+      return prisma.vehicle_distribution_assignment.create({
+        data: {
+          vehicle_allocation_paper_id: params.paperId,
+          vehicle_id: params.vehicleId,
+          distributor_id: params.distributorId,
+          category: params.category,
+        },
+      });
     }
 
     async function getAssignments(paperId: number) {
-        return prisma.vehicle_distribution_assignment.findMany({
-            where: { vehicle_allocation_paper_id: paperId },
-            orderBy: { id: 'asc' },
-        });
+      return prisma.vehicle_distribution_assignment.findMany({
+        where: { vehicle_allocation_paper_id: paperId },
+        orderBy: { id: 'asc' },
+      });
     }
 
     it('deletes all existing assignments and inserts the new set', async () => {
-        const { vehicle1, vehicle2, distributorA, distributorB } = await getSeedData();
+      const { vehicle1, vehicle2, distributorA, distributorB } =
+        await getSeedData();
 
-        const orderPaper = await createOrderPaper();
-        const allocationPaper = await createAllocationPaper(orderPaper.id);
+      const orderPaper = await createOrderPaper();
+      const allocationPaper = await createAllocationPaper(orderPaper.id);
 
-        const existing = await createAssignment({
-            paperId: allocationPaper.id,
-            vehicleId: vehicle1.id,
-            distributorId: distributorA.id,
-            category: SupplyCategory.MILK,
+      const existing = await createAssignment({
+        paperId: allocationPaper.id,
+        vehicleId: vehicle1.id,
+        distributorId: distributorA.id,
+        category: SupplyCategory.MILK,
+      });
+
+      await repository.replaceVehicleAssignments(allocationPaper.id, [
+        {
+          vehicle_allocation_paper_id: allocationPaper.id,
+          vehicle_id: vehicle2.id,
+          distributor_id: distributorB.id,
+          category: SupplyCategory.MILK,
+        },
+      ]);
+
+      const rows = await getAssignments(allocationPaper.id);
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0].vehicle_id).toBe(vehicle2.id);
+      expect(rows[0].distributor_id).toBe(distributorB.id);
+
+      // The original row's id must genuinely be gone (delete-then-recreate,
+      // not identity-preserving — this is the documented asymmetry vs.
+      // replaceVehicleAllocations).
+      const deletedRow =
+        await prisma.vehicle_distribution_assignment.findUnique({
+          where: { id: existing.id },
         });
-
-        await repository.replaceVehicleAssignments(allocationPaper.id, [
-            {
-                vehicle_allocation_paper_id: allocationPaper.id,
-                vehicle_id: vehicle2.id,
-                distributor_id: distributorB.id,
-                category: SupplyCategory.MILK,
-            },
-        ]);
-
-        const rows = await getAssignments(allocationPaper.id);
-
-        expect(rows).toHaveLength(1);
-        expect(rows[0].vehicle_id).toBe(vehicle2.id);
-        expect(rows[0].distributor_id).toBe(distributorB.id);
-
-        // The original row's id must genuinely be gone (delete-then-recreate,
-        // not identity-preserving — this is the documented asymmetry vs.
-        // replaceVehicleAllocations).
-        const deletedRow = await prisma.vehicle_distribution_assignment.findUnique({
-            where: { id: existing.id },
-        });
-        expect(deletedRow).toBeNull();
+      expect(deletedRow).toBeNull();
     });
 
     it('does not violate the (paper, vehicle, category) unique constraint when re-creating an identical assignment', async () => {
-        const { vehicle1, distributorA } = await getSeedData();
+      const { vehicle1, distributorA } = await getSeedData();
 
-        const orderPaper = await createOrderPaper();
-        const allocationPaper = await createAllocationPaper(orderPaper.id);
+      const orderPaper = await createOrderPaper();
+      const allocationPaper = await createAllocationPaper(orderPaper.id);
 
-        await createAssignment({
-            paperId: allocationPaper.id,
-            vehicleId: vehicle1.id,
-            distributorId: distributorA.id,
+      await createAssignment({
+        paperId: allocationPaper.id,
+        vehicleId: vehicle1.id,
+        distributorId: distributorA.id,
+        category: SupplyCategory.MILK,
+      });
+
+      await expect(
+        repository.replaceVehicleAssignments(allocationPaper.id, [
+          {
+            vehicle_allocation_paper_id: allocationPaper.id,
+            vehicle_id: vehicle1.id,
+            distributor_id: distributorA.id,
             category: SupplyCategory.MILK,
-        });
+          },
+        ]),
+      ).resolves.toBeUndefined();
 
-        await expect(
-            repository.replaceVehicleAssignments(allocationPaper.id, [
-                {
-                    vehicle_allocation_paper_id: allocationPaper.id,
-                    vehicle_id: vehicle1.id,
-                    distributor_id: distributorA.id,
-                    category: SupplyCategory.MILK,
-                },
-            ]),
-        ).resolves.toBeUndefined();
-
-        const rows = await getAssignments(allocationPaper.id);
-        expect(rows).toHaveLength(1);
+      const rows = await getAssignments(allocationPaper.id);
+      expect(rows).toHaveLength(1);
     });
 
     it('leaves assignments on a different allocation paper untouched', async () => {
-        const { vehicle1, vehicle2, distributorA } = await getSeedData();
+      const { vehicle1, vehicle2, distributorA } = await getSeedData();
 
-        const orderPaper1 = await createOrderPaper();
-        const orderPaper2 = await createOrderPaper();
+      const orderPaper1 = await createOrderPaper();
+      const orderPaper2 = await createOrderPaper();
 
-        const paper1 = await createAllocationPaper(orderPaper1.id);
-        const paper2 = await createAllocationPaper(orderPaper2.id);
+      const paper1 = await createAllocationPaper(orderPaper1.id);
+      const paper2 = await createAllocationPaper(orderPaper2.id);
 
-        const unrelated = await createAssignment({
-            paperId: paper2.id,
-            vehicleId: vehicle2.id,
-            distributorId: distributorA.id,
-            category: SupplyCategory.MILK,
+      const unrelated = await createAssignment({
+        paperId: paper2.id,
+        vehicleId: vehicle2.id,
+        distributorId: distributorA.id,
+        category: SupplyCategory.MILK,
+      });
+
+      await repository.replaceVehicleAssignments(paper1.id, [
+        {
+          vehicle_allocation_paper_id: paper1.id,
+          vehicle_id: vehicle1.id,
+          distributor_id: distributorA.id,
+          category: SupplyCategory.MILK,
+        },
+      ]);
+
+      const stillThere =
+        await prisma.vehicle_distribution_assignment.findUnique({
+          where: { id: unrelated.id },
         });
 
-        await repository.replaceVehicleAssignments(paper1.id, [
-            {
-                vehicle_allocation_paper_id: paper1.id,
-                vehicle_id: vehicle1.id,
-                distributor_id: distributorA.id,
-                category: SupplyCategory.MILK,
-            },
-        ]);
-
-        const stillThere = await prisma.vehicle_distribution_assignment.findUnique({
-            where: { id: unrelated.id },
-        });
-
-        expect(stillThere).not.toBeNull();
+      expect(stillThere).not.toBeNull();
     });
 
     it('deletes all assignments and inserts nothing when the incoming list is empty', async () => {
-        const { vehicle1, distributorA } = await getSeedData();
+      const { vehicle1, distributorA } = await getSeedData();
 
-        const orderPaper = await createOrderPaper();
-        const allocationPaper = await createAllocationPaper(orderPaper.id);
+      const orderPaper = await createOrderPaper();
+      const allocationPaper = await createAllocationPaper(orderPaper.id);
 
-        await createAssignment({
-            paperId: allocationPaper.id,
-            vehicleId: vehicle1.id,
-            distributorId: distributorA.id,
-            category: SupplyCategory.MILK,
-        });
+      await createAssignment({
+        paperId: allocationPaper.id,
+        vehicleId: vehicle1.id,
+        distributorId: distributorA.id,
+        category: SupplyCategory.MILK,
+      });
 
-        await repository.replaceVehicleAssignments(allocationPaper.id, []);
+      await repository.replaceVehicleAssignments(allocationPaper.id, []);
 
-        const rows = await getAssignments(allocationPaper.id);
-        expect(rows).toEqual([]);
+      const rows = await getAssignments(allocationPaper.id);
+      expect(rows).toEqual([]);
     });
+  });
 });
-});
-

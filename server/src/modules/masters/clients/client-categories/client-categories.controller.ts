@@ -6,6 +6,7 @@ import {
   Param,
   ParseEnumPipe,
   ParseIntPipe,
+  Patch,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import { Roles } from '../../../transactions/auth/roles.decorator.js';
 
 import { ClientCategoriesService } from './client-categories.service.js';
 import { CreateClientCategoryDto } from './dto/create-client-category.dto.js';
+import { UpdateClientCategoryDto } from './dto/update-client-category.dto.js';
 
 @Controller('client-categories')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -39,6 +41,16 @@ export class ClientCategoriesController {
   @Post()
   create(@Body() dto: CreateClientCategoryDto) {
     return this.clientCategoriesService.create(dto);
+  }
+
+  @Patch(':clientId/:category')
+  update(
+    @Param('clientId', ParseIntPipe) clientId: number,
+    @Param('category', new ParseEnumPipe(SupplyCategory))
+    category: SupplyCategory,
+    @Body() dto: UpdateClientCategoryDto,
+  ) {
+    return this.clientCategoriesService.update(clientId, category, dto);
   }
 
   @Delete(':clientId/:category')

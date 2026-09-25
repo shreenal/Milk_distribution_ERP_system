@@ -8,4 +8,7 @@ export class CreateClientCategoryDto {
 
   @IsEnum(SupplyCategory)
   category!: SupplyCategory;
+
+  @IsInt()
+  supplier_distributor_id!: number;
 }
