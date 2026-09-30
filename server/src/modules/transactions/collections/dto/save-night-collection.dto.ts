@@ -6,6 +6,7 @@ import {
   IsNumber,
   IsISO8601,
   IsOptional,
+  ArrayMaxSize,
 } from 'class-validator';
 
 import { Type } from 'class-transformer';
@@ -22,6 +23,7 @@ export class NightCollectionEntryDto {
 
 export class SaveNightCollectionsDto {
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => NightCollectionEntryDto)
   entries!: NightCollectionEntryDto[];

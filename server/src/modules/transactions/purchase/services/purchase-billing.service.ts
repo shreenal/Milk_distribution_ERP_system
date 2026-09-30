@@ -1,4 +1,7 @@
+// FULL FILE REPLACEMENT for purchase/services/purchase-billing.service.ts
+// FIX C3: replaced Number/toFixed math with Decimal.
 import { Injectable } from '@nestjs/common';
+import { toDecimal, toMoney } from '../../../../common/utils/money.util.js';
 
 export interface PurchaseBillingResult {
   purchaseAmount: number;
@@ -15,10 +18,13 @@ export class PurchaseBillingService {
     purchaseRate: number,
     pricingQuantity: number,
   ): PurchaseBillingResult {
-    const purchasedQuantity = purchasedQty * pricingQuantity;
+    const purchasedQuantity = toDecimal(purchasedQty).times(
+      toDecimal(pricingQuantity),
+    );
+    const amount = purchasedQuantity.times(toDecimal(purchaseRate));
 
     return {
-      purchaseAmount: Number((purchasedQuantity * purchaseRate).toFixed(2)),
+      purchaseAmount: toMoney(amount),
     };
   }
 }

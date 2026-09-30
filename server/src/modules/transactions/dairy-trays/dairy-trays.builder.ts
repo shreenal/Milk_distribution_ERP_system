@@ -152,6 +152,26 @@ export class DairyTraysBuilder {
       ),
     );
 
+    // FIX M1 (production review): current/previous transactions were each
+    // re-scanned with `.find()` inside a vehicle x session x trayType
+    // triple loop (O(vehicles * sessions * trayTypes * transactions)).
+    // Both are indexed by key once up front instead.
+    const currentByKey = new Map<string, DairyTrayTransaction>();
+    for (const transaction of currentTransactions) {
+      currentByKey.set(
+        `${transaction.vehicle_id}_${transaction.tray_type_id}_${transaction.delivery_session}`,
+        transaction,
+      );
+    }
+
+    const previousByKey = new Map<string, DairyTrayTransaction>();
+    for (const transaction of previousTransactions) {
+      previousByKey.set(
+        `${transaction.vehicle_id}_${transaction.tray_type_id}_${transaction.delivery_session}`,
+        transaction,
+      );
+    }
+
     for (const vehicle of vehicles) {
       for (const session of sessions) {
         if (!vehicleSessions.has(`${vehicle.id}_${session}`)) {
@@ -167,19 +187,9 @@ export class DairyTraysBuilder {
         const sessionTaken = takenMap.get(vehicle.id)?.get(session);
 
         for (const trayType of trayTypes) {
-          const current = currentTransactions.find(
-            (transaction) =>
-              transaction.vehicle_id === vehicle.id &&
-              transaction.tray_type_id === trayType.id &&
-              transaction.delivery_session === session,
-          );
-
-          const previous = previousTransactions.find(
-            (transaction) =>
-              transaction.vehicle_id === vehicle.id &&
-              transaction.tray_type_id === trayType.id &&
-              transaction.delivery_session === session,
-          );
+          const key = `${vehicle.id}_${trayType.id}_${session}`;
+          const current = currentByKey.get(key);
+          const previous = previousByKey.get(key);
 
           const opening = Number(previous?.closing_balance ?? 0);
 

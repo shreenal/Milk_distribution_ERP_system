@@ -3,6 +3,11 @@ import { ProductColumnsBuilder } from '../../../common/builders/product-columns.
 import { BillingRow, OrderBillingInput } from '../../../types/order.types.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import {
+  Decimal,
+  toDecimal,
+  toMoney,
+} from '../../../common/utils/money.util.js';
 
 @Injectable()
 export class OrdersBuilder {
@@ -52,10 +57,10 @@ export class OrdersBuilder {
     const milkRows: BillingRow[] = [];
     const nonMilkRows: BillingRow[] = [];
 
-    let milkTotalNightBillAmount = 0;
-    let milkTotalFinalBillAmount = 0;
-    let nonMilkTotalNightBillAmount = 0;
-    let nonMilkTotalFinalBillAmount = 0;
+    let milkTotalNightBillAmount = new Decimal(0);
+    let milkTotalFinalBillAmount = new Decimal(0);
+    let nonMilkTotalNightBillAmount = new Decimal(0);
+    let nonMilkTotalFinalBillAmount = new Decimal(0);
 
     const useOrderedQuantity = this.workflowState.resolveUseOrderedQuantity(
       paperStatus,
@@ -71,8 +76,8 @@ export class OrdersBuilder {
 
       const clientItems = itemsByClientId.get(client.id) ?? [];
 
-      let milkNightBillAmount = 0;
-      let milkFinalBillAmount = 0;
+      let milkNightBillAmount = new Decimal(0);
+      let milkFinalBillAmount = new Decimal(0);
 
       for (const item of clientItems) {
         if (milkProductIds.has(item.product_id)) {
@@ -84,19 +89,25 @@ export class OrdersBuilder {
 
           milkRow[key] = quantity;
 
-          milkNightBillAmount += Number(item.night_bill_amount ?? 0);
-          milkFinalBillAmount += Number(item.final_bill_amount ?? 0);
+          milkNightBillAmount = milkNightBillAmount.plus(
+            toDecimal(item.night_bill_amount),
+          );
+          milkFinalBillAmount = milkFinalBillAmount.plus(
+            toDecimal(item.final_bill_amount),
+          );
         }
       }
 
       milkRow.billAmount = useOrderedQuantity
-        ? Number(milkNightBillAmount.toFixed(2))
-        : Number(milkFinalBillAmount.toFixed(2));
+        ? toMoney(milkNightBillAmount)
+        : toMoney(milkFinalBillAmount);
 
       milkRows.push(milkRow);
 
-      milkTotalNightBillAmount += milkNightBillAmount;
-      milkTotalFinalBillAmount += milkFinalBillAmount;
+      milkTotalNightBillAmount =
+        milkTotalNightBillAmount.plus(milkNightBillAmount);
+      milkTotalFinalBillAmount =
+        milkTotalFinalBillAmount.plus(milkFinalBillAmount);
     }
 
     for (const client of nonMilkClients) {
@@ -108,8 +119,8 @@ export class OrdersBuilder {
 
       const clientItems = itemsByClientId.get(client.id) ?? [];
 
-      let nonMilkNightBillAmount = 0;
-      let nonMilkFinalBillAmount = 0;
+      let nonMilkNightBillAmount = new Decimal(0);
+      let nonMilkFinalBillAmount = new Decimal(0);
 
       for (const item of clientItems) {
         if (nonMilkProductIds.has(item.product_id)) {
@@ -121,19 +132,27 @@ export class OrdersBuilder {
 
           nonMilkRow[key] = quantity;
 
-          nonMilkNightBillAmount += Number(item.night_bill_amount ?? 0);
-          nonMilkFinalBillAmount += Number(item.final_bill_amount ?? 0);
+          nonMilkNightBillAmount = nonMilkNightBillAmount.plus(
+            toDecimal(item.night_bill_amount),
+          );
+          nonMilkFinalBillAmount = nonMilkFinalBillAmount.plus(
+            toDecimal(item.final_bill_amount),
+          );
         }
       }
 
       nonMilkRow.billAmount = useOrderedQuantity
-        ? Number(nonMilkNightBillAmount.toFixed(2))
-        : Number(nonMilkFinalBillAmount.toFixed(2));
+        ? toMoney(nonMilkNightBillAmount)
+        : toMoney(nonMilkFinalBillAmount);
 
       nonMilkRows.push(nonMilkRow);
 
-      nonMilkTotalNightBillAmount += nonMilkNightBillAmount;
-      nonMilkTotalFinalBillAmount += nonMilkFinalBillAmount;
+      nonMilkTotalNightBillAmount = nonMilkTotalNightBillAmount.plus(
+        nonMilkNightBillAmount,
+      );
+      nonMilkTotalFinalBillAmount = nonMilkTotalFinalBillAmount.plus(
+        nonMilkFinalBillAmount,
+      );
     }
 
     return {
@@ -143,8 +162,8 @@ export class OrdersBuilder {
         totals: {
           totalClients: milkRows.length,
           totalBillAmount: useOrderedQuantity
-            ? Number(milkTotalNightBillAmount.toFixed(2))
-            : Number(milkTotalFinalBillAmount.toFixed(2)),
+            ? toMoney(milkTotalNightBillAmount)
+            : toMoney(milkTotalFinalBillAmount),
         },
       },
 
@@ -154,8 +173,8 @@ export class OrdersBuilder {
         totals: {
           totalClients: nonMilkRows.length,
           totalBillAmount: useOrderedQuantity
-            ? Number(nonMilkTotalNightBillAmount.toFixed(2))
-            : Number(nonMilkTotalFinalBillAmount.toFixed(2)),
+            ? toMoney(nonMilkTotalNightBillAmount)
+            : toMoney(nonMilkTotalFinalBillAmount),
         },
       },
     };

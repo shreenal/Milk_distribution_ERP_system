@@ -20,6 +20,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('collections')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -37,6 +38,7 @@ export class CollectionsController {
 
   @Post('/sheet/:sheetId/milk/night-save')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveMilkNightCollections(
     @Param('sheetId', ParseIntPipe)
     sheetId: number,
@@ -53,6 +55,7 @@ export class CollectionsController {
 
   @Post('/sheet/:sheetId/non-milk/night-save')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveNonMilkNightCollections(
     @Param('sheetId', ParseIntPipe)
     sheetId: number,
@@ -69,6 +72,7 @@ export class CollectionsController {
 
   @Post('/sheet/:sheetId/milk/morning-save')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveMilkMorningCollections(
     @Param('sheetId', ParseIntPipe)
     sheetId: number,
@@ -85,6 +89,7 @@ export class CollectionsController {
 
   @Post('/sheet/:sheetId/non-milk/morning-save')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveNonMilkMorningCollections(
     @Param('sheetId', ParseIntPipe)
     sheetId: number,
@@ -101,6 +106,7 @@ export class CollectionsController {
 
   @Post('/sheet/:sheetId/milk/admin-save')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveMilkAdminCollections(
     @Param('sheetId', ParseIntPipe)
     sheetId: number,
@@ -117,6 +123,7 @@ export class CollectionsController {
 
   @Post('/sheet/:sheetId/non-milk/admin-save')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveNonMilkAdminCollections(
     @Param('sheetId', ParseIntPipe)
     sheetId: number,

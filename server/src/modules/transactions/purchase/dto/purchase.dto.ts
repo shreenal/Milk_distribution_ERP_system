@@ -9,6 +9,7 @@ import {
   Min,
   Max,
   ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import {
@@ -43,6 +44,7 @@ class PurchaseEntryDto {
 
 export class SavePurchaseDto {
   @IsArray()
+  @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => PurchaseEntryDto)
   entries!: PurchaseEntryDto[];

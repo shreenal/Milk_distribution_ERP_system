@@ -9,6 +9,9 @@ export class DistributorTransferPropagationService {
   ) {}
 
   async propagate(paperId: number, db: PrismaOrTransaction): Promise<void> {
-    await this.distributorTransferService.generateTransfer(paperId, db);
+    await this.distributorTransferService.generateTransfer(paperId, {
+      tx: db,
+      skipAuthorization: true,
+    });
   }
 }

@@ -7,6 +7,11 @@ import {
   SavedCollection,
   CollectionGrid,
 } from '../../../types/collection.types.js';
+import {
+  Decimal,
+  toDecimal,
+  toMoney,
+} from '../../../common/utils/money.util.js';
 
 @Injectable()
 export class CollectionBuilder {
@@ -161,12 +166,13 @@ export class CollectionBuilder {
 
       const bankDeposit = Number(saved?.bank_deposit ?? 0);
 
-      const employeeTotal =
-        cashCollection + officeAmountGiven + chequeCollection;
-
-      const adminTotal = onlineCollection + bankDeposit;
-
-      const grandTotal = employeeTotal + adminTotal;
+      const employeeTotal = toMoney(
+        toDecimal(cashCollection)
+          .plus(officeAmountGiven)
+          .plus(chequeCollection),
+      );
+      const adminTotal = toMoney(toDecimal(onlineCollection).plus(bankDeposit));
+      const grandTotal = toMoney(toDecimal(employeeTotal).plus(adminTotal));
 
       return {
         collectionId: saved?.id ?? null,
@@ -202,84 +208,45 @@ export class CollectionBuilder {
     const totals = {
       totalClients: rows.length,
 
-      cashCollection: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.cashCollection,
-
-            0,
-          )
-          .toFixed(2),
+      cashCollection: toMoney(
+        rows.reduce((sum, row) => sum.plus(row.cashCollection), new Decimal(0)),
       ),
 
-      officeAmountGiven: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.officeAmountGiven,
-
-            0,
-          )
-          .toFixed(2),
+      officeAmountGiven: toMoney(
+        rows.reduce(
+          (sum, row) => sum.plus(row.officeAmountGiven),
+          new Decimal(0),
+        ),
       ),
 
-      chequeCollection: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.chequeCollection,
-
-            0,
-          )
-          .toFixed(2),
+      chequeCollection: toMoney(
+        rows.reduce(
+          (sum, row) => sum.plus(row.chequeCollection),
+          new Decimal(0),
+        ),
       ),
 
-      onlineCollection: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.onlineCollection,
-
-            0,
-          )
-          .toFixed(2),
+      onlineCollection: toMoney(
+        rows.reduce(
+          (sum, row) => sum.plus(row.onlineCollection),
+          new Decimal(0),
+        ),
       ),
 
-      bankDeposit: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.bankDeposit,
-
-            0,
-          )
-          .toFixed(2),
+      bankDeposit: toMoney(
+        rows.reduce((sum, row) => sum.plus(row.bankDeposit), new Decimal(0)),
       ),
 
-      employeeTotal: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.employeeTotal,
-
-            0,
-          )
-          .toFixed(2),
+      employeeTotal: toMoney(
+        rows.reduce((sum, row) => sum.plus(row.employeeTotal), new Decimal(0)),
       ),
 
-      adminTotal: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.adminTotal,
-
-            0,
-          )
-          .toFixed(2),
+      adminTotal: toMoney(
+        rows.reduce((sum, row) => sum.plus(row.adminTotal), new Decimal(0)),
       ),
 
-      grandTotal: Number(
-        rows
-          .reduce(
-            (sum, row) => sum + row.grandTotal,
-
-            0,
-          )
-          .toFixed(2),
+      grandTotal: toMoney(
+        rows.reduce((sum, row) => sum.plus(row.grandTotal), new Decimal(0)),
       ),
     };
     return {

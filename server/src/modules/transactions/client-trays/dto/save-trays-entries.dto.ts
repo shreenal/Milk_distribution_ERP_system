@@ -1,6 +1,7 @@
 // trays/dto/save-trays-entries.dto.ts
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsISO8601,
@@ -25,6 +26,7 @@ export class SaveTrayReturnDto {
 
 export class SaveTrayEntriesRequestDto {
   @IsArray()
+  @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => SaveTrayReturnDto)
   entries!: SaveTrayReturnDto[];

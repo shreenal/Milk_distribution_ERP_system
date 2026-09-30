@@ -129,6 +129,7 @@ model distributor_transfer {
   @@index([product_id])
   @@index([order_paper_id, supplier_distributor_id])
   @@index([order_paper_id, owner_distributor_id])
+  @@unique([order_paper_id, supplier_distributor_id, owner_distributor_id, product_id])
 }
 
 model master_client_rate_product {
@@ -539,16 +540,32 @@ model roles {
 }
 
 model users {
-  id         Int      @id @default(autoincrement())
-  role_id    Int
-  username   String   @unique
-  email      String   @unique
-  password   String
-  first_name String
-  last_name  String
-  created_at DateTime @default(now())
-  updated_at DateTime @default(now()) @updatedAt
-  role       roles    @relation(fields: [role_id], references: [id])
+  id             Int             @id @default(autoincrement())
+  role_id        Int
+  username       String          @unique
+  email          String          @unique
+  password       String
+  first_name     String
+  last_name      String
+  is_active      Boolean         @default(true)   
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @default(now()) @updatedAt
+  role           roles           @relation(fields: [role_id], references: [id])
+  refresh_tokens refresh_token[]                    
+}
+
+model refresh_token {
+  id          Int       @id @default(autoincrement())
+  user_id     Int
+  token_hash  String    @unique
+  expires_at  DateTime
+  revoked_at  DateTime?
+  replaced_by Int?
+  created_at  DateTime  @default(now())
+  user        users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([expires_at])
 }
 
 model vehicle_allocation_paper {
@@ -736,6 +753,21 @@ model dairy_tray_transaction {
   @@index([vehicle_id])
   @@index([tray_type_id])
   @@index([dairy_tray_paper_id])
+}
+
+model propagation_outbox {
+  id             Int      @id @default(autoincrement())
+  type           String
+  paper_id       Int
+  resume_from_id Int?
+  status         String   @default("PENDING")
+  attempts       Int      @default(0)
+  last_error     String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([status])
+  @@index([paper_id])
 }
 
 enum GatepassDatePolicy {

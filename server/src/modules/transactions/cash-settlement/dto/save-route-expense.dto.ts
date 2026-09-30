@@ -1,4 +1,5 @@
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsISO8601,
@@ -12,6 +13,7 @@ import { Type } from 'class-transformer';
 
 export class SaveRouteExpensesDto {
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({
     each: true,
   })

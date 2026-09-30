@@ -8,6 +8,7 @@ import { AdminCollectionEntryDto } from './dto/save-admin-collection.dto.js';
 
 import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class CollectionsRepository {
@@ -184,17 +185,16 @@ export class CollectionsRepository {
     );
   }
 
-async touchCollectionsIfUnchanged(
-  sheetId: number,
-  expectedUpdatedAt: Date | null,
-  db: PrismaOrTransaction = this.prisma,
-) {
-  return db.order_sheet.updateMany({
-    where: {
-      id: sheetId,
-      ...(expectedUpdatedAt !== null && { collections_updated_at: expectedUpdatedAt }),
-    },
-    data: { collections_updated_at: new Date() },
-  });
-}
+  async touchCollectionsIfUnchanged(
+    sheetId: number,
+    expectedUpdatedAt: Date | null,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return touchIfUnchanged(
+      db.order_sheet,
+      { id: sheetId },
+      'collections_updated_at',
+      expectedUpdatedAt,
+    );
+  }
 }

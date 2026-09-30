@@ -88,14 +88,28 @@ export class CashSettlementService {
             expensesBySheet.set(expense.sheetId, existing);
           }
 
+          const paperSheets = await tx.order_sheet.findMany({
+            where: { order_paper_id: paperId },
+            select: { id: true },
+          });
+
+          for (const { id } of paperSheets) {
+            if (!expensesBySheet.has(id)) {
+              expensesBySheet.set(id, []);
+            }
+          }
+
           if (dto.expectedUpdatedAt) {
-            const paper = await this.repository.getCashSettlementData(
+            const paper = await this.repository.getOrderPaperUpdatedAt(
               paperId,
               tx,
-            ); // or a lighter findUnique on order_paper if preferred
+            );
+            if (!paper) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
             if (
               new Date(dto.expectedUpdatedAt).getTime() !==
-              paper!.updated_at.getTime()
+              paper.updated_at.getTime()
             ) {
               throw new ConflictException(STALE_DATA_MESSAGE);
             }
@@ -144,13 +158,16 @@ export class CashSettlementService {
       this.prisma.$transaction(
         async (tx) => {
           if (dto.expectedUpdatedAt) {
-            const paper = await this.repository.getCashSettlementData(
+            const paper = await this.repository.getOrderPaperUpdatedAt(
               paperId,
               tx,
-            ); // or a lighter findUnique on order_paper if preferred
+            );
+            if (!paper) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
             if (
               new Date(dto.expectedUpdatedAt).getTime() !==
-              paper!.updated_at.getTime()
+              paper.updated_at.getTime()
             ) {
               throw new ConflictException(STALE_DATA_MESSAGE);
             }
@@ -196,13 +213,16 @@ export class CashSettlementService {
       this.prisma.$transaction(
         async (tx) => {
           if (dto.expectedUpdatedAt) {
-            const paper = await this.repository.getCashSettlementData(
+            const paper = await this.repository.getOrderPaperUpdatedAt(
               paperId,
               tx,
-            ); // or a lighter findUnique on order_paper if preferred
+            );
+            if (!paper) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
             if (
               new Date(dto.expectedUpdatedAt).getTime() !==
-              paper!.updated_at.getTime()
+              paper.updated_at.getTime()
             ) {
               throw new ConflictException(STALE_DATA_MESSAGE);
             }
@@ -249,13 +269,16 @@ export class CashSettlementService {
       this.prisma.$transaction(
         async (tx) => {
           if (dto.expectedUpdatedAt) {
-            const paper = await this.repository.getCashSettlementData(
+            const paper = await this.repository.getOrderPaperUpdatedAt(
               paperId,
               tx,
-            ); // or a lighter findUnique on order_paper if preferred
+            );
+            if (!paper) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
             if (
               new Date(dto.expectedUpdatedAt).getTime() !==
-              paper!.updated_at.getTime()
+              paper.updated_at.getTime()
             ) {
               throw new ConflictException(STALE_DATA_MESSAGE);
             }

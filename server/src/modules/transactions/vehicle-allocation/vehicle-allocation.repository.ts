@@ -4,6 +4,7 @@ import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { buildAllocationKey } from '../../../common/utils/allocation-key.util.js';
 import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class VehicleAllocationRepository {
@@ -125,23 +126,12 @@ export class VehicleAllocationRepository {
         Number(existingRow.allocated_qty) !== Number(incomingRow.allocated_qty),
     );
 
-    // Rows genuinely removed from this session's plan. Any purchase_entry
-    // pointing at these via source_allocation_id will be SetNull'd by the
-    // FK — correct, because the source genuinely no longer exists. Purchase's
-    // own read path (F5, orphanedEntries) already surfaces this case.
     if (toDelete.length > 0) {
       await db.vehicle_allocation.deleteMany({
         where: { id: { in: toDelete.map((r) => r.id) } },
       });
     }
 
-    // Rows that still represent the same (vehicle, distributor, category,
-    // product) but with a changed quantity — update in place, preserving
-    // `id`, so any purchase_entry.source_allocation_id pointing here stays
-    // valid. Purchase's staleness check will correctly flag these (their
-    // allocated_qty now differs from what was purchased against), which is
-    // the accurate, intended signal — not a side effect of an unrelated
-    // row being touched.
     for (const { existingRow, incomingRow } of toUpdate) {
       await db.vehicle_allocation.update({
         where: { id: existingRow.id },
@@ -149,7 +139,6 @@ export class VehicleAllocationRepository {
       });
     }
 
-    // Genuinely new (vehicle, distributor, category, product) combinations.
     if (toInsert.length > 0) {
       await db.vehicle_allocation.createMany({ data: toInsert });
     }
@@ -183,14 +172,34 @@ export class VehicleAllocationRepository {
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return db.vehicle_allocation_paper.updateMany({
+    return touchIfUnchanged(
+      db.vehicle_allocation_paper,
+      { id: vehicleAllocationPaperId },
+      'updated_at',
+      expectedUpdatedAt,
+    );
+  }
+
+  async getProductLinksBatch(
+    pairs: { distributorId: number; productId: number }[],
+    db: PrismaOrTransaction = this.prisma,
+    activeOnly = false,
+  ) {
+    const links = await db.master_product_link.findMany({
       where: {
-        id: vehicleAllocationPaperId,
-        updated_at: expectedUpdatedAt,
+        OR: pairs.map((p) => ({
+          distributor_id: p.distributorId,
+          product_id: p.productId,
+        })),
+        ...(activeOnly ? { is_active: true } : {}),
       },
-      data: {
-        updated_at: new Date(),
-      },
+      select: { id: true, distributor_id: true, product_id: true },
     });
+
+    const map = new Map<string, (typeof links)[number]>();
+    for (const link of links) {
+      map.set(`${link.distributor_id}_${link.product_id}`, link);
+    }
+    return map;
   }
 }

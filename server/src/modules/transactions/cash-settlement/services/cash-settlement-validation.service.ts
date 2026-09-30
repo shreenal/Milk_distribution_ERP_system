@@ -13,6 +13,12 @@ import { CashSettlementCalculationService } from '../../../../common/calculators
 
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { OrderPaperStatus } from '../../../../generated/prisma/client.js';
+import {
+  moneyEquals,
+  moneyGreaterThan,
+} from '../../../../common/utils/money.util.js';
+
+const RECONCILIATION_TOLERANCE = 0.005;
 
 @Injectable()
 export class CashSettlementValidationService {
@@ -100,7 +106,11 @@ export class CashSettlementValidationService {
           sheet.cash_route_settlement,
         );
 
-      if (routeNetCash !== denominationTotal) {
+      // FIX C3: was `routeNetCash !== denominationTotal` (exact float
+      // compare). Now a tolerant Decimal comparison.
+      if (
+        !moneyEquals(routeNetCash, denominationTotal, RECONCILIATION_TOLERANCE)
+      ) {
         throw new BadRequestException(
           CASH_SETTLEMENT_VALIDATION_ERRORS.ROUTE_CASH_MISMATCH(
             sheet.master_group.name,
@@ -147,7 +157,7 @@ export class CashSettlementValidationService {
       totalDirectCollections,
     );
 
-    if (totalDeposits > officeCash) {
+    if (moneyGreaterThan(totalDeposits, officeCash)) {
       throw new BadRequestException(
         CASH_SETTLEMENT_VALIDATION_ERRORS.BANK_DEPOSIT_EXCEEDS_CASH(
           officeCash,
@@ -194,7 +204,6 @@ export class CashSettlementValidationService {
     }
   }
 
-  // cash-settlement-validation.service.ts
   async validateReconciliationOnFinalize(
     paperId: number,
     db: PrismaOrTransaction,
@@ -250,7 +259,7 @@ export class CashSettlementValidationService {
         historicalCashOnHand,
       );
 
-    if (difference !== 0) {
+    if (!moneyEquals(difference, 0, RECONCILIATION_TOLERANCE)) {
       throw new BadRequestException(
         `Cash settlement no longer reconciles after reopening (difference: ₹${difference.toFixed(2)}). ` +
           `Route denominations must be re-entered before finalizing.`,
@@ -258,7 +267,6 @@ export class CashSettlementValidationService {
     }
   }
 
-  // cash-settlement-validation.service.ts
   async validateSheetsBelongToPaper(
     paperId: number,
     sheetIds: number[],

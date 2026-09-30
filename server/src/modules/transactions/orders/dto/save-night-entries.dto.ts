@@ -6,6 +6,7 @@ import {
   Max,
   Min,
   ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 import { QUANTITY_PRECISION } from '../orders.constants.js';
 import { Type } from 'class-transformer';
@@ -27,6 +28,7 @@ export class SaveNightEntriesDto {
 
 export class SaveNightEntriesRequestDto {
   @IsArray()
+  @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => SaveNightEntriesDto)
   entries!: SaveNightEntriesDto[];

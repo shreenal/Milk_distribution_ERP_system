@@ -21,24 +21,75 @@ export class ClientTraysPropagationService {
     await this.recalculateSheet(sheetId, tx);
   }
 
-  async propagateFromPaper(
-    paperId: number,
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    const sheets = await this.clientTraysRepository.getSheetsByPaperId(
-      paperId,
-      tx,
-    );
+  // async propagateFromPaper(
+  //   paperId: number,
+  //   tx: Prisma.TransactionClient,
+  // ): Promise<void> {
+  //   const sheets = await this.clientTraysRepository.getSheetsByPaperId(
+  //     paperId,
+  //     tx,
+  //   );
 
-    for (const sheet of sheets) {
-      await this.propagateFromSheet(sheet.id, tx);
-    }
-  }
+  //   for (const sheet of sheets) {
+  //     await this.propagateFromSheet(sheet.id, tx);
+  //   }
+  // }
 
-  async propagateFromSheet(
+  // async propagateFromSheet(
+  //   startSheetId: number,
+  //   tx: Prisma.TransactionClient,
+  // ): Promise<void> {
+  //   const startSheet = await this.clientTraysRepository.findSheetById(
+  //     startSheetId,
+  //     tx,
+  //   );
+
+  //   if (!startSheet) {
+  //     throw new NotFoundException(`Order sheet ${startSheetId} not found`);
+  //   }
+
+  //   // Only the sheet whose own data actually changed gets a full recompute
+  //   // of trays_taken (from its own order items + current tray rules).
+  //   await this.recalculateSheet(startSheetId, tx);
+
+  //   // Everything after it only inherits the shifted opening balance —
+  //   // their own trays_taken/trays_returned must never be touched by
+  //   // someone else's correction or by tray-rule drift since they were
+  //   // last finalized.
+  //   let currentSheetId: number | null =
+  //     (
+  //       await this.clientTraysRepository.getNextSheet(
+  //         startSheet.group_id,
+  //         startSheet.order_paper.sale_date,
+  //         tx,
+  //       )
+  //     )?.id ?? null;
+
+  //   while (currentSheetId !== null) {
+  //     await this.cascadeOpeningBalance(currentSheetId, tx);
+
+  //     const sheet = await this.clientTraysRepository.findSheetById(
+  //       currentSheetId,
+  //       tx,
+  //     );
+
+  //     currentSheetId =
+  //       (
+  //         await this.clientTraysRepository.getNextSheet(
+  //           sheet!.group_id,
+  //           sheet!.order_paper.sale_date,
+  //           tx,
+  //         )
+  //       )?.id ?? null;
+  //   }
+  // }
+
+  async cascadeForwardChunk(
     startSheetId: number,
+    resumeFromSheetId: number | null,
+    chunkSize: number,
     tx: Prisma.TransactionClient,
-  ): Promise<void> {
+  ): Promise<{ done: boolean; resumeFromSheetId?: number }> {
     const startSheet = await this.clientTraysRepository.findSheetById(
       startSheetId,
       tx,
@@ -48,40 +99,41 @@ export class ClientTraysPropagationService {
       throw new NotFoundException(`Order sheet ${startSheetId} not found`);
     }
 
-    // Only the sheet whose own data actually changed gets a full recompute
-    // of trays_taken (from its own order items + current tray rules).
-    await this.recalculateSheet(startSheetId, tx);
-
-    // Everything after it only inherits the shifted opening balance —
-    // their own trays_taken/trays_returned must never be touched by
-    // someone else's correction or by tray-rule drift since they were
-    // last finalized.
     let currentSheetId: number | null =
+      resumeFromSheetId ??
       (
         await this.clientTraysRepository.getNextSheet(
           startSheet.group_id,
           startSheet.order_paper.sale_date,
           tx,
         )
-      )?.id ?? null;
+      )?.id ??
+      null;
+
+    let steps = 0;
 
     while (currentSheetId !== null) {
       await this.cascadeOpeningBalance(currentSheetId, tx);
+      steps++;
 
       const sheet = await this.clientTraysRepository.findSheetById(
         currentSheetId,
         tx,
       );
+      const next = await this.clientTraysRepository.getNextSheet(
+        sheet!.group_id,
+        sheet!.order_paper.sale_date,
+        tx,
+      );
 
-      currentSheetId =
-        (
-          await this.clientTraysRepository.getNextSheet(
-            sheet!.group_id,
-            sheet!.order_paper.sale_date,
-            tx,
-          )
-        )?.id ?? null;
+      if (steps >= chunkSize && next) {
+        return { done: false, resumeFromSheetId: next.id };
+      }
+
+      currentSheetId = next?.id ?? null;
     }
+
+    return { done: true };
   }
 
   private async recalculateSheet(
@@ -338,5 +390,106 @@ export class ClientTraysPropagationService {
       transactionEntries,
       tx,
     );
+  }
+
+  async propagateFromPaperChunk(
+    paperId: number,
+    resumeFromSheetId: number | null,
+    chunkSize: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<{ done: boolean; resumeFromSheetId?: number }> {
+    const startingSheetRefs =
+      await this.clientTraysRepository.getSheetsByPaperId(paperId, tx);
+
+    if (startingSheetRefs.length === 0) {
+      return { done: true };
+    }
+
+    const startingSheets: NonNullable<
+      Awaited<ReturnType<typeof this.clientTraysRepository.findSheetById>>
+    >[] = [];
+
+    for (const ref of startingSheetRefs) {
+      const sheet = await this.clientTraysRepository.findSheetById(ref.id, tx);
+      if (sheet) startingSheets.push(sheet);
+    }
+
+    let startIndex = 0;
+    let cursorSheetId: number | null = null;
+
+    if (resumeFromSheetId !== null) {
+      const resumeSheet = await this.clientTraysRepository.findSheetById(
+        resumeFromSheetId,
+        tx,
+      );
+      if (resumeSheet) {
+        const idx = startingSheets.findIndex(
+          (s) => s.group_id === resumeSheet.group_id,
+        );
+        if (idx >= 0) {
+          startIndex = idx;
+          cursorSheetId = resumeFromSheetId;
+        }
+      }
+    }
+
+    let steps = 0;
+
+    for (let i = startIndex; i < startingSheets.length; i++) {
+      const startSheet = startingSheets[i];
+      let currentSheetId: number | null;
+
+      if (cursorSheetId !== null) {
+        // Resuming mid-chain: the starting sheet itself was already
+        // recalculated in a previous chunk run.
+        currentSheetId = cursorSheetId;
+        cursorSheetId = null;
+      } else {
+        await this.recalculateSheet(startSheet.id, tx);
+        steps++;
+
+        // if (steps >= chunkSize) {
+        //   const next = await this.clientTraysRepository.getNextSheet(
+        //     startSheet.group_id,
+        //     startSheet.order_paper.sale_date,
+        //     tx,
+        //   );
+        //   return { done: false, resumeFromSheetId: next?.id };
+        // }
+
+        const next = await this.clientTraysRepository.getNextSheet(
+          startSheet.group_id,
+          startSheet.order_paper.sale_date,
+          tx,
+        );
+        if (steps >= chunkSize && next) {
+          return { done: false, resumeFromSheetId: next.id };
+        }
+        currentSheetId = next?.id ?? null;
+      }
+
+      while (currentSheetId !== null) {
+        await this.cascadeOpeningBalance(currentSheetId, tx);
+        steps++;
+
+        const sheet = await this.clientTraysRepository.findSheetById(
+          currentSheetId,
+          tx,
+        );
+        const next = await this.clientTraysRepository.getNextSheet(
+          sheet!.group_id,
+          sheet!.order_paper.sale_date,
+          tx,
+        );
+
+        if (steps >= chunkSize && next) {
+          return { done: false, resumeFromSheetId: next.id };
+        }
+
+        currentSheetId = next?.id ?? null;
+      }
+    }
+
+    return { done: true };
   }
 }

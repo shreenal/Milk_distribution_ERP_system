@@ -1,5 +1,6 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsISO8601,
@@ -10,12 +11,6 @@ import {
 } from 'class-validator';
 
 export class BankDepositDto {
-  /**
-   * Identifies an existing cash_bank_deposit row to update. Omit when
-   * adding a new deposit. Required for correct matching because bankId
-   * alone isn't unique — a paper can have multiple deposits to the same
-   * bank.
-   */
   @IsOptional()
   @IsInt()
   id?: number;
@@ -58,6 +53,7 @@ export class BankDepositDto {
 
 export class SaveBankDepositsDto {
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({
     each: true,
   })

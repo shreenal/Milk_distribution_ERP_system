@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { toDecimal, toMoney } from '../../../../common/utils/money.util.js';
 
 export interface NightBillingResult {
   nightBillAmount: number;
@@ -16,10 +17,13 @@ export class NightBillingService {
     sellingRate: number,
     pricingQuantity: number,
   ): NightBillingResult {
-    const billableQuantity = orderedQty * pricingQuantity;
+    const billableQuantity = toDecimal(orderedQty).times(
+      toDecimal(pricingQuantity),
+    );
+    const amount = billableQuantity.times(toDecimal(sellingRate));
 
     return {
-      nightBillAmount: Number((billableQuantity * sellingRate).toFixed(2)),
+      nightBillAmount: toMoney(amount),
     };
   }
 }

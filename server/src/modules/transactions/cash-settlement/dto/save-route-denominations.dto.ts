@@ -7,10 +7,12 @@ import {
   IsISO8601,
   IsOptional,
   Min,
+  ArrayMaxSize,
 } from 'class-validator';
 
 export class SaveRouteDenominationsDto {
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => RouteDenominationDto)
   denominations!: RouteDenominationDto[];

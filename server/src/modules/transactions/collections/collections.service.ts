@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  BadRequestException,
-  ConflictException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 
 import { CollectionBuilder } from './collections.builder.js';
 import { CollectionsRepository } from './collections.repository.js';
@@ -35,7 +31,7 @@ export class CollectionsService {
     private readonly collectionsValidationService: CollectionsValidationService,
     private readonly workflowState: WorkflowStateService,
     private readonly prisma: PrismaService,
-  ) { }
+  ) {}
 
   async getCollectionGrid(sheetId: number) {
     return this.prisma.$transaction(async (tx) => {
@@ -213,6 +209,24 @@ export class CollectionsService {
             );
           }
 
+          if (dto.expectedUpdatedAt) {
+            await assertNotStale(
+              () =>
+                this.collectionsRepository.touchCollectionsIfUnchanged(
+                  sheetId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          } else {
+            await this.collectionsRepository.touchCollectionsIfUnchanged(
+              sheetId,
+              null,
+              tx,
+            );
+          }
+
           await this.collectionsRepository.replaceMorningCollections(
             sheetId,
             category,
@@ -278,6 +292,24 @@ export class CollectionsService {
           ) {
             throw new BadRequestException(
               COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
+            );
+          }
+
+          if (dto.expectedUpdatedAt) {
+            await assertNotStale(
+              () =>
+                this.collectionsRepository.touchCollectionsIfUnchanged(
+                  sheetId,
+                  new Date(dto.expectedUpdatedAt!),
+                  tx,
+                ),
+              STALE_DATA_MESSAGE,
+            );
+          } else {
+            await this.collectionsRepository.touchCollectionsIfUnchanged(
+              sheetId,
+              null,
+              tx,
             );
           }
 

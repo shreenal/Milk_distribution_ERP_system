@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { DeliverySession } from '../../../generated/prisma/client.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('vehicle-allocations')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -39,6 +40,7 @@ export class VehicleAllocationController {
 
   @Post(':paperId/vehicle-allocations')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveVehicleAllocations(
     @Param('paperId', ParseIntPipe)
     paperId: number,

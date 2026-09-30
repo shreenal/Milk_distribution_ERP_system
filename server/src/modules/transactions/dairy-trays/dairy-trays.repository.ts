@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class DairyTraysRepository {
@@ -26,27 +27,6 @@ export class DairyTraysRepository {
       where: {
         order_paper_id: orderPaperId,
       },
-    });
-  }
-
-  async createDairyTrayPaper(
-    orderPaperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    // Deliberately not an upsert: `upsert(..., update: {})` still issues an
-    // UPDATE when the row exists, and @updatedAt bumps `updated_at` on that
-    // no-op update. This method is called from the read path
-    // (getDairyTrayGrid) as well as the write path — an upsert here would
-    // make `dairy_tray_paper.updated_at` advance on every page view,
-    // breaking it as a concurrency anchor.
-    const existing = await db.dairy_tray_paper.findUnique({
-      where: { order_paper_id: orderPaperId },
-    });
-    if (existing) {
-      return existing;
-    }
-    return db.dairy_tray_paper.create({
-      data: { order_paper_id: orderPaperId },
     });
   }
 
@@ -312,10 +292,16 @@ export class DairyTraysRepository {
 
     await db.$executeRaw(Prisma.sql`
     INSERT INTO dairy_tray_transaction
-      (dairy_tray_paper_id, vehicle_id, delivery_session, tray_type_id, trays_returned)
-    VALUES ${values}
+      (dairy_tray_paper_id, vehicle_id, delivery_session, tray_type_id, trays_returned, updated_at)
+    VALUES ${Prisma.join(
+      entries.map(
+        (e) =>
+          Prisma.sql`(${dairyTrayPaperId}, ${e.vehicleId}, ${e.deliverySession}::"DeliverySession", ${e.trayTypeId}, ${e.returned}, now())`,
+      ),
+    )}
     ON CONFLICT (dairy_tray_paper_id, delivery_session, vehicle_id, tray_type_id)
-    DO UPDATE SET trays_returned = EXCLUDED.trays_returned
+    DO UPDATE SET trays_returned = EXCLUDED.trays_returned,
+                  updated_at = EXCLUDED.updated_at
   `);
   }
 
@@ -324,9 +310,19 @@ export class DairyTraysRepository {
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return db.dairy_tray_paper.updateMany({
-      where: { id: dairyTrayPaperId, updated_at: expectedUpdatedAt },
-      data: {},
-    });
+    // NOTE: the original method passed `data: {}` — it never actually bumped
+    // updated_at, unlike every other touch method in the codebase, which
+    // looks like an oversight (the caller in dairy-trays.service.ts relies
+    // on `assertNotStale` throwing on `count !== 1`, so the staleness check
+    // itself still worked, but a *successful* save never advanced
+    // updated_at, meaning a second save with the same expectedUpdatedAt
+    // would incorrectly be treated as non-stale). Fixed to match every
+    // other repository's behavior.
+    return touchIfUnchanged(
+      db.dairy_tray_paper,
+      { id: dairyTrayPaperId },
+      'updated_at',
+      expectedUpdatedAt,
+    );
   }
 }

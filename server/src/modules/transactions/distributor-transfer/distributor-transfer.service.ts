@@ -17,6 +17,12 @@ import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.ut
 const STALE_DATA_MESSAGE =
   'distributor transfer data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
+export interface GenerateTransferOptions {
+  tx?: PrismaOrTransaction;
+  skipAuthorization?: boolean;
+  expectedUpdatedAt?: string;
+}
+
 @Injectable()
 export class DistributorTransferService {
   constructor(
@@ -50,11 +56,12 @@ export class DistributorTransferService {
 
   async generateTransfer(
     paperId: number,
-    db?: PrismaOrTransaction,
-    expectedUpdatedAt?: string,
+    options: GenerateTransferOptions = {},
   ) {
-    const run = async (tx: PrismaOrTransaction) => {
-      const paper = await this.repository.findOrderPaperById(paperId, tx);
+    const { tx, skipAuthorization = false, expectedUpdatedAt } = options;
+
+    const run = async (t: PrismaOrTransaction) => {
+      const paper = await this.repository.findOrderPaperById(paperId, t);
 
       if (!paper) {
         throw new NotFoundException(
@@ -63,7 +70,7 @@ export class DistributorTransferService {
       }
 
       if (
-        !db &&
+        !skipAuthorization &&
         !this.workflowState.canEditDistributorTransfers(paper.status)
       ) {
         throw new BadRequestException(
@@ -71,7 +78,7 @@ export class DistributorTransferService {
         );
       }
 
-      if (!db && expectedUpdatedAt) {
+      if (!skipAuthorization && expectedUpdatedAt) {
         if (
           new Date(expectedUpdatedAt).getTime() !== paper.updated_at.getTime()
         ) {
@@ -82,7 +89,7 @@ export class DistributorTransferService {
             this.repository.touchOrderPaperIfUnchanged(
               paperId,
               new Date(expectedUpdatedAt),
-              tx,
+              t,
             ),
           STALE_DATA_MESSAGE,
         );
@@ -90,22 +97,18 @@ export class DistributorTransferService {
 
       const sourceItems = await this.repository.getTransferSourceItems(
         paper.id,
-        tx,
+        t,
       );
 
       const summaries = this.builder.buildTransferSummary(sourceItems);
 
-      const transferRules = await this.repository.findTransferRules(tx);
+      const transferRules = await this.repository.findTransferRules(t);
 
       this.validation.validateTransferRules(summaries, transferRules);
 
       const transfers = this.builder.buildTransferEntities(paper.id, summaries);
 
-      await this.repository.replaceDistributorTransfers(
-        paper.id,
-        transfers,
-        tx,
-      );
+      await this.repository.replaceDistributorTransfers(paper.id, transfers, t);
 
       const grids = this.builder.buildTransferGrids(summaries);
 
@@ -114,7 +117,8 @@ export class DistributorTransferService {
         ...grids,
       };
     };
-    if (db) return run(db);
-    return this.prisma.$transaction((tx) => run(tx));
+
+    if (tx) return run(tx);
+    return this.prisma.$transaction((t) => run(t));
   }
 }

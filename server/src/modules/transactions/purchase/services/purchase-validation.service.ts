@@ -45,15 +45,15 @@ export class PurchaseValidationService {
         );
       }
       allocationMap.set(
-  buildPurchaseKey({
-    vehicleId: allocation.vehicle_id,
-    distributorId: allocation.distributor_id,
-    category: allocation.category,
-    productId: allocation.product_id,
-    deliverySession: allocation.vehicle_allocation_paper.delivery_session,
-  }),
-  Number(allocation.allocated_qty),
-);
+        buildPurchaseKey({
+          vehicleId: allocation.vehicle_id,
+          distributorId: allocation.distributor_id,
+          category: allocation.category,
+          productId: allocation.product_id,
+          deliverySession: allocation.vehicle_allocation_paper.delivery_session,
+        }),
+        Number(allocation.allocated_qty),
+      );
     }
 
     for (const entry of dto.entries) {
@@ -80,14 +80,14 @@ export class PurchaseValidationService {
       }
 
       const allocatedQty = allocationMap.get(
-  buildPurchaseKey({
-    vehicleId: entry.vehicleId,
-    distributorId: entry.distributorId,
-    category: entry.category,
-    productId: entry.productId,
-    deliverySession: entry.deliverySession,
-  }),
-);
+        buildPurchaseKey({
+          vehicleId: entry.vehicleId,
+          distributorId: entry.distributorId,
+          category: entry.category,
+          productId: entry.productId,
+          deliverySession: entry.deliverySession,
+        }),
+      );
 
       if (allocatedQty === undefined) {
         throw new BadRequestException(
@@ -144,8 +144,8 @@ export class PurchaseValidationService {
     );
 
     const purchaseKeys = new Set(
-  purchaseEntries.map((entry) => buildPurchaseKey(entry)),
-);
+      purchaseEntries.map((entry) => buildPurchaseKey(entry)),
+    );
 
     for (const allocation of requiredAllocations) {
       if (allocation.vehicle_id == null || allocation.product_id == null) {
@@ -155,13 +155,13 @@ export class PurchaseValidationService {
       }
 
       const key = buildPurchaseKey({
-  vehicleId: allocation.vehicle_id,
-  distributorId: allocation.distributor_id,
-  category: allocation.category,
-  productId: allocation.product_id,
-  deliverySession: allocation.vehicle_allocation_paper.delivery_session,
-});
-if (!purchaseKeys.has(key)) {
+        vehicleId: allocation.vehicle_id,
+        distributorId: allocation.distributor_id,
+        category: allocation.category,
+        productId: allocation.product_id,
+        deliverySession: allocation.vehicle_allocation_paper.delivery_session,
+      });
+      if (!purchaseKeys.has(key)) {
         throw new BadRequestException(
           PURCHASE_ERROR_MESSAGES.PURCHASE_MISSING(
             allocation.vehicle_id,

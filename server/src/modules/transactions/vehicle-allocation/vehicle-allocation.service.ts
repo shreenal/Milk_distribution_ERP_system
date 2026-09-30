@@ -18,11 +18,8 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 import { GroupSummaryBuilder } from '../../../common/builders/group-summary.builder.js';
-// FIX F1 (consistency review): shared with vehicle-allocation.repository.ts
-// instead of the ad-hoc key strings previously built inline here.
+
 import { buildAllocationKey } from '../../../common/utils/allocation-key.util.js';
-// FIX F10 (consistency review): shared with purchase.service.ts instead of
-// each service hand-rolling its own "touch if unchanged, else 409" flow.
 import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
 
 const STALE_DATA_MESSAGE =
@@ -104,11 +101,6 @@ export class VehicleAllocationService {
 
       if (!vehicleAllocationPaper) {
         return {
-          // FIX F2/F5 (consistency review): `paper` used to be returned in
-          // full here, duplicating `status` against `workflow.status` and
-          // duplicating data already available from PaperContext on the
-          // frontend. Nothing in the reviewed VehicleAllocationPage code
-          // reads `data.paper`, so it's dropped.
           workflow,
           ...allocationGrids,
           groupSummaries,
@@ -156,12 +148,6 @@ export class VehicleAllocationService {
           const status = paper.status;
           const session = this.workflowState.getActiveExecutionSession(status);
 
-          // FIX F12 (consistency review): GET requires an explicit `session`
-          // and previously POST silently inferred it from paper status with
-          // nothing to catch a mismatch between what the client thought it
-          // was editing and what the server would actually write to. Now the
-          // client states which session it's saving and the server confirms
-          // it agrees, rather than silently substituting its own answer.
           if (dto.session !== session) {
             throw new BadRequestException(
               `Requested session ${dto.session} does not match the paper's current active execution session (${session}). Refresh and try again.`,
@@ -181,10 +167,6 @@ export class VehicleAllocationService {
               tx,
             );
 
-          // Fast sequential stale-read check. The atomic check further down is
-          // still required for genuine concurrency. Standardized against
-          // Purchase's savePurchases(): if the client read an updatedAt but the
-          // paper no longer exists, that's a conflict, not "nothing to check".
           if (dto.expectedUpdatedAt) {
             if (!existingPaper) {
               throw new ConflictException(STALE_DATA_MESSAGE);
@@ -233,14 +215,6 @@ export class VehicleAllocationService {
               )
             : [];
 
-          // FIX F3 (consistency review): Purchase's save already refuses to
-          // silently drop previously-saved rows unless the caller passes
-          // `confirmDeletions`. Vehicle Allocation's save didn't have the
-          // same safeguard even though deleting a vehicle_allocation row has
-          // a real downstream side effect — any purchase_entry pointing at
-          // it via source_allocation_id gets SetNull'd. This mirrors
-          // Purchase's contract so a save can't silently orphan a real
-          // purchased quantity.
           const incomingAllocationKeys = new Set(
             allocationRowsBase.map((row) => buildAllocationKey(row)),
           );
@@ -270,14 +244,6 @@ export class VehicleAllocationService {
 
           const hasChanges = allocationsChanged;
 
-          /*
-           * Optimistic concurrency gate.
-           *
-           * This MUST happen before modifying assignments/allocations.
-           * Two concurrent requests may both have passed the initial
-           * read-based timestamp check. Only one is allowed to atomically
-           * claim the expected updated_at value.
-           */
           if (hasChanges && dto.expectedUpdatedAt && existingPaper) {
             await assertNotStale(
               () =>
@@ -303,10 +269,6 @@ export class VehicleAllocationService {
             ...row,
           }));
 
-          /*
-           * No expectedUpdatedAt means this is an ordinary save.
-           * Preserve F7: only bump updated_at when the data actually changed.
-           */
           if (hasChanges && !dto.expectedUpdatedAt) {
             await tx.vehicle_allocation_paper.update({
               where: {
@@ -315,11 +277,6 @@ export class VehicleAllocationService {
               data: {},
             });
           }
-
-          /*
-           * These writes happen only after the optimistic-concurrency
-           * check succeeds.
-           */
 
           if (allocationsChanged) {
             await this.vehicleAllocationRepository.replaceVehicleAllocations(
@@ -363,10 +320,6 @@ function sameRowSet(
     return false;
   }
 
-  // FIX F1 (consistency review): identity part of this comparison key now
-  // comes from the same `buildAllocationKey` used everywhere else; the
-  // quantity is appended separately since this check (unlike a lookup key)
-  // needs to detect a value change, not just identify a row.
   const toComparable = (row: (typeof existing)[number]) =>
     `${buildAllocationKey(row)}_${Number(row.allocated_qty)}`;
 

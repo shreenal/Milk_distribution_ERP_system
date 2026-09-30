@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 
 import {
+  ArrayMaxSize,
   IsArray,
   IsInt,
   IsISO8601,
@@ -49,6 +50,7 @@ export class DirectCollectionDto {
 
 export class SaveDirectCollectionsDto {
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({
     each: true,
   })

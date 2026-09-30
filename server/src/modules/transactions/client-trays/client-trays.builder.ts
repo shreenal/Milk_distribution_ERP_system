@@ -57,15 +57,17 @@ export class ClientTraysBuilder {
       data.trayTypes,
     );
 
-    this.logger.debug(
-      `[TRAY TYPES] milk=${JSON.stringify(
-        milkTrayTypes.map((t) => ({
-          id: t.id,
-          color: t.color,
-          brand: t.master_brand?.name,
-        })),
-      )}`,
-    );
+    if (process.env.DEBUG_TRAY_LOGGING === 'true') {
+      this.logger.debug(
+        `[TRAY TYPES] milk=${JSON.stringify(
+          milkTrayTypes.map((t) => ({
+            id: t.id,
+            color: t.color,
+            brand: t.master_brand?.name,
+          })),
+        )}`,
+      );
+    }
 
     const nonMilkTrayTypes = this.getTrayTypesForItems(
       nonMilkSheetItems,
@@ -73,15 +75,17 @@ export class ClientTraysBuilder {
       data.trayTypes,
     );
 
-    this.logger.debug(
-      `[TRAY TYPES] nonMilk=${JSON.stringify(
-        nonMilkTrayTypes.map((t) => ({
-          id: t.id,
-          color: t.color,
-          brand: t.master_brand?.name,
-        })),
-      )}`,
-    );
+    if (process.env.DEBUG_TRAY_LOGGING === 'true') {
+      this.logger.debug(
+        `[TRAY TYPES] nonMilk=${JSON.stringify(
+          nonMilkTrayTypes.map((t) => ({
+            id: t.id,
+            color: t.color,
+            brand: t.master_brand?.name,
+          })),
+        )}`,
+      );
+    }
 
     const useOrderedQuantity = this.workflowState.resolveUseOrderedQuantity(
       paperStatus,
@@ -207,6 +211,27 @@ export class ClientTraysBuilder {
     } = data;
     const columns = this.buildTrayColumns(trayTypes);
 
+    const itemsByClientId = new Map<number, ClientTraySheetItem[]>();
+    for (const item of sheetItems) {
+      const list = itemsByClientId.get(item.client_id);
+      if (list) {
+        list.push(item);
+      } else {
+        itemsByClientId.set(item.client_id, [item]);
+      }
+    }
+
+    const transactionByClientAndTrayType = new Map<
+      string,
+      ClientTrayTransaction
+    >();
+    for (const transaction of trayTransactions) {
+      transactionByClientAndTrayType.set(
+        `${transaction.client_id}_${transaction.tray_type_id}`,
+        transaction,
+      );
+    }
+
     // =========================
     // ROWS
     // =========================
@@ -222,9 +247,7 @@ export class ClientTraysBuilder {
         // AUTO CALCULATE TRAYS TAKEN
         // =========================
 
-        const clientItems = sheetItems.filter(
-          (item) => item.client_id === client.id,
-        );
+        const clientItems = itemsByClientId.get(client.id) ?? [];
 
         if (clientItems.length === 0) {
           return null;
@@ -264,10 +287,8 @@ export class ClientTraysBuilder {
         for (const trayType of trayTypes) {
           const trayTypeId = trayType.id;
 
-          const savedTransaction = trayTransactions.find(
-            (transaction) =>
-              transaction.client_id === client.id &&
-              transaction.tray_type_id === trayTypeId,
+          const savedTransaction = transactionByClientAndTrayType.get(
+            `${client.id}_${trayTypeId}`,
           );
 
           const opening = Number(
@@ -335,17 +356,19 @@ export class ClientTraysBuilder {
       };
     }
 
-    this.logger.debug(
-      `[TRAY GRID] ${JSON.stringify(
-        rows.map((row) => ({
-          clientId: row.clientId,
-          clientName: row.clientName,
-          tray4: row.tray_4,
-          tray5: row.tray_5,
-          tray3: row.tray_3,
-        })),
-      )}`,
-    );
+    if (process.env.DEBUG_TRAY_LOGGING === 'true') {
+      this.logger.debug(
+        `[TRAY GRID] ${JSON.stringify(
+          rows.map((row) => ({
+            clientId: row.clientId,
+            clientName: row.clientName,
+            tray4: row.tray_4,
+            tray5: row.tray_5,
+            tray3: row.tray_3,
+          })),
+        )}`,
+      );
+    }
 
     return {
       columns,

@@ -6,6 +6,7 @@ import { DirectCollectionDto } from './dto/save-direct-collections.dto.js';
 import { BankDepositDto } from './dto/save-bank-deposit.dto.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class CashSettlementRepository {
@@ -195,12 +196,8 @@ export class CashSettlementRepository {
       deposits.filter((d) => d.id !== undefined).map((d) => d.id!),
     );
 
-    // Any existing row not referenced by id in the incoming payload is gone.
     const toDelete = existing.filter((r) => !incomingIds.has(r.id));
 
-    // No id = new deposit. An id present but not matching any existing row
-    // for this paper is a client error (stale/foreign id), not silently
-    // treated as new.
     const toInsert = deposits.filter((d) => d.id === undefined);
     const toUpdate = deposits.filter((d) => d.id !== undefined);
 
@@ -260,9 +257,23 @@ export class CashSettlementRepository {
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return db.order_paper.updateMany({
-      where: { id: paperId, updated_at: expectedUpdatedAt },
-      data: {},
+    // Same oversight as dairy-trays.repository.ts (see that entry) — the
+    // original never actually bumped updated_at on success. Fixed.
+    return touchIfUnchanged(
+      db.order_paper,
+      { id: paperId },
+      'updated_at',
+      expectedUpdatedAt,
+    );
+  }
+
+  async getOrderPaperUpdatedAt(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findUnique({
+      where: { id: paperId },
+      select: { updated_at: true },
     });
   }
 }

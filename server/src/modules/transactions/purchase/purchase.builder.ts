@@ -23,17 +23,8 @@ import {
 } from '../../../common/builders/allocation-summary.builder.js';
 import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 import { PurchaseBillingService } from './services/purchase-billing.service.js';
-// FIX F1 (consistency review): shared with purchase.service.ts,
-// purchase.repository.ts and vehicle-allocation.repository.ts instead of a
-// locally-defined `buildRowKey`.
 import { buildPurchaseKey } from '../../../common/utils/allocation-key.util.js';
-/**
- * FIX F5: a purchase_entry that no longer maps onto any row in the current
- * grid (vehicle reassigned to a different distributor, product removed from
- * the allocation, etc). These must never be silently dropped — they're real,
- * previously-saved purchase records. Surfaced to the caller so the API and
- * UI can warn about them instead of quietly deleting them on the next save.
- */
+
 export type OrphanedPurchaseEntry = {
   vehicleId: number;
   distributorId: number;
@@ -46,6 +37,56 @@ export type OrphanedPurchaseEntry = {
 export type PurchaseGridWithMeta = PurchaseGrid & {
   orphanedEntries: OrphanedPurchaseEntry[];
 };
+
+class PurchaseRowIndex {
+  private readonly gridByKey = new Map<string, PurchaseGridItem>();
+  private readonly rowIndexByGrid = new Map<
+    PurchaseGridItem,
+    Map<string, PurchaseGridItem['rows'][number]>
+  >();
+
+  constructor(private readonly grids: PurchaseGridItem[]) {
+    for (const grid of grids) {
+      for (const row of grid.rows) {
+        for (const field of Object.keys(row)) {
+          if (!field.startsWith('product_')) continue;
+          const key = `${grid.distributor.id}_${grid.category}_${field}`;
+          if (!this.gridByKey.has(key)) {
+            this.gridByKey.set(key, grid);
+          }
+        }
+      }
+    }
+  }
+
+  findRow(
+    distributorId: number,
+    category: SupplyCategory,
+    vehicleId: number,
+    deliverySession: DeliverySession,
+    productField: string,
+  ) {
+    const grid = this.gridByKey.get(
+      `${distributorId}_${category}_${productField}`,
+    );
+
+    if (!grid) {
+      return null;
+    }
+
+    let rowIndex = this.rowIndexByGrid.get(grid);
+
+    if (!rowIndex) {
+      rowIndex = new Map();
+      for (const row of grid.rows) {
+        rowIndex.set(`${row.vehicleId}_${row.deliverySession}`, row);
+      }
+      this.rowIndexByGrid.set(grid, rowIndex);
+    }
+
+    return rowIndex.get(`${vehicleId}_${deliverySession}`) ?? null;
+  }
+}
 
 @Injectable()
 export class PurchaseBuilder {
@@ -196,7 +237,7 @@ export class PurchaseBuilder {
     purchaseGrids: PurchaseGrid,
     allocations: VehicleAllocation[],
   ) {
-    const result = structuredClone(purchaseGrids);
+    const index = new PurchaseRowIndex(purchaseGrids.purchases);
 
     for (const allocation of allocations) {
       if (allocation.vehicle_id == null || allocation.product_id == null) {
@@ -205,8 +246,7 @@ export class PurchaseBuilder {
 
       const quantityField = `product_${allocation.product_id}`;
 
-      const row = this.findPurchaseRow(
-        result,
+      const row = index.findRow(
         allocation.distributor_id,
         allocation.category,
         allocation.vehicle_id,
@@ -221,7 +261,7 @@ export class PurchaseBuilder {
       row[quantityField] = Number(allocation.allocated_qty);
     }
 
-    return result;
+    return purchaseGrids;
   }
 
   applyPurchaseEntries(
@@ -229,8 +269,10 @@ export class PurchaseBuilder {
     purchaseEntries: PurchaseEntry[],
     currentAllocations: VehicleAllocation[],
   ): PurchaseGridWithMeta {
-    const result = structuredClone(purchaseGrids) as PurchaseGridWithMeta;
+    const result = purchaseGrids as PurchaseGridWithMeta;
     result.orphanedEntries = [];
+
+    const index = new PurchaseRowIndex(result.purchases);
 
     const currentAllocationMap = new Map<string, VehicleAllocation>();
 
@@ -257,8 +299,7 @@ export class PurchaseBuilder {
       const amountField = `product_${entry.product_id}_amount`;
       const staleField = `product_${entry.product_id}_stale`;
 
-      const row = this.findPurchaseRow(
-        result,
+      const row = index.findRow(
         entry.distributor_id,
         entry.category,
         entry.vehicle_id,
@@ -308,15 +349,14 @@ export class PurchaseBuilder {
     purchaseGrids: PurchaseGrid,
     rateDefaults: PurchaseRateDefault[],
   ) {
-    const result = structuredClone(purchaseGrids);
+    const index = new PurchaseRowIndex(purchaseGrids.purchases);
 
     for (const rate of rateDefaults) {
       const quantityField = `product_${rate.productId}`;
       const rateField = `product_${rate.productId}_rate`;
       const amountField = `product_${rate.productId}_amount`;
 
-      const row = this.findPurchaseRow(
-        result,
+      const row = index.findRow(
         rate.distributorId,
         rate.category,
         rate.vehicleId,
@@ -339,13 +379,11 @@ export class PurchaseBuilder {
       row[amountField] = purchaseAmount;
     }
 
-    return result;
+    return purchaseGrids;
   }
 
   applyPurchaseTotals(purchaseGrids: PurchaseGrid) {
-    const result = structuredClone(purchaseGrids);
-
-    for (const grid of result.purchases) {
+    for (const grid of purchaseGrids.purchases) {
       for (const row of grid.rows) {
         const totalAmount = Object.entries(row)
           .filter(
@@ -360,7 +398,7 @@ export class PurchaseBuilder {
       }
     }
 
-    return result;
+    return purchaseGrids;
   }
 
   applyVarianceMetadata(
@@ -368,7 +406,7 @@ export class PurchaseBuilder {
     allocations: VehicleAllocation[],
     purchaseEntries: PurchaseEntry[],
   ) {
-    const result = structuredClone(purchaseGrids);
+    const index = new PurchaseRowIndex(purchaseGrids.purchases);
 
     const allocationMap = new Map<string, VehicleAllocation>();
 
@@ -396,8 +434,7 @@ export class PurchaseBuilder {
 
       const quantityField = `product_${entry.product_id}`;
 
-      const row = this.findPurchaseRow(
-        result,
+      const row = index.findRow(
         entry.distributor_id,
         entry.category,
         entry.vehicle_id,
@@ -427,39 +464,7 @@ export class PurchaseBuilder {
       };
     }
 
-    return result;
-  }
-
-  private findPurchaseRow(
-    purchaseGrids: PurchaseGrid,
-    distributorId: number,
-    category: SupplyCategory,
-    vehicleId: number,
-    deliverySession: DeliverySession,
-    productField: string,
-  ) {
-    const grid = purchaseGrids.purchases.find(
-      (purchase) =>
-        purchase.distributor.id === distributorId &&
-        purchase.category === category &&
-        purchase.rows.some((row) => productField in row),
-    );
-
-    if (!grid) {
-      return null;
-    }
-
-    const row = grid.rows.find(
-      (vehicle) =>
-        vehicle.vehicleId === vehicleId &&
-        vehicle.deliverySession === deliverySession,
-    );
-
-    if (!row) {
-      return null;
-    }
-
-    return row;
+    return purchaseGrids;
   }
 }
 

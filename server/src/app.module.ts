@@ -1,7 +1,11 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
+import { envValidationSchema } from './config/env.validation.js';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { HealthModule } from './health/health.module.js';
 import { OrdersModule } from './modules/transactions/orders/orders.module.js';
 import { ClientTraysModule } from './modules/transactions/client-trays/client-trays.module.js';
 import { CollectionsModule } from './modules/transactions/collections/collections.module.js';
@@ -13,6 +17,7 @@ import { PurchaseModule } from './modules/transactions/purchase/purchase.module.
 import { CashSettlementModule } from './modules/transactions/cash-settlement/cash-settlement.module.js';
 import { DistributorTransferModule } from './modules/transactions/distributor-transfer/distributor-transfer.module.js';
 import { DairyTraysModule } from './modules/transactions/dairy-trays/dairy-trays.module.js';
+import { PropagationQueueModule } from './modules/transactions/propagation-queue/propagation-queue.module.js';
 import { BanksModule } from './modules/masters/finance/banks/banks.module.js';
 import { ExpenseTypesModule } from './modules/masters/finance/expense-types/expense-types.module.js';
 import { BrandsModule } from './modules/masters/products/brands/brands.module.js';
@@ -43,12 +48,21 @@ import { ReportModule } from './modules/reports/report.module.js';
 import { DependencyModule } from './modules/transactions/dependencies/dependency.module.js';
 import { OrderUnitTypesModule } from './modules/masters/products/order-unit-types/order-unit-types.module.js';
 import { ProductOrderUnitsModule } from './modules/masters/products/product-order-unit/product-order-units.module.js';
+import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      validationSchema: envValidationSchema,
     }),
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 20,
+      },
+    ]),
     PrismaModule,
+    HealthModule,
     WorkflowModule,
     OrdersModule,
     ClientTraysModule,
@@ -60,6 +74,7 @@ import { ProductOrderUnitsModule } from './modules/masters/products/product-orde
     CashSettlementModule,
     DistributorTransferModule,
     DairyTraysModule,
+    PropagationQueueModule,
     BanksModule,
     ExpenseTypesModule,
     BrandsModule,
@@ -91,6 +106,10 @@ import { ProductOrderUnitsModule } from './modules/masters/products/product-orde
     DependencyModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(RequestIdMiddleware).forRoutes('*');
+  }
+}

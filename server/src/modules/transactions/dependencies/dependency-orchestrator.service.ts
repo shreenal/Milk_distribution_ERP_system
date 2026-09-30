@@ -15,6 +15,8 @@ import { DistributorTransferPropagationService } from '../distributor-transfer/s
 
 import { OrderPaperStatus, Prisma } from '../../../generated/prisma/client.js';
 import { BUSINESS_DEPENDENCY_REGISTER } from './dependency-register.js';
+import { PropagationOutboxRepository } from '../propagation-queue/propagation-outbox.repository.js';
+import { PROPAGATION_OUTBOX_TYPES } from '../propagation-queue/propagation-queue.constants.js';
 
 export interface DependencyExecutionContext {
   paperId: number;
@@ -29,6 +31,7 @@ export class DependencyOrchestratorService {
     private readonly clientTraysPropagationService: ClientTraysPropagationService,
     private readonly dairyTraysPropagationService: DairyTraysPropagationService,
     private readonly distributorTransferPropagationService: DistributorTransferPropagationService,
+    private readonly propagationOutboxRepository: PropagationOutboxRepository,
   ) {}
 
   async execute(
@@ -93,11 +96,16 @@ export class DependencyOrchestratorService {
         'sheetId is required for Orders → Client Trays propagation',
       );
     }
+
     if (context.paperStatus === OrderPaperStatus.REOPENED) {
-      // A correction made while REOPENED must also push the shifted
-      // closing balance forward — otherwise later sheets keep showing a
-      // stale opening balance until the next successful finalize.
-      await this.clientTraysPropagationService.propagateFromSheet(
+      await this.clientTraysPropagationService.recalculateFromSheet(
+        context.sheetId,
+        context.tx,
+      );
+
+      await this.propagationOutboxRepository.enqueue(
+        PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET,
+        context.paperId,
         context.sheetId,
         context.tx,
       );
@@ -131,8 +139,10 @@ export class DependencyOrchestratorService {
       throw new Error(`Invalid scope for ${dependency.id}: expected FORWARD`);
     }
 
-    await this.clientTraysPropagationService.propagateFromPaper(
+    await this.propagationOutboxRepository.enqueue(
+      PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_FORWARD,
       context.paperId,
+      null,
       context.tx,
     );
   }
@@ -145,8 +155,10 @@ export class DependencyOrchestratorService {
       throw new Error(`Invalid scope for ${dependency.id}: expected FORWARD`);
     }
 
-    await this.dairyTraysPropagationService.propagateFromPaper(
+    await this.propagationOutboxRepository.enqueue(
+      PROPAGATION_OUTBOX_TYPES.DAIRY_TRAYS_FORWARD,
       context.paperId,
+      null,
       context.tx,
     );
   }

@@ -86,6 +86,68 @@ export class PaperValidationService {
       );
     }
 
+    await this.runCompletionValidations(paperId, db);
+
+    return paper;
+  }
+
+  async validateFinalizeReadiness(paperId: number, db: PrismaOrTransaction) {
+    const paper = await this.paperRepository.findPaperById(paperId, db);
+
+    if (!paper) {
+      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    }
+
+    if (
+      paper.status !== OrderPaperStatus.MORNING_SUBMITTED &&
+      paper.status !== OrderPaperStatus.REOPENED
+    ) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.INVALID_STATUS_TRANSITION(
+          paper.status,
+          OrderPaperStatus.FINALIZED,
+        ),
+      );
+    }
+
+    // FIX C1 (production review): a REOPENED paper can have its purchases,
+    // dairy trays, client trays, vehicle allocations and distributor
+    // transfers edited before being finalized again. Previously only
+    // admin-collections and cash-settlement reconciliation were re-checked
+    // here, so an edit that broke purchase-vs-allocation completeness, tray
+    // return completeness, or transfer-rule coverage could sail through a
+    // second finalize even though the exact same check would have blocked
+    // the original morning submission. Re-running the full completion
+    // validation set here closes that gap. This intentionally duplicates
+    // the checks already run at MORNING_SUBMITTED time — a paper can only
+    // reach REOPENED after already passing them once, but "already passing
+    // once" is not a guarantee about the paper's *current* state after
+    // further edits.
+    if (paper.status === OrderPaperStatus.REOPENED) {
+      await this.runCompletionValidations(paperId, db);
+    }
+
+    const sheets = await this.paperRepository.getPaperSheets(paperId, db);
+
+    for (const sheet of sheets) {
+      await this.collectionsValidationService.validateAdminCollections(
+        sheet.id,
+        db,
+      );
+    }
+
+    await this.cashSettlementValidationService.validateReconciliationOnFinalize(
+      paperId,
+      db,
+    );
+
+    return paper;
+  }
+
+  private async runCompletionValidations(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
     const sheets = await this.paperRepository.getPaperSheets(paperId, db);
 
     for (const sheet of sheets) {
@@ -128,43 +190,5 @@ export class PaperValidationService {
       paperId,
       db,
     );
-
-    return paper;
-  }
-
-  async validateFinalizeReadiness(paperId: number, db: PrismaOrTransaction) {
-    const paper = await this.paperRepository.findPaperById(paperId, db);
-
-    if (!paper) {
-      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-    }
-
-    if (
-      paper.status !== OrderPaperStatus.MORNING_SUBMITTED &&
-      paper.status !== OrderPaperStatus.REOPENED
-    ) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.INVALID_STATUS_TRANSITION(
-          paper.status,
-          OrderPaperStatus.FINALIZED,
-        ),
-      );
-    }
-
-    const sheets = await this.paperRepository.getPaperSheets(paperId, db);
-
-    for (const sheet of sheets) {
-      await this.collectionsValidationService.validateAdminCollections(
-        sheet.id,
-        db,
-      );
-    }
-
-    await this.cashSettlementValidationService.validateReconciliationOnFinalize(
-      paperId,
-      db,
-    );
-
-    return paper;
   }
 }

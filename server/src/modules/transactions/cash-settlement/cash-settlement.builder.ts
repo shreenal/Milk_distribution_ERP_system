@@ -11,6 +11,7 @@ import {
 
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 import { CashSettlementCalculationService } from '../../../common/calculators/cash-settlement.calculator.js';
+import { toDecimal, toMoney } from '../../../common/utils/money.util.js';
 
 @Injectable()
 export class CashSettlementBuilder {
@@ -47,7 +48,7 @@ export class CashSettlementBuilder {
           routeNetCash,
 
           denominationTotal,
-          difference: routeNetCash - denominationTotal,
+          difference: toMoney(toDecimal(routeNetCash).minus(denominationTotal)),
         };
       },
     );

@@ -21,54 +21,54 @@ export class DairyTraysPropagationService {
     await this.recalculatePaper(paperId, tx);
   }
 
-  async propagateFromPaper(
-    startPaperId: number,
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    const startPaper = await this.dairyTraysRepository.findPaperById(
-      startPaperId,
-      tx,
-    );
+  // async propagateFromPaper(
+  //   startPaperId: number,
+  //   tx: Prisma.TransactionClient,
+  // ): Promise<void> {
+  //   const startPaper = await this.dairyTraysRepository.findPaperById(
+  //     startPaperId,
+  //     tx,
+  //   );
 
-    if (!startPaper) {
-      throw new NotFoundException(`Order paper ${startPaperId} not found`);
-    }
+  //   if (!startPaper) {
+  //     throw new NotFoundException(`Order paper ${startPaperId} not found`);
+  //   }
 
-    // Only the paper whose own purchase entries actually changed gets a
-    // full recompute of trays_taken.
-    await this.recalculatePaper(startPaperId, tx);
+  //   // Only the paper whose own purchase entries actually changed gets a
+  //   // full recompute of trays_taken.
+  //   await this.recalculatePaper(startPaperId, tx);
 
-    // Every paper after it only inherits the shifted opening balance —
-    // their own trays_taken/trays_returned must never be touched by
-    // someone else's correction or by tray-rule drift since they were
-    // last finalized.
-    let currentPaperId: number | null =
-      (
-        await this.dairyTraysRepository.getNextPaper(
-          startPaper.id,
-          startPaper.sale_date,
-          tx,
-        )
-      )?.id ?? null;
+  //   // Every paper after it only inherits the shifted opening balance —
+  //   // their own trays_taken/trays_returned must never be touched by
+  //   // someone else's correction or by tray-rule drift since they were
+  //   // last finalized.
+  //   let currentPaperId: number | null =
+  //     (
+  //       await this.dairyTraysRepository.getNextPaper(
+  //         startPaper.id,
+  //         startPaper.sale_date,
+  //         tx,
+  //       )
+  //     )?.id ?? null;
 
-    while (currentPaperId !== null) {
-      await this.cascadeOpeningBalance(currentPaperId, tx);
+  //   while (currentPaperId !== null) {
+  //     await this.cascadeOpeningBalance(currentPaperId, tx);
 
-      const paper = await this.dairyTraysRepository.findPaperById(
-        currentPaperId,
-        tx,
-      );
+  //     const paper = await this.dairyTraysRepository.findPaperById(
+  //       currentPaperId,
+  //       tx,
+  //     );
 
-      currentPaperId =
-        (
-          await this.dairyTraysRepository.getNextPaper(
-            paper!.id,
-            paper!.sale_date,
-            tx,
-          )
-        )?.id ?? null;
-    }
-  }
+  //     currentPaperId =
+  //       (
+  //         await this.dairyTraysRepository.getNextPaper(
+  //           paper!.id,
+  //           paper!.sale_date,
+  //           tx,
+  //         )
+  //       )?.id ?? null;
+  //   }
+  // }
 
   private async recalculatePaper(
     paperId: number,
@@ -400,5 +400,63 @@ export class DairyTraysPropagationService {
       transactions,
       tx,
     );
+  }
+
+  async propagateFromPaperChunk(
+    startPaperId: number,
+    resumeFromPaperId: number | null,
+    chunkSize: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<{ done: boolean; resumeFromPaperId?: number }> {
+    let steps = 0;
+    let cursorPaperId = resumeFromPaperId;
+
+    if (cursorPaperId === null) {
+      const startPaper = await this.dairyTraysRepository.findPaperById(
+        startPaperId,
+        tx,
+      );
+      if (!startPaper) {
+        throw new NotFoundException(`Order paper ${startPaperId} not found`);
+      }
+
+      await this.recalculatePaper(startPaperId, tx);
+      steps++;
+
+      const next = await this.dairyTraysRepository.getNextPaper(
+        startPaper.id,
+        startPaper.sale_date,
+        tx,
+      );
+
+      if (steps >= chunkSize) {
+        return { done: !next, resumeFromPaperId: next?.id };
+      }
+
+      cursorPaperId = next?.id ?? null;
+    }
+
+    while (cursorPaperId !== null) {
+      await this.cascadeOpeningBalance(cursorPaperId, tx);
+      steps++;
+
+      const paper = await this.dairyTraysRepository.findPaperById(
+        cursorPaperId,
+        tx,
+      );
+      const next = await this.dairyTraysRepository.getNextPaper(
+        paper!.id,
+        paper!.sale_date,
+        tx,
+      );
+
+      if (steps >= chunkSize && next) {
+        return { done: false, resumeFromPaperId: next.id };
+      }
+
+      cursorPaperId = next?.id ?? null;
+    }
+
+    return { done: true };
   }
 }

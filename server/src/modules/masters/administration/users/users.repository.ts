@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '../../../../generated/prisma/client.js';
 
+import { Prisma } from '../../../../generated/prisma/client.js';
 import { PrismaService } from '../../../../prisma/prisma.service.js';
 
 import { CreateUserDto } from './dto/create-user.dto.js';
@@ -14,7 +14,12 @@ const userSelect = {
   last_name: true,
   created_at: true,
   updated_at: true,
-  role: true,
+  is_active: true,
+  role: {
+    select: {
+      name: true,
+    },
+  },
 } satisfies Prisma.usersSelect;
 
 @Injectable()
@@ -33,7 +38,21 @@ export class UsersRepository {
   findById(id: number) {
     return this.prisma.users.findUnique({
       where: { id },
-      select: userSelect,
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        created_at: true,
+        updated_at: true,
+        is_active: true,
+        role: {
+          select: {
+            name: true,
+          },
+        },
+      },
     });
   }
 
@@ -49,8 +68,16 @@ export class UsersRepository {
   findByUsername(username: string) {
     return this.prisma.users.findUnique({
       where: { username },
-      include: {
-        role: true,
+      select: {
+        id: true,
+        username: true,
+        password: true,
+        is_active: true,
+        role: {
+          select: {
+            name: true,
+          },
+        },
       },
     });
   }

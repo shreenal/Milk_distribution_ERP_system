@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class DistributorTransferRepository {
@@ -168,9 +169,11 @@ export class DistributorTransferRepository {
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return db.order_paper.updateMany({
-      where: { id: paperId, updated_at: expectedUpdatedAt },
-      data: {},
-    });
+    return touchIfUnchanged(
+      db.order_paper,
+      { id: paperId },
+      'updated_at',
+      expectedUpdatedAt,
+    );
   }
 }

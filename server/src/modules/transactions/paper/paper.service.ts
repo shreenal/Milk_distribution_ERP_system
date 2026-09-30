@@ -191,7 +191,7 @@ export class PaperService {
     };
   }
 
-  async getPapersService(date?: string) {
+  async getPapersService(date?: string, page = 1, pageSize?: number) {
     if (date) {
       const [year, month, day] = date.split('-').map(Number);
 
@@ -215,12 +215,22 @@ export class PaperService {
       };
     }
 
-    const papers = await this.paperRepository.findAllPapers();
+    const {
+      papers,
+      total,
+      page: appliedPage,
+      pageSize: appliedPageSize,
+    } = await this.paperRepository.findAllPapers(page, pageSize);
 
-    return papers.map((paper) => ({
-      paper,
-      workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
-    }));
+    return {
+      total,
+      page: appliedPage,
+      pageSize: appliedPageSize,
+      items: papers.map((paper) => ({
+        paper,
+        workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+      })),
+    };
   }
 
   async submitNightEntryService(paperId: number) {

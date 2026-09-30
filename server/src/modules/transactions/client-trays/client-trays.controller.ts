@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Post, Body, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Post,
+  Body,
+  UseGuards,
+  ParseIntPipe,
+} from '@nestjs/common';
 import { ClientTraysService } from './client-trays.service.js';
 
 import { JwtAuthGuard } from '../auth/auth.guard.js';
@@ -10,6 +18,7 @@ import {
   SaveTrayEntriesRequestDto,
   SaveTrayReturnDto,
 } from './dto/save-trays-entries.dto.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('client-trays')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -19,7 +28,7 @@ export class ClientTraysController {
   @Get('sheet/:sheetId')
   @Roles('EMPLOYEE')
   async getTraySheet(
-    @Param('sheetId')
+    @Param('sheetId', ParseIntPipe)
     sheetId: string,
   ) {
     return this.clienttraysService.getTraySheetService(Number(sheetId));
@@ -27,9 +36,10 @@ export class ClientTraysController {
 
   @Post('sheet/:sheetId/save')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveTrayEntries(
-    @Param('sheetId')
-    sheetId: string,
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
 
     @Body() dto: SaveTrayEntriesRequestDto,
   ) {

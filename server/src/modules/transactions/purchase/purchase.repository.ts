@@ -4,6 +4,7 @@ import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { buildPurchaseKey } from '../../../common/utils/allocation-key.util.js';
 import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class PurchaseRepository {
@@ -377,16 +378,12 @@ export class PurchaseRepository {
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
   ): Promise<boolean> {
-    const result = await db.purchase_paper.updateMany({
-      where: {
-        id: purchasePaperId,
-        updated_at: expectedUpdatedAt,
-      },
-      data: {
-        updated_at: new Date(),
-      },
-    });
-
+    const result = await touchIfUnchanged(
+      db.purchase_paper,
+      { id: purchasePaperId },
+      'updated_at',
+      expectedUpdatedAt,
+    );
     return result.count === 1;
   }
 }

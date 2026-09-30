@@ -16,6 +16,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
 import { SavePurchaseDto } from './dto/purchase.dto.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('purchases')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -33,6 +34,7 @@ export class PurchaseController {
 
   @Post(':paperId')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   savePurchases(
     @Param('paperId', ParseIntPipe)
     paperId: number,

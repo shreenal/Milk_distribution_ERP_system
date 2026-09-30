@@ -16,17 +16,12 @@ import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
-import {
-  SaveNightEntriesDto,
-  SaveNightEntriesRequestDto,
-} from './dto/save-night-entries.dto.js';
-import {
-  SaveMorningEntriesDto,
-  SaveMorningEntriesRequestDto,
-} from './dto/save-morning-entries.dto.js';
+import { SaveNightEntriesRequestDto } from './dto/save-night-entries.dto.js';
+import { SaveMorningEntriesRequestDto } from './dto/save-morning-entries.dto.js';
 import { Query, ParseEnumPipe } from '@nestjs/common';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { AddProductDto } from './dto/add-product.dto.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -51,16 +46,17 @@ export class OrdersController {
   @Get('sheet/:sheetId/items')
   @Roles('EMPLOYEE')
   async getSheetItems(
-    @Param('sheetId')
-    sheetId: string,
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
   ) {
     return this.ordersService.getSheetItemsService(Number(sheetId));
   }
 
   @Post('sheet/:sheetId/night-save')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Roles('EMPLOYEE')
   async saveNightEntries(
-    @Param('sheetId') sheetId: string,
+    @Param('sheetId', ParseIntPipe) sheetId: number,
     @Body() dto: SaveNightEntriesRequestDto,
   ) {
     return await this.ordersService.saveNightEntriesService(
@@ -71,10 +67,11 @@ export class OrdersController {
   }
 
   @Post('sheet/:sheetId/morning-save')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @Roles('EMPLOYEE')
   async saveMorningEntries(
-    @Param('sheetId')
-    sheetId: string,
+    @Param('sheetId', ParseIntPipe)
+    sheetId: number,
     @Body() dto: SaveMorningEntriesRequestDto,
   ) {
     return this.ordersService.saveMorningEntriesService(

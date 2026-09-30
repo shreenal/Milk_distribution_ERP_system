@@ -1,4 +1,9 @@
 import { Injectable } from '@nestjs/common';
+import {
+  Decimal,
+  toDecimal,
+  toMoney,
+} from '../../../../common/utils/money.util.js';
 
 export interface FinalBillingResult {
   gstAmount: number;
@@ -15,26 +20,46 @@ export class FinalBillingService {
     gstInclusive: boolean,
     pricingQuantity: number,
   ): FinalBillingResult {
-    const billedQuantity = deliveredQty * pricingQuantity;
+    const billedQuantity = toDecimal(deliveredQty).times(
+      toDecimal(pricingQuantity),
+    );
+    const rate = toDecimal(sellingRate);
+    const gstPct = toDecimal(gstPercentage);
 
-    let taxableAmount = 0;
-    let gstAmount = 0;
-    let finalBillAmount = 0;
+    let taxableAmount: Decimal;
+    let gstAmount: Decimal;
+    let finalBillAmount: Decimal;
 
     if (gstInclusive) {
-      finalBillAmount = billedQuantity * sellingRate;
-      taxableAmount = finalBillAmount / (1 + gstPercentage / 100);
-      gstAmount = finalBillAmount - taxableAmount;
-    } else {
-      taxableAmount = billedQuantity * sellingRate;
-      gstAmount = taxableAmount * (gstPercentage / 100);
-      finalBillAmount = taxableAmount + gstAmount;
+      finalBillAmount = billedQuantity.times(rate);
+      taxableAmount = finalBillAmount.dividedBy(
+        new Decimal(1).plus(gstPct.dividedBy(100)),
+      );
+
+      const roundedFinal = toMoney(finalBillAmount);
+      const roundedTaxable = toMoney(taxableAmount);
+
+      return {
+        taxableAmount: roundedTaxable,
+        // L1: derive gst from the two already-rounded amounts instead of
+        // rounding an independently-computed gstAmount, so the three
+        // numbers always foot exactly (no stray ₹0.01).
+        gstAmount: Number((roundedFinal - roundedTaxable).toFixed(2)),
+        finalBillAmount: roundedFinal,
+      };
     }
 
+    taxableAmount = billedQuantity.times(rate);
+    gstAmount = taxableAmount.times(gstPct.dividedBy(100));
+    finalBillAmount = taxableAmount.plus(gstAmount);
+
+    const roundedTaxable = toMoney(taxableAmount);
+    const roundedFinal = toMoney(finalBillAmount);
+
     return {
-      taxableAmount: Number(taxableAmount.toFixed(2)),
-      gstAmount: Number(gstAmount.toFixed(2)),
-      finalBillAmount: Number(finalBillAmount.toFixed(2)),
+      taxableAmount: roundedTaxable,
+      gstAmount: Number((roundedFinal - roundedTaxable).toFixed(2)),
+      finalBillAmount: roundedFinal,
     };
   }
 }

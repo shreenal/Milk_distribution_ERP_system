@@ -7,6 +7,7 @@ import {
 } from '../../../types/transaction.types.js';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { Prisma } from '../../../generated/prisma/client.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class ClientTraysRepository {
@@ -294,17 +295,16 @@ export class ClientTraysRepository {
     });
   }
 
-async touchClientTraysIfUnchanged(
-  sheetId: number,
-  expectedUpdatedAt: Date | null,
-  db: PrismaOrTransaction = this.prisma,
-) {
-  return db.order_sheet.updateMany({
-    where: {
-      id: sheetId,
-      ...(expectedUpdatedAt !== null && { client_trays_updated_at: expectedUpdatedAt }),
-    },
-    data: { client_trays_updated_at: new Date() },
-  });
-}
+  async touchClientTraysIfUnchanged(
+    sheetId: number,
+    expectedUpdatedAt: Date | null,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return touchIfUnchanged(
+      db.order_sheet,
+      { id: sheetId },
+      'client_trays_updated_at',
+      expectedUpdatedAt,
+    );
+  }
 }

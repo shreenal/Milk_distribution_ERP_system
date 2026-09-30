@@ -9,86 +9,96 @@ import {
   DirectCollectionRowDto,
   RouteSettlementRowDto,
 } from '../../modules/transactions/cash-settlement/dto/cash-settlement-response.dto.js';
+import { Decimal, toDecimal, toMoney } from '../utils/money.util.js';
+
 @Injectable()
 export class CashSettlementCalculationService {
   getDenominationTotals(rows: DenominationRow[]): DenominationTotals {
-    return rows.reduce<DenominationTotals>(
-      (totals, row) => {
-        totals.note2000 += Number(row.note_2000 ?? 0);
-
-        totals.note500 += Number(row.note_500 ?? 0);
-
-        totals.note200 += Number(row.note_200 ?? 0);
-
-        totals.note100 += Number(row.note_100 ?? 0);
-
-        totals.note50 += Number(row.note_50 ?? 0);
-
-        totals.note20 += Number(row.note_20 ?? 0);
-
-        totals.note10 += Number(row.note_10 ?? 0);
-
-        totals.coins += Number(row.coins ?? 0);
-
-        return totals;
-      },
+    const totals = rows.reduce(
+      (acc, row) => ({
+        note2000: acc.note2000.plus(toDecimal(row.note_2000 ?? 0)),
+        note500: acc.note500.plus(toDecimal(row.note_500 ?? 0)),
+        note200: acc.note200.plus(toDecimal(row.note_200 ?? 0)),
+        note100: acc.note100.plus(toDecimal(row.note_100 ?? 0)),
+        note50: acc.note50.plus(toDecimal(row.note_50 ?? 0)),
+        note20: acc.note20.plus(toDecimal(row.note_20 ?? 0)),
+        note10: acc.note10.plus(toDecimal(row.note_10 ?? 0)),
+        coins: acc.coins.plus(toDecimal(row.coins ?? 0)),
+      }),
       {
-        note2000: 0,
-        note500: 0,
-        note200: 0,
-        note100: 0,
-        note50: 0,
-        note20: 0,
-        note10: 0,
-        coins: 0,
+        note2000: new Decimal(0),
+        note500: new Decimal(0),
+        note200: new Decimal(0),
+        note100: new Decimal(0),
+        note50: new Decimal(0),
+        note20: new Decimal(0),
+        note10: new Decimal(0),
+        coins: new Decimal(0),
       },
     );
+
+    return {
+      note2000: totals.note2000.toNumber(),
+      note500: totals.note500.toNumber(),
+      note200: totals.note200.toNumber(),
+      note100: totals.note100.toNumber(),
+      note50: totals.note50.toNumber(),
+      note20: totals.note20.toNumber(),
+      note10: totals.note10.toNumber(),
+      coins: toMoney(totals.coins),
+    };
   }
 
   getDenominationAmount(totals: DenominationTotals): number {
-    return (
-      totals.note2000 * 2000 +
-      totals.note500 * 500 +
-      totals.note200 * 200 +
-      totals.note100 * 100 +
-      totals.note50 * 50 +
-      totals.note20 * 20 +
-      totals.note10 * 10 +
-      totals.coins
-    );
+    const amount = toDecimal(totals.note2000)
+      .times(2000)
+      .plus(toDecimal(totals.note500).times(500))
+      .plus(toDecimal(totals.note200).times(200))
+      .plus(toDecimal(totals.note100).times(100))
+      .plus(toDecimal(totals.note50).times(50))
+      .plus(toDecimal(totals.note20).times(20))
+      .plus(toDecimal(totals.note10).times(10))
+      .plus(toDecimal(totals.coins));
+
+    return toMoney(amount);
   }
 
   getDenominationAmountFromRow(row: DenominationRow | null): number {
-    return (
-      Number(row?.note_2000 ?? 0) * 2000 +
-      Number(row?.note_500 ?? 0) * 500 +
-      Number(row?.note_200 ?? 0) * 200 +
-      Number(row?.note_100 ?? 0) * 100 +
-      Number(row?.note_50 ?? 0) * 50 +
-      Number(row?.note_20 ?? 0) * 20 +
-      Number(row?.note_10 ?? 0) * 10 +
-      Number(row?.coins ?? 0)
-    );
+    const amount = toDecimal(row?.note_2000 ?? 0)
+      .times(2000)
+      .plus(toDecimal(row?.note_500 ?? 0).times(500))
+      .plus(toDecimal(row?.note_200 ?? 0).times(200))
+      .plus(toDecimal(row?.note_100 ?? 0).times(100))
+      .plus(toDecimal(row?.note_50 ?? 0).times(50))
+      .plus(toDecimal(row?.note_20 ?? 0).times(20))
+      .plus(toDecimal(row?.note_10 ?? 0).times(10))
+      .plus(toDecimal(row?.coins ?? 0));
+
+    return toMoney(amount);
   }
 
   getRouteCash(sheet: RouteCashSheet): number {
-    return sheet.client_collection.reduce(
-      (sum, collection) => sum + Number(collection.cash_collection ?? 0),
-      0,
+    const total = sheet.client_collection.reduce(
+      (sum, collection) => sum.plus(toDecimal(collection.cash_collection ?? 0)),
+      new Decimal(0),
     );
+    return toMoney(total);
   }
 
   getRouteExpenseTotal(sheet: RouteCashSheet): number {
-    return (
-      sheet.cash_route_settlement?.expenses.reduce(
-        (sum, expense) => sum + Number(expense.amount),
-        0,
-      ) ?? 0
+    const total = (sheet.cash_route_settlement?.expenses ?? []).reduce(
+      (sum, expense) => sum.plus(toDecimal(expense.amount)),
+      new Decimal(0),
     );
+    return toMoney(total);
   }
 
   getRouteNetCash(sheet: RouteCashSheet): number {
-    return this.getRouteCash(sheet) - this.getRouteExpenseTotal(sheet);
+    return toMoney(
+      toDecimal(this.getRouteCash(sheet)).minus(
+        this.getRouteExpenseTotal(sheet),
+      ),
+    );
   }
 
   mergeDenominationTotals(
@@ -103,7 +113,7 @@ export class CashSettlementCalculationService {
       note50: first.note50 + second.note50,
       note20: first.note20 + second.note20,
       note10: first.note10 + second.note10,
-      coins: first.coins + second.coins,
+      coins: toMoney(toDecimal(first.coins).plus(toDecimal(second.coins))),
     };
   }
 
@@ -111,45 +121,72 @@ export class CashSettlementCalculationService {
     totalRouteNetCash: number,
     totalDirectCollections: number,
   ): number {
-    return totalRouteNetCash + totalDirectCollections;
+    return toMoney(toDecimal(totalRouteNetCash).plus(totalDirectCollections));
   }
 
   getTotalRouteNetCash(sheets: RouteCashSheet[]): number {
-    return sheets.reduce(
-      (total, sheet) => total + this.getRouteNetCash(sheet),
-      0,
+    const total = sheets.reduce(
+      (sum, sheet) => sum.plus(this.getRouteNetCash(sheet)),
+      new Decimal(0),
     );
+    return toMoney(total);
   }
 
   getTotalRouteCash(rows: RouteSettlementRowDto[]): number {
-    return rows.reduce((sum, row) => sum + row.routeCash, 0);
+    const total = rows.reduce(
+      (sum, row) => sum.plus(row.routeCash),
+      new Decimal(0),
+    );
+    return toMoney(total);
   }
 
   getTotalRouteExpenses(rows: RouteSettlementRowDto[]): number {
-    return rows.reduce((sum, row) => sum + row.expenseTotal, 0);
+    const total = rows.reduce(
+      (sum, row) => sum.plus(row.expenseTotal),
+      new Decimal(0),
+    );
+    return toMoney(total);
   }
 
   getTotalRouteNetCashFromSettlements(rows: RouteSettlementRowDto[]): number {
-    return rows.reduce((sum, row) => sum + row.routeNetCash, 0);
+    const total = rows.reduce(
+      (sum, row) => sum.plus(row.routeNetCash),
+      new Decimal(0),
+    );
+    return toMoney(total);
   }
 
   getTotalRouteDenominationCash(rows: RouteSettlementRowDto[]): number {
-    return rows.reduce((sum, row) => sum + row.denominationTotal, 0);
+    const total = rows.reduce(
+      (sum, row) => sum.plus(row.denominationTotal),
+      new Decimal(0),
+    );
+    return toMoney(total);
   }
 
   getTotalDirectCollectionCash(rows: DirectCollectionRowDto[]): number {
-    return rows.reduce((sum, row) => sum + row.collectionAmount, 0);
+    const total = rows.reduce(
+      (sum, row) => sum.plus(row.collectionAmount),
+      new Decimal(0),
+    );
+    return toMoney(total);
   }
 
   getTotalDeposits(rows: BankDepositRowDto[]): number {
-    return rows.reduce((sum, row) => sum + row.depositAmount, 0);
+    const total = rows.reduce(
+      (sum, row) => sum.plus(row.depositAmount),
+      new Decimal(0),
+    );
+    return toMoney(total);
   }
 
   getRevisedCashBeforeDeposits(
     totalRouteNetCash: number,
     historicalDirectCollectionCash: number,
   ): number {
-    return totalRouteNetCash + historicalDirectCollectionCash;
+    return toMoney(
+      toDecimal(totalRouteNetCash).plus(historicalDirectCollectionCash),
+    );
   }
 
   getHistoricalCashOnHand(
@@ -157,10 +194,10 @@ export class CashSettlementCalculationService {
     historicalDirectCollectionCash: number,
     totalDeposits: number,
   ): number {
-    return (
-      historicalRouteDenominationCash +
-      historicalDirectCollectionCash -
-      totalDeposits
+    return toMoney(
+      toDecimal(historicalRouteDenominationCash)
+        .plus(historicalDirectCollectionCash)
+        .minus(totalDeposits),
     );
   }
 
@@ -168,42 +205,38 @@ export class CashSettlementCalculationService {
     revisedCashOnHand: number,
     historicalCashOnHand: number,
   ): number {
-    return revisedCashOnHand - historicalCashOnHand;
+    return toMoney(toDecimal(revisedCashOnHand).minus(historicalCashOnHand));
   }
 
   getCashInHandAfterDeposits(
     officeCash: number,
     totalDeposits: number,
   ): number {
-    return officeCash - totalDeposits;
+    return toMoney(toDecimal(officeCash).minus(totalDeposits));
   }
 
   getRouteCashFromCollections(
-    collections: {
-      cash_collection: unknown;
-    }[],
+    collections: { cash_collection: unknown }[],
   ): number {
-    return collections.reduce(
-      (sum, collection) => sum + Number(collection.cash_collection ?? 0),
-      0,
+    const total = collections.reduce(
+      (sum, c) => sum.plus(toDecimal(c.cash_collection ?? 0)),
+      new Decimal(0),
     );
+    return toMoney(total);
   }
 
-  getRouteExpenseTotalFromExpenses(
-    expenses: {
-      amount: unknown;
-    }[],
-  ): number {
-    return expenses.reduce(
-      (sum, expense) => sum + Number(expense.amount ?? 0),
-      0,
+  getRouteExpenseTotalFromExpenses(expenses: { amount: unknown }[]): number {
+    const total = expenses.reduce(
+      (sum, e) => sum.plus(toDecimal(e.amount ?? 0)),
+      new Decimal(0),
     );
+    return toMoney(total);
   }
 
   getRevisedCashOnHand(
     revisedOfficeCash: number,
     historicalDeposits: number,
   ): number {
-    return revisedOfficeCash - historicalDeposits;
+    return toMoney(toDecimal(revisedOfficeCash).minus(historicalDeposits));
   }
 }

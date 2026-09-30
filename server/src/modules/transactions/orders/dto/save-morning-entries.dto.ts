@@ -6,6 +6,7 @@ import {
   IsISO8601,
   IsOptional,
   ValidateNested,
+  ArrayMaxSize,
 } from 'class-validator';
 // save-night-entries.dto.ts / save-morning-entries.dto.ts
 import { QUANTITY_PRECISION } from '../orders.constants.js';
@@ -28,6 +29,7 @@ export class SaveMorningEntriesDto {
 
 export class SaveMorningEntriesRequestDto {
   @IsArray()
+  @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => SaveMorningEntriesDto)
   entries!: SaveMorningEntriesDto[];

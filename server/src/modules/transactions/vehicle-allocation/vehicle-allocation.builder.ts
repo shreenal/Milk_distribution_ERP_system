@@ -65,10 +65,6 @@ export class VehicleAllocationBuilder {
       allocations.push({
         distributor: {
           id: summary.distributorId,
-          // FIX F6 (consistency review): Vehicle Allocation previously
-          // returned only the distributor id, forcing the UI to display a
-          // raw number (see VehicleAllocationSection.tsx) while Purchase's
-          // equivalent response already included a name.
           name: summary.distributorName,
         },
         category: summary.category,
@@ -92,24 +88,45 @@ export class VehicleAllocationBuilder {
     savedAllocations: VehicleAllocation[],
   ) {
     const result = structuredClone(allocationGrids);
+    const gridByKey = new Map<string, (typeof result.allocations)[number]>();
+    for (const grid of result.allocations) {
+      for (const row of grid.rows) {
+        for (const field of Object.keys(row)) {
+          if (!field.startsWith('product_')) continue;
+          // FIX H1 (round 2 review): see purchase.builder.ts — key by
+          // distributor+category+field so the same product in two
+          // distributors' grids doesn't collide.
+          const key = `${grid.distributor.id}_${grid.category}_${field}`;
+          if (!gridByKey.has(key)) {
+            gridByKey.set(key, grid);
+          }
+        }
+      }
+    }
+
+    const rowIndexByGrid = new Map<
+      (typeof result.allocations)[number],
+      Map<number, VehicleAllocationRow>
+    >();
 
     for (const allocation of savedAllocations) {
       const field = `product_${allocation.product_id}`;
 
-      const grid = result.allocations.find(
-        (g) =>
-          g.distributor.id === allocation.distributor_id &&
-          g.category === allocation.category &&
-          g.rows.some((row) => field in row),
+      const grid = gridByKey.get(
+        `${allocation.distributor_id}_${allocation.category}_${field}`,
       );
 
       if (!grid) {
         continue;
       }
 
-      const row = grid.rows.find(
-        (vehicle) => vehicle.vehicleId === allocation.vehicle_id,
-      );
+      let rowIndex = rowIndexByGrid.get(grid);
+      if (!rowIndex) {
+        rowIndex = new Map(grid.rows.map((row) => [row.vehicleId, row]));
+        rowIndexByGrid.set(grid, rowIndex);
+      }
+
+      const row = rowIndex.get(allocation.vehicle_id);
 
       if (row) {
         row[field] = Number(allocation.allocated_qty);

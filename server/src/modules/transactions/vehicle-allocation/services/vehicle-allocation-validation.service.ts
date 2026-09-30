@@ -12,6 +12,11 @@ import {
 import { OrderItemsRepository } from '../../../../common/repositories/order-items.repository.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { AllocationGridResult } from '../../../../types/vehicle-allocation.types.js';
+import {
+  moneyEquals,
+  toDecimal,
+  toMoney,
+} from '../../../../common/utils/money.util.js';
 
 @Injectable()
 export class VehicleAllocationValidationService {
@@ -42,8 +47,6 @@ export class VehicleAllocationValidationService {
     const session = this.workflowState.getActiveExecutionSession(paper.status);
     const summaries = await this.getGroupSummary(paperId, session, db);
 
-    // Only (distributor, category, product) combos actually resolved for
-    // this order's items are valid allocation targets.
     const requiredKeys = new Set<string>();
     for (const summary of summaries) {
       for (const product of summary.products) {
@@ -66,17 +69,6 @@ export class VehicleAllocationValidationService {
     }
   }
 
-  /**
-   * Business restriction: within a vehicle_allocation_paper (i.e. a single
-   * paper/session), all positive allocations for a given (vehicleId,
-   * category) must belong to exactly one distributorId. A vehicle cannot
-   * source the same category from two distributors in one session.
-   *
-   * This replaces the old vehicle_distribution_assignment table/validation.
-   * distributor_id on vehicle_allocation is now the sole source of truth —
-   * this check just enforces that all rows for a (vehicle, category) group
-   * agree on it.
-   */
   validateSingleDistributorPerVehicleCategory(
     dto: SaveVehicleAllocationDto,
   ): void {
@@ -147,26 +139,25 @@ export class VehicleAllocationValidationService {
   private validateCoverage(allocationGrid: AllocationGridResult): void {
     for (const allocation of allocationGrid.allocations) {
       for (const [field, requiredQty] of Object.entries(allocation.totals)) {
-        let allocatedQty = 0;
+        const allocatedQty = allocation.rows.reduce(
+          (sum, row) => sum.plus(toDecimal(row[field] ?? 0)),
+          toDecimal(0),
+        );
 
-        for (const row of allocation.rows) {
-          allocatedQty += Number(row[field] ?? 0);
-        }
-
-        if (allocatedQty !== Number(requiredQty)) {
+        // M1: was `allocatedQty !== Number(requiredQty)` on values summed
+        // as native floats — legitimate quantities like 0.1 + 0.2 could
+        // false-positive an "allocation mismatch" and block night/morning
+        // submit. 0.005 tolerance matches the reconciliation tolerance
+        // used elsewhere (cash-settlement-validation.service.ts).
+        if (!moneyEquals(allocatedQty, toDecimal(requiredQty), 0.005)) {
           throw new BadRequestException(
-            `${allocation.brand.name} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${allocatedQty}`,
+            `${allocation.brand.name} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${toMoney(allocatedQty)}`,
           );
         }
       }
     }
   }
 
-  /**
-   * Submit-time defense-in-depth: re-checks the same single-distributor
-   * invariant against persisted rows, mirroring how coverage is rechecked
-   * here rather than trusted purely from save-time validation.
-   */
   private validateSingleDistributorFromGrid(
     allocationGrid: AllocationGridResult,
   ): void {
@@ -267,24 +258,23 @@ export class VehicleAllocationValidationService {
     dto: SaveVehicleAllocationDto,
     db: PrismaOrTransaction,
   ): Promise<void> {
-    const invalidAllocations: string[] = [];
+    const candidates = dto.allocations.filter((a) => a.allocatedQty > 0);
 
-    for (const allocation of dto.allocations) {
-      if (allocation.allocatedQty <= 0) continue;
+    const linkMap = await this.vehicleAllocationRepository.getProductLinksBatch(
+      candidates.map((a) => ({
+        distributorId: a.distributorId,
+        productId: a.productId,
+      })),
+      db,
+      true,
+    );
 
-      const productLink = await this.vehicleAllocationRepository.getProductLink(
-        allocation.distributorId,
-        allocation.productId,
-        db,
-        true,
+    const invalidAllocations = candidates
+      .filter((a) => !linkMap.has(`${a.distributorId}_${a.productId}`))
+      .map(
+        (a) =>
+          `Distributor ${a.distributorId} does not have an active link to Product ${a.productId}`,
       );
-
-      if (!productLink) {
-        invalidAllocations.push(
-          `Distributor ${allocation.distributorId} does not have an active link to Product ${allocation.productId}`,
-        );
-      }
-    }
 
     if (invalidAllocations.length > 0) {
       throw new BadRequestException({

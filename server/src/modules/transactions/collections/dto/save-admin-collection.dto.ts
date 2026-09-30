@@ -8,6 +8,7 @@ import {
   IsArray,
   ValidateNested,
   IsISO8601,
+  ArrayMaxSize,
 } from 'class-validator';
 
 export class AdminCollectionEntryDto {
@@ -30,6 +31,7 @@ export class AdminCollectionEntryDto {
 
 export class SaveAdminCollectionsDto {
   @IsArray()
+  @ArrayMaxSize(1000)
   @ValidateNested({ each: true })
   @Type(() => AdminCollectionEntryDto)
   entries!: AdminCollectionEntryDto[];

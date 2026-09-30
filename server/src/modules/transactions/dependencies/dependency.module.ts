@@ -5,9 +5,15 @@ import { DependencyOrchestratorService } from './dependency-orchestrator.service
 import { ClientTraysModule } from '../client-trays/client-trays.module.js';
 import { DairyTraysModule } from '../dairy-trays/dairy-trays.module.js';
 import { DistributorTransferModule } from '../distributor-transfer/distributor-transfer.module.js';
+import { PropagationQueueModule } from '../propagation-queue/propagation-queue.module.js';
 
 @Module({
-  imports: [ClientTraysModule, DairyTraysModule, DistributorTransferModule],
+  imports: [
+    ClientTraysModule,
+    DairyTraysModule,
+    DistributorTransferModule,
+    PropagationQueueModule,
+  ],
   providers: [DependencyOrchestratorService],
   exports: [DependencyOrchestratorService],
 })

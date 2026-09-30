@@ -22,6 +22,7 @@ import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 
 import { Roles } from '../auth/roles.decorator.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('cash-settlement')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -39,6 +40,7 @@ export class CashSettlementController {
 
   @Post(':paperId/route-expenses')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveRouteExpenses(
     @Param('paperId', ParseIntPipe)
     paperId: number,
@@ -51,6 +53,7 @@ export class CashSettlementController {
 
   @Post(':paperId/route-denominations')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveRouteDenominations(
     @Param('paperId', ParseIntPipe)
     paperId: number,
@@ -66,6 +69,7 @@ export class CashSettlementController {
 
   @Post(':paperId/direct-collections')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveDirectCollections(
     @Param('paperId', ParseIntPipe)
     paperId: number,
@@ -81,6 +85,7 @@ export class CashSettlementController {
 
   @Post(':paperId/bank-deposits')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveBankDeposits(
     @Param('paperId', ParseIntPipe)
     paperId: number,

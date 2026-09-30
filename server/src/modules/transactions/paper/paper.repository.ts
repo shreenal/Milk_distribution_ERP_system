@@ -4,16 +4,31 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 
+export const PAPER_LIST_DEFAULT_PAGE_SIZE = 50;
+export const PAPER_LIST_MAX_PAGE_SIZE = 200;
+
 @Injectable()
 export class PaperRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAllPapers(db: PrismaOrTransaction = this.prisma) {
-    return db.order_paper.findMany({
-      orderBy: {
-        sale_date: 'desc',
-      },
-    });
+  async findAllPapers(
+    page = 1,
+    pageSize = PAPER_LIST_DEFAULT_PAGE_SIZE,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const take = Math.min(pageSize, PAPER_LIST_MAX_PAGE_SIZE);
+    const skip = (Math.max(page, 1) - 1) * take;
+
+    const [papers, total] = await Promise.all([
+      db.order_paper.findMany({
+        orderBy: { sale_date: 'desc' },
+        take,
+        skip,
+      }),
+      db.order_paper.count(),
+    ]);
+
+    return { papers, total, page: Math.max(page, 1), pageSize: take };
   }
 
   async findPaperBySaleDate(
@@ -50,30 +65,30 @@ export class PaperRepository {
   }
 
   async findLatestPaper(db: PrismaOrTransaction = this.prisma) {
-  return db.order_paper.findFirst({
-    orderBy: {
-      order_date: 'desc',
-    },
+    return db.order_paper.findFirst({
+      orderBy: {
+        order_date: 'desc',
+      },
 
-    include: {
-      order_sheet: {
-        include: {
-          master_group: {
-            select: {
-              id: true,
-              name: true,
-              delivery_session: true,
+      include: {
+        order_sheet: {
+          include: {
+            master_group: {
+              select: {
+                id: true,
+                name: true,
+                delivery_session: true,
+              },
             },
           },
-        },
 
-        orderBy: {
-          id: 'asc',
+          orderBy: {
+            id: 'asc',
+          },
         },
       },
-    },
-  });
-}
+    });
+  }
 
   async findPaperById(paperId: number, db: PrismaOrTransaction = this.prisma) {
     return db.order_paper.findUnique({

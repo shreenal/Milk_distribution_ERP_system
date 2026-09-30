@@ -14,6 +14,7 @@ import { SaveDairyTrayEntriesDto } from './dto/save-dairy-tray-entries.dto.js';
 import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('dairy-trays')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -31,6 +32,7 @@ export class DairyTraysController {
 
   @Post(':paperId/save')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   saveDairyTrayEntries(
     @Param('paperId', ParseIntPipe)
     paperId: number,

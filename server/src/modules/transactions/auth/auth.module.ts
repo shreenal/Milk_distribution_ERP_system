@@ -11,11 +11,14 @@ import { JwtStrategy } from './jwt.strategy.js';
 import { PassportModule } from '@nestjs/passport';
 import { RolesGuard } from './roles.guard.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { RefreshTokenRepository } from './refresh-token.repository.js';
+import { PrismaModule } from '../../../prisma/prisma.module.js';
 
 @Module({
   imports: [
     PassportModule,
     UsersModule,
+    PrismaModule,
 
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -23,7 +26,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('SECRET'),
         signOptions: {
-          expiresIn: '1d',
+          expiresIn: config.get<string>('ACCESS_TOKEN_TTL', '15m') as any,
         },
       }),
     }),
@@ -31,6 +34,6 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 
   controllers: [AuthController],
 
-  providers: [AuthService, UsersModule, JwtStrategy, RolesGuard],
+  providers: [AuthService, JwtStrategy, RolesGuard, RefreshTokenRepository],
 })
 export class AuthModule {}

@@ -7,6 +7,7 @@ import {
   SupplyCategory,
 } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class OrdersRepository {
@@ -845,17 +846,260 @@ export class OrdersRepository {
     return new Map(links.map((l) => [l.distributor_id, l]));
   }
 
-async touchOrderItemsIfUnchanged(
-  sheetId: number,
-  expectedUpdatedAt: Date | null,
-  db: PrismaOrTransaction = this.prisma,
-) {
-  return db.order_sheet.updateMany({
-    where: {
-      id: sheetId,
-      ...(expectedUpdatedAt !== null && { order_items_updated_at: expectedUpdatedAt }),
-    },
-    data: { order_items_updated_at: new Date() },
-  });
-}
+  async getProductsWithGroupBatch(
+    productIds: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const products = await db.master_product.findMany({
+      where: { id: { in: productIds } },
+      include: {
+        master_product_group: { select: { name: true, category: true } },
+      },
+    });
+    return new Map(products.map((p) => [p.id, p]));
+  }
+
+  async getClientCategorySuppliersBatch(
+    pairs: { clientId: number; category: SupplyCategory }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const map = new Map<string, number>();
+    if (pairs.length === 0) return map;
+
+    const rows = await db.master_client_category.findMany({
+      where: {
+        OR: pairs.map((p) => ({ client_id: p.clientId, category: p.category })),
+      },
+      select: {
+        client_id: true,
+        category: true,
+        supplier_distributor_id: true,
+      },
+    });
+
+    for (const row of rows) {
+      map.set(`${row.client_id}_${row.category}`, row.supplier_distributor_id);
+    }
+    return map;
+  }
+
+  async getProcurementRulesBatch(
+    triples: {
+      brandId: number;
+      category: SupplyCategory;
+      productGroupId: number;
+    }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const map = new Map<string, number[]>();
+    if (triples.length === 0) return map;
+
+    const rows = await db.distributor_procurement_rule.findMany({
+      where: {
+        is_active: true,
+        OR: triples.map((t) => ({
+          brand_id: t.brandId,
+          category: t.category,
+          product_group_id: t.productGroupId,
+        })),
+      },
+      select: {
+        brand_id: true,
+        category: true,
+        product_group_id: true,
+        distributor_id: true,
+      },
+    });
+
+    for (const row of rows) {
+      const key = `${row.brand_id}_${row.category}_${row.product_group_id}`;
+      const list = map.get(key) ?? [];
+      list.push(row.distributor_id);
+      map.set(key, list);
+    }
+    return map;
+  }
+
+  async getProductPrioritiesBatch(
+    pairs: { groupId: number; productId: number }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const map = new Map<string, Map<number, number>>();
+    if (pairs.length === 0) return map;
+
+    const rows = await db.distributor_product_priority.findMany({
+      where: {
+        is_active: true,
+        OR: pairs.map((p) => ({
+          group_id: p.groupId,
+          product_id: p.productId,
+        })),
+      },
+      orderBy: { priority: 'asc' },
+      select: {
+        group_id: true,
+        product_id: true,
+        distributor_id: true,
+        priority: true,
+      },
+    });
+
+    for (const row of rows) {
+      const key = `${row.group_id}_${row.product_id}`;
+      const inner = map.get(key) ?? new Map<number, number>();
+      if (!inner.has(row.distributor_id)) {
+        inner.set(row.distributor_id, row.priority);
+      }
+      map.set(key, inner);
+    }
+    return map;
+  }
+
+  async getProductLinksForPairsBatch(
+    pairs: { distributorId: number; productId: number }[],
+    db: PrismaOrTransaction = this.prisma,
+    activeOnly = false,
+  ) {
+    const map = new Map<
+      string,
+      { id: number; distributor_id: number; product_id: number }
+    >();
+    if (pairs.length === 0) return map;
+
+    const links = await db.master_product_link.findMany({
+      where: {
+        OR: pairs.map((p) => ({
+          distributor_id: p.distributorId,
+          product_id: p.productId,
+        })),
+        ...(activeOnly ? { is_active: true } : {}),
+      },
+      select: { id: true, distributor_id: true, product_id: true },
+    });
+
+    for (const link of links) {
+      map.set(`${link.distributor_id}_${link.product_id}`, link);
+    }
+    return map;
+  }
+
+  async upsertSheetEntriesBatch(
+    rows: {
+      order_sheet_id: number;
+      client_id: number;
+      product_id: number;
+      product_link_id: number;
+      ordered_qty: number;
+      night_selling_rate: number | null;
+      night_bill_amount: number;
+      tray_type_id: number | null;
+      units_per_order_unit: number;
+      pricing_quantity: number;
+      pricing_unit: PricingUnit;
+      delivered_qty: number | null;
+      final_selling_rate: number | null;
+      final_gst_percentage: number | null;
+      final_gst_amount: number | null;
+      final_taxable_amount: number | null;
+      final_bill_amount: number | null;
+    }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    if (rows.length === 0) return;
+
+    const values = Prisma.join(
+      rows.map(
+        (r) =>
+          Prisma.sql`(${r.order_sheet_id}, ${r.client_id}, ${r.product_id}, ${r.product_link_id}, ${r.ordered_qty}, ${r.night_selling_rate}, ${r.night_bill_amount}, ${r.tray_type_id}, ${r.units_per_order_unit}, ${r.pricing_quantity}, ${r.pricing_unit}::"PricingUnit", ${r.delivered_qty}, ${r.final_selling_rate}, ${r.final_gst_percentage}, ${r.final_gst_amount}, ${r.final_taxable_amount}, ${r.final_bill_amount}, now(), now())`,
+      ),
+    );
+
+    await db.$executeRaw(Prisma.sql`
+      INSERT INTO order_sheet_items
+        (order_sheet_id, client_id, product_id, product_link_id, ordered_qty,
+         night_selling_rate, night_bill_amount, tray_type_id,
+         units_per_order_unit, pricing_quantity, pricing_unit,
+         delivered_qty, final_selling_rate, final_gst_percentage,
+         final_gst_amount, final_taxable_amount, final_bill_amount,
+         created_at, updated_at)
+      VALUES ${values}
+      ON CONFLICT (order_sheet_id, client_id, product_link_id)
+      DO UPDATE SET
+        ordered_qty = EXCLUDED.ordered_qty,
+        night_selling_rate = COALESCE(EXCLUDED.night_selling_rate, order_sheet_items.night_selling_rate),
+        night_bill_amount = EXCLUDED.night_bill_amount,
+        delivered_qty = COALESCE(EXCLUDED.delivered_qty, order_sheet_items.delivered_qty),
+        final_selling_rate = COALESCE(EXCLUDED.final_selling_rate, order_sheet_items.final_selling_rate),
+        final_gst_percentage = COALESCE(EXCLUDED.final_gst_percentage, order_sheet_items.final_gst_percentage),
+        final_gst_amount = COALESCE(EXCLUDED.final_gst_amount, order_sheet_items.final_gst_amount),
+        final_taxable_amount = COALESCE(EXCLUDED.final_taxable_amount, order_sheet_items.final_taxable_amount),
+        final_bill_amount = COALESCE(EXCLUDED.final_bill_amount, order_sheet_items.final_bill_amount),
+        updated_at = EXCLUDED.updated_at
+        -- tray_type_id, units_per_order_unit, pricing_quantity, pricing_unit
+        -- intentionally NOT updated: frozen after creation (unchanged rule).
+    `);
+  }
+
+  /**
+   * H9: batched replacement for the per-entry `tx.order_sheet_items.update`
+   * loop in saveMorningEntriesBatch. Every row here is known to already
+   * exist (callers only include entries with a resolved existingItem), so
+   * this is a plain set-based UPDATE, not an upsert.
+   */
+  async updateDeliveredEntriesBatch(
+    rows: {
+      order_sheet_id: number;
+      client_id: number;
+      product_link_id: number;
+      delivered_qty: number;
+      final_selling_rate: number;
+      final_gst_percentage: number;
+      final_gst_amount: number;
+      final_taxable_amount: number;
+      final_bill_amount: number;
+    }[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    if (rows.length === 0) return;
+
+    const values = Prisma.join(
+      rows.map(
+        (r) =>
+          Prisma.sql`(${r.order_sheet_id}, ${r.client_id}, ${r.product_link_id}, ${r.delivered_qty}, ${r.final_selling_rate}, ${r.final_gst_percentage}, ${r.final_gst_amount}, ${r.final_taxable_amount}, ${r.final_bill_amount})`,
+      ),
+    );
+
+    await db.$executeRaw(Prisma.sql`
+      UPDATE order_sheet_items AS osi
+      SET
+        delivered_qty = v.delivered_qty,
+        final_selling_rate = v.final_selling_rate,
+        final_gst_percentage = v.final_gst_percentage,
+        final_gst_amount = v.final_gst_amount,
+        final_taxable_amount = v.final_taxable_amount,
+        final_bill_amount = v.final_bill_amount,
+        updated_at = now()
+      FROM (VALUES ${values}) AS v(
+        order_sheet_id, client_id, product_link_id, delivered_qty,
+        final_selling_rate, final_gst_percentage, final_gst_amount,
+        final_taxable_amount, final_bill_amount
+      )
+      WHERE osi.order_sheet_id = v.order_sheet_id
+        AND osi.client_id = v.client_id
+        AND osi.product_link_id = v.product_link_id
+    `);
+  }
+
+  async touchOrderItemsIfUnchanged(
+    sheetId: number,
+    expectedUpdatedAt: Date | null,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return touchIfUnchanged(
+      db.order_sheet,
+      { id: sheetId },
+      'order_items_updated_at',
+      expectedUpdatedAt,
+    );
+  }
 }

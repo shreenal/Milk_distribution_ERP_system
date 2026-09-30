@@ -3,7 +3,6 @@ import {
   Logger,
   BadRequestException,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
 import { ClientTraysRepository } from './client-trays.repository.js';
 import { ClientTraysBuilder } from './client-trays.builder.js';
@@ -45,7 +44,7 @@ export class ClientTraysService {
     private readonly clientTraysPropagationService: ClientTraysPropagationService,
 
     private readonly prisma: PrismaService,
-  ) { }
+  ) {}
   async getTraySheetService(sheetId: number, tx?: TransactionClient) {
     const run = async (t: TransactionClient) => {
       const sheet = await this.clienttraysRepository.findSheetById(sheetId, t);
@@ -177,13 +176,12 @@ export class ClientTraysService {
 
           const traySheet = await this.getTraySheetService(sheetId, tx);
 
-          const trayRows = [
-            ...traySheet.milkTrayGrid.rows,
-            ...traySheet.nonMilkTrayGrid.rows,
-          ];
+          const trayTypeIdFromField = (field: string): number | null => {
+            const match = /^tray_(\d+)_opening$/.exec(field);
+            return match ? Number(match[1]) : null;
+          };
 
-          const transactionEntries: TrayTransactionEntry[] = [];
-
+          const submittedByKey = new Map<string, SaveTrayReturnDto>();
           for (const entry of entries) {
             const returned = Number(entry.returned ?? 0);
 
@@ -193,37 +191,89 @@ export class ClientTraysService {
               );
             }
 
-            const field = `tray_${entry.trayTypeId}`;
+            submittedByKey.set(`${entry.clientId}_${entry.trayTypeId}`, entry);
+          }
 
-            const trayRow = trayRows.find(
-              (row) =>
-                row.clientId === entry.clientId && row[field] !== undefined,
-            );
+          const trayRows = [
+            ...traySheet.milkTrayGrid.rows,
+            ...traySheet.nonMilkTrayGrid.rows,
+          ];
 
-            if (!trayRow) {
-              throw new BadRequestException(
-                CLIENT_TRAY_ERROR_MESSAGES.TRAY_ROW_NOT_FOUND(entry.clientId),
-              );
+          const trayTotals = new Map<
+            string,
+            {
+              clientId: number;
+              trayTypeId: number;
+              opening: number;
+              trays: number;
+              returnedFallback: number;
             }
+          >();
 
-            const opening = Number(
-              trayRow[`tray_${entry.trayTypeId}_opening`] ?? 0,
-            );
+          for (const trayRow of trayRows) {
+            for (const field of Object.keys(trayRow)) {
+              const trayTypeId = trayTypeIdFromField(field);
+              if (trayTypeId === null) continue;
 
-            const trays = Number(trayRow[`tray_${entry.trayTypeId}`] ?? 0);
+              const key = `${trayRow.clientId}_${trayTypeId}`;
+              const opening = Number(
+                trayRow[`tray_${trayTypeId}_opening`] ?? 0,
+              );
+              const trays = Number(trayRow[`tray_${trayTypeId}`] ?? 0);
+              const returnedFallback = Number(
+                trayRow[`tray_${trayTypeId}_returned`] ?? 0,
+              );
+
+              const existing = trayTotals.get(key);
+              if (existing) {
+                // L6: a client can have this tray type on both a milk
+                // and a non-milk item. Sum trays taken from each grid
+                // instead of discarding the second one — opening/returned
+                // are the same either way (sourced from the one saved
+                // client_tray_transaction row, not per-category).
+                existing.trays += trays;
+              } else {
+                trayTotals.set(key, {
+                  clientId: trayRow.clientId,
+                  trayTypeId,
+                  opening,
+                  trays,
+                  returnedFallback,
+                });
+              }
+            }
+          }
+
+          const transactionEntries: TrayTransactionEntry[] = [];
+
+          for (const [, totals] of trayTotals) {
+            const key = `${totals.clientId}_${totals.trayTypeId}`;
+            const submitted = submittedByKey.get(key);
+            const returned =
+              submitted !== undefined
+                ? Number(submitted.returned ?? 0)
+                : totals.returnedFallback;
 
             const transaction = this.trayCalculationService.buildTransaction(
-              opening,
-              trays,
+              totals.opening,
+              totals.trays,
               returned,
             );
 
             transactionEntries.push({
               order_sheet_id: sheetId,
-              client_id: entry.clientId,
-              tray_type_id: entry.trayTypeId,
+              client_id: totals.clientId,
+              tray_type_id: totals.trayTypeId,
               ...transaction,
             });
+          }
+
+          for (const [key, entry] of submittedByKey) {
+            if (!trayTotals.has(key)) {
+              throw new BadRequestException(
+                CLIENT_TRAY_ERROR_MESSAGES.TRAY_ROW_NOT_FOUND(entry.clientId),
+              );
+            }
           }
 
           await this.clienttraysRepository.replaceTrayTransactions(
@@ -231,10 +281,6 @@ export class ClientTraysService {
             tx,
           );
 
-          // Intentional exception: this is an internal Client Trays recalculation
-          // triggered by Client Trays' own save, not a cross-module dependency —
-          // not routed through DependencyOrchestratorService, and not in the
-          // business dependency register for that reason.
           await this.clientTraysPropagationService.recalculateFromSheet(
             sheetId,
             tx,

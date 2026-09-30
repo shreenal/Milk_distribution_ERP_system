@@ -56,7 +56,7 @@ export class OrdersService {
     private readonly workflowBuilder: WorkflowBuilder,
 
     private readonly dependencyOrchestrator: DependencyOrchestratorService,
-  ) { }
+  ) {}
 
   async getAvailableProducts(category: SupplyCategory) {
     return this.ordersRepository.findAvailableProducts(category);
@@ -306,7 +306,11 @@ export class OrdersService {
                 STALE_DATA_MESSAGE,
               );
             } else {
-              await this.ordersRepository.touchOrderItemsIfUnchanged(sheetId, null, tx);
+              await this.ordersRepository.touchOrderItemsIfUnchanged(
+                sheetId,
+                null,
+                tx,
+              );
             }
 
             const productMap =
@@ -424,7 +428,11 @@ export class OrdersService {
                 STALE_DATA_MESSAGE,
               );
             } else {
-              await this.ordersRepository.touchOrderItemsIfUnchanged(sheetId, null, tx);
+              await this.ordersRepository.touchOrderItemsIfUnchanged(
+                sheetId,
+                null,
+                tx,
+              );
             }
 
             await this.validationService.validateEntriesBatch(

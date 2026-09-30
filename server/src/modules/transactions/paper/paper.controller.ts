@@ -7,11 +7,14 @@ import {
   Param,
   Query,
   UseGuards,
+  DefaultValuePipe,
 } from '@nestjs/common';
 import { PaperService } from './paper.service.js';
 import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
+import { GeneratePaperDto } from './dto/generate-paper.dto.js';
+import { ReopenPaperDto } from './dto/reopen-paper.dto.js';
 
 @Controller('papers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,10 +24,10 @@ export class PaperController {
   @Post()
   @Roles('EMPLOYEE')
   async generatePaper(
-    @Body('date')
-    date: string,
+    @Body()
+    dto: GeneratePaperDto,
   ) {
-    return this.paperService.generatePaperService(date);
+    return this.paperService.generatePaperService(dto.date);
   }
 
   @Get('today')
@@ -36,10 +39,15 @@ export class PaperController {
   @Get()
   @Roles('EMPLOYEE')
   async getPapers(
-    @Query('date')
-    date?: string,
+    @Query('date') date?: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page?: number,
+    @Query('pageSize', new ParseIntPipe({ optional: true })) pageSize?: number,
   ) {
-    return this.paperService.getPapersService(date);
+    return this.paperService.getPapersService(
+      date,
+      page,
+      pageSize ? Number(pageSize) : undefined,
+    );
   }
 
   @Get(':paperId')
@@ -84,9 +92,9 @@ export class PaperController {
     @Param('paperId', ParseIntPipe)
     paperId: number,
 
-    @Body('reason')
-    reason: string,
+    @Body()
+    dto: ReopenPaperDto,
   ) {
-    return this.paperService.reopenPaperService(paperId, reason);
+    return this.paperService.reopenPaperService(paperId, dto.reason);
   }
 }
