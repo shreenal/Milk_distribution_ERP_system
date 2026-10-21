@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { TRANSACTION_CONFIG } from './transaction.constants.js';
 
 export async function withSerializableRetry<T>(
@@ -14,11 +15,17 @@ export async function withSerializableRetry<T>(
         isPostgresSerializationFailure(err);
 
       attempt += 1;
-      if (
-        !isSerializationFailure ||
-        attempt >= TRANSACTION_CONFIG.MAX_RETRIES
-      ) {
+
+      if (!isSerializationFailure) {
         throw err;
+      }
+
+      if (attempt >= TRANSACTION_CONFIG.MAX_RETRIES) {
+        // Exhausted retries on a concurrent-write conflict is a retryable
+        // condition for the caller, not an internal server error.
+        throw new ConflictException(
+          'Your request conflicted with another update and could not be completed. Please retry.',
+        );
       }
       await new Promise((r) =>
         setTimeout(r, TRANSACTION_CONFIG.RETRY_DELAY_MS * attempt),
@@ -39,24 +46,17 @@ export async function withSerializableRetry<T>(
   }
 
   function isPostgresSerializationFailure(err: unknown): boolean {
-    if (!err || typeof err !== 'object') {
-      return false;
-    }
-
-    if (!('meta' in err)) {
-      return false;
-    }
-
-    const meta = err.meta;
-
-    if (!meta || typeof meta !== 'object') {
-      return false;
-    }
-
-    if (!('code' in meta)) {
-      return false;
-    }
-
-    return meta.code === '40001';
+    const e = err as {
+      meta?: {
+        code?: unknown;
+        driverAdapterError?: { cause?: { originalCode?: unknown } };
+      };
+      cause?: { originalCode?: unknown };
+    } | null;
+    return (
+      e?.meta?.code === '40001' ||
+      e?.meta?.driverAdapterError?.cause?.originalCode === '40001' ||
+      e?.cause?.originalCode === '40001'
+    );
   }
 }

@@ -38,7 +38,7 @@ export class ProductTypesRepository {
     return this.prisma.master_product_type.findFirst({
       where: {
         brand_id: brandId,
-        name,
+        name: { equals: name, mode: 'insensitive' },
       },
     });
   }
@@ -60,5 +60,13 @@ export class ProductTypesRepository {
     return this.prisma.master_product_type.delete({
       where: { id },
     });
+  }
+
+  async countUsage(id: number) {
+    const [rules, products] = await Promise.all([
+      this.prisma.product_tray_rule.count({ where: { product_type_id: id } }),
+      this.prisma.master_product.count({ where: { product_type_id: id } }),
+    ]);
+    return rules + products;
   }
 }

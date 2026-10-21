@@ -1,8 +1,6 @@
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 
 export class CreateOrderUnitTypeDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(50)
+  @TrimmedName(50)
   name!: string;
 }

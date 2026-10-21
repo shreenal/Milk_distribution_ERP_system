@@ -66,7 +66,7 @@ type ClientStatementSale = Prisma.order_sheet_itemsGetPayload<{
 type ClientStatementCollection = Prisma.client_collectionGetPayload<{
   select: {
     cash_collection: true;
-    office_amount_given: true;
+    office_cash_collection: true;
     cheque_collection: true;
     online_collection: true;
     bank_deposit: true;
@@ -91,7 +91,7 @@ type ClientStatementPreviousSale = Prisma.order_sheet_itemsGetPayload<{
 type ClientStatementPreviousCollection = Prisma.client_collectionGetPayload<{
   select: {
     cash_collection: true;
-    office_amount_given: true;
+    office_cash_collection: true;
     cheque_collection: true;
     online_collection: true;
     bank_deposit: true;
@@ -174,9 +174,9 @@ export class ClientStatementService {
 
       const cash = this.sumCollections(dayCollections, 'cash_collection');
 
-      const officeAmountGiven = this.sumCollections(
+      const officeCashCollection = this.sumCollections(
         dayCollections,
-        'office_amount_given',
+        'office_cash_collection',
       );
 
       const cheque = this.sumCollections(dayCollections, 'cheque_collection');
@@ -186,7 +186,7 @@ export class ClientStatementService {
       const bankDeposit = this.sumCollections(dayCollections, 'bank_deposit');
 
       const totalPaid =
-        cash + officeAmountGiven + cheque + online + bankDeposit;
+        cash + officeCashCollection + cheque + online + bankDeposit;
 
       const dayBalance = bill - totalPaid;
 
@@ -197,7 +197,7 @@ export class ClientStatementService {
         products: productQuantities,
         bill,
         cash,
-        officeAmountGiven,
+        officeCashCollection,
         cheque,
         online,
         bankDeposit,
@@ -239,7 +239,7 @@ export class ClientStatementService {
       (sum, collection) =>
         sum +
         Number(collection.cash_collection ?? 0) +
-        Number(collection.office_amount_given ?? 0) +
+        Number(collection.office_cash_collection ?? 0) +
         Number(collection.cheque_collection ?? 0) +
         Number(collection.online_collection ?? 0) +
         Number(collection.bank_deposit ?? 0),
@@ -342,7 +342,7 @@ export class ClientStatementService {
     collections: ClientStatementCollection[],
     field:
       | 'cash_collection'
-      | 'office_amount_given'
+      | 'office_cash_collection'
       | 'cheque_collection'
       | 'online_collection'
       | 'bank_deposit',
@@ -377,8 +377,8 @@ export class ClientStatementService {
 
       cash: this.round(rows.reduce((sum, row) => sum + row.cash, 0)),
 
-      officeAmountGiven: this.round(
-        rows.reduce((sum, row) => sum + row.officeAmountGiven, 0),
+      officeCashCollection: this.round(
+        rows.reduce((sum, row) => sum + row.officeCashCollection, 0),
       ),
 
       cheque: this.round(rows.reduce((sum, row) => sum + row.cheque, 0)),

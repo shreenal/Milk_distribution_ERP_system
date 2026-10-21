@@ -1,17 +1,10 @@
-import {
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-} from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional } from 'class-validator';
 
 import { DeliverySession } from '../../../../../generated/prisma/client.js';
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 
 export class CreateGroupDto {
-  @IsString()
-  @IsNotEmpty()
+  @TrimmedName(100)
   name!: string;
 
   @IsOptional()

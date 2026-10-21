@@ -44,7 +44,11 @@ export class AuthService {
       throw new ForbiddenException('This account has been deactivated');
     }
 
-    return this.issueTokenPair(user.id, user.username, user.role.name);
+    const { accessToken, refreshToken, user: sessionUser } =
+      await this.issueTokenPair(user.id, user.username, user.role.name);
+
+    // refreshTokenId is an internal DB id; clients do not need it.
+    return { accessToken, refreshToken, user: sessionUser };
   }
 
   async refresh(refreshToken: string) {
@@ -67,7 +71,7 @@ export class AuthService {
     );
 
     if (!claimed) {
-      if (stored.revoked_at) {
+      if (stored.revoked_at && stored.replaced_by !== null) {
         const revokedMsAgo = Date.now() - stored.revoked_at.getTime();
         if (revokedMsAgo > REFRESH_REUSE_GRACE_MS) {
           await this.refreshTokenRepository.revokeAllForUser(stored.user_id);

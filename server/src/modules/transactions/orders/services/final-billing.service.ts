@@ -20,9 +20,9 @@ export class FinalBillingService {
     gstInclusive: boolean,
     pricingQuantity: number,
   ): FinalBillingResult {
-    const billedQuantity = toDecimal(deliveredQty).times(
-      toDecimal(pricingQuantity),
-    );
+    const billedQuantity = toDecimal(deliveredQty)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .times(toDecimal(pricingQuantity));
     const rate = toDecimal(sellingRate);
     const gstPct = toDecimal(gstPercentage);
 
@@ -41,9 +41,6 @@ export class FinalBillingService {
 
       return {
         taxableAmount: roundedTaxable,
-        // L1: derive gst from the two already-rounded amounts instead of
-        // rounding an independently-computed gstAmount, so the three
-        // numbers always foot exactly (no stray ₹0.01).
         gstAmount: Number((roundedFinal - roundedTaxable).toFixed(2)),
         finalBillAmount: roundedFinal,
       };

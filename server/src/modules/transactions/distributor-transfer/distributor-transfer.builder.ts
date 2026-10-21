@@ -30,7 +30,9 @@ export class DistributorTransferBuilder {
 
       const supplierDistributorId = item.product_link.distributor_id;
       const supplierDistributorName = item.product_link.distributor.name;
-      const ownerDistributorId = item.master_client.owner_distributor_id;
+      const ownerDistributor =
+        item.owner_distributor ?? item.master_client.owner_distributor;
+      const ownerDistributorId = ownerDistributor.id;
 
       if (supplierDistributorId === ownerDistributorId) {
         continue;
@@ -53,7 +55,7 @@ export class DistributorTransferBuilder {
 
           ownerDistributor: {
             id: ownerDistributorId,
-            name: item.master_client.owner_distributor.name,
+            name: ownerDistributor.name,
           },
 
           brand: {

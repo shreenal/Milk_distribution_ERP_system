@@ -103,6 +103,13 @@ export class DependencyOrchestratorService {
         context.tx,
       );
 
+      // CT-15.1: refuse the correction if a later sheet could no longer
+      // cover its own returns (the dry run throws a 409 with details).
+      await this.clientTraysPropagationService.assertNoForwardReturnConflicts(
+        context.sheetId,
+        context.tx,
+      );
+
       await this.propagationOutboxRepository.enqueue(
         PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET,
         context.paperId,

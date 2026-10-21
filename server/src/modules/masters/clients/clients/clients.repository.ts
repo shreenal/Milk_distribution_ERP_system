@@ -71,4 +71,15 @@ export class ClientsRepository {
       where: { id },
     });
   }
+
+  createWithCode(dto: CreateClientDto, buildCode: (id: number) => string) {
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.master_client.create({ data: dto });
+      return tx.master_client.update({
+        where: { id: created.id },
+        data: { code: buildCode(created.id) },
+        include: clientInclude,
+      });
+    });
+  }
 }

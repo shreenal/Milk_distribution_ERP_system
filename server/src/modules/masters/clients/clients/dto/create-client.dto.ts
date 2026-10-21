@@ -1,23 +1,27 @@
 import {
   IsBoolean,
   IsInt,
-  IsNotEmpty,
   IsOptional,
   IsString,
+  MaxLength,
 } from 'class-validator';
 
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
+
 export class CreateClientDto {
-  @IsString()
-  @IsNotEmpty()
+  @TrimmedName(100)
   name!: string;
 
+  // null clears the value on update (PartialType keeps undefined = unchanged).
   @IsOptional()
   @IsString()
-  contact?: string;
+  @MaxLength(30)
+  contact?: string | null;
 
   @IsOptional()
   @IsString()
-  shop_name?: string;
+  @MaxLength(100)
+  shop_name?: string | null;
 
   @IsInt()
   delivery_group_id!: number;

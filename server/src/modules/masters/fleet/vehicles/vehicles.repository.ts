@@ -36,11 +36,10 @@ export class VehiclesRepository {
     });
   }
 
+  /** Case-insensitive: 'MH04AB1234' and 'mh04ab1234' are the same vehicle. */
   findByVehicleNumber(vehicleNumber: string) {
-    return this.prisma.master_vehicle.findUnique({
-      where: {
-        vehicle_number: vehicleNumber,
-      },
+    return this.prisma.master_vehicle.findFirst({
+      where: { vehicle_number: { equals: vehicleNumber, mode: 'insensitive' } },
     });
   }
 
@@ -65,5 +64,13 @@ export class VehiclesRepository {
         id,
       },
     });
+  }
+
+  async countAssignments(id: number) {
+    const [groups, drivers] = await Promise.all([
+      this.prisma.master_group.count({ where: { vehicle_id: id } }),
+      this.prisma.master_driver.count({ where: { vehicle_id: id } }),
+    ]);
+    return groups + drivers;
   }
 }

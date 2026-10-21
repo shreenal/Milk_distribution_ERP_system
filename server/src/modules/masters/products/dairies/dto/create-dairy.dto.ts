@@ -1,14 +1,14 @@
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 
 export class CreateDairyDto {
-  @IsString()
-  @MaxLength(100)
+  @TrimmedName(100)
   name!: string;
 
   @IsOptional()
   @IsString()
   @MaxLength(100)
-  city?: string;
+  city?: string | null;
 
   @IsOptional()
   @IsBoolean()

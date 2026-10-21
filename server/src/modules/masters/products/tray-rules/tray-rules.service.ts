@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -65,10 +66,19 @@ export class TrayRulesService {
     const existing = await this.findById(id);
 
     const data = {
-      product_group_id: dto.product_group_id ?? existing.product_group_id,
-      brand_id: dto.brand_id ?? existing.brand_id,
-      product_type_id: dto.product_type_id ?? existing.product_type_id,
-      packaging_type_id: dto.packaging_type_id ?? existing.packaging_type_id,
+      product_group_id:
+        dto.product_group_id !== undefined
+          ? dto.product_group_id
+          : existing.product_group_id,
+      brand_id: dto.brand_id !== undefined ? dto.brand_id : existing.brand_id,
+      product_type_id:
+        dto.product_type_id !== undefined
+          ? dto.product_type_id
+          : existing.product_type_id,
+      packaging_type_id:
+        dto.packaging_type_id !== undefined
+          ? dto.packaging_type_id
+          : existing.packaging_type_id,
       tray_type_id: dto.tray_type_id ?? existing.tray_type_id,
     };
 
@@ -106,44 +116,54 @@ export class TrayRulesService {
       const productGroup = await this.productGroupRepository.findById(
         data.product_group_id,
       );
-
-      if (!productGroup) {
+      if (!productGroup)
         throw new NotFoundException('Product group not found.');
-      }
     }
 
     if (data.brand_id != null) {
       const brand = await this.brandsRepository.findById(data.brand_id);
-
-      if (!brand) {
-        throw new NotFoundException('Brand not found.');
-      }
+      if (!brand) throw new NotFoundException('Brand not found.');
     }
 
+    let productType: { brand_id: number } | null = null;
     if (data.product_type_id != null) {
-      const productType = await this.productTypesRepository.findById(
+      productType = await this.productTypesRepository.findById(
         data.product_type_id,
       );
-
-      if (!productType) {
-        throw new NotFoundException('Product type not found.');
-      }
+      if (!productType) throw new NotFoundException('Product type not found.');
     }
 
     if (data.packaging_type_id != null) {
       const packagingType = await this.packagingTypesRepository.findById(
         data.packaging_type_id,
       );
-
-      if (!packagingType) {
+      if (!packagingType)
         throw new NotFoundException('Packaging type not found.');
-      }
     }
 
     const trayType = await this.trayTypesRepository.findById(data.tray_type_id);
+    if (!trayType) throw new NotFoundException('Tray type not found.');
 
-    if (!trayType) {
-      throw new NotFoundException('Tray type not found.');
+    if (
+      data.brand_id != null &&
+      productType &&
+      productType.brand_id !== data.brand_id
+    ) {
+      throw new BadRequestException(
+        'Product type does not belong to the selected brand.',
+      );
+    }
+
+    const effectiveBrandId = data.brand_id ?? productType?.brand_id ?? null;
+    if (effectiveBrandId === null) {
+      throw new BadRequestException(
+        'A brand (or a brand-specific product type) is required, because tray types are brand-specific.',
+      );
+    }
+    if (trayType.brand_id !== effectiveBrandId) {
+      throw new BadRequestException(
+        "Tray type does not belong to the rule's brand.",
+      );
     }
   }
 }

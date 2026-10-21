@@ -1,10 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -22,6 +22,7 @@ import { Query, ParseEnumPipe } from '@nestjs/common';
 import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { AddProductDto } from './dto/add-product.dto.js';
 import { Throttle } from '@nestjs/throttler';
+import { ParseIdPipe } from '../../../common/pipes/parse-id.pipe.js';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -30,7 +31,7 @@ export class OrdersController {
 
   @Get('sheet/:sheetId')
   @Roles('EMPLOYEE')
-  async getSheet(@Param('sheetId', ParseIntPipe) sheetId: number) {
+  async getSheet(@Param('sheetId', ParseIdPipe) sheetId: number) {
     return this.ordersService.getSheetService(sheetId);
   }
 
@@ -46,36 +47,36 @@ export class OrdersController {
   @Get('sheet/:sheetId/items')
   @Roles('EMPLOYEE')
   async getSheetItems(
-    @Param('sheetId', ParseIntPipe)
+    @Param('sheetId', ParseIdPipe)
     sheetId: number,
   ) {
-    return this.ordersService.getSheetItemsService(Number(sheetId));
+    return this.ordersService.getSheetItemsService(sheetId);
   }
 
   @Post('sheet/:sheetId/night-save')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Roles('EMPLOYEE')
   async saveNightEntries(
-    @Param('sheetId', ParseIntPipe) sheetId: number,
+    @Param('sheetId', ParseIdPipe) sheetId: number,
     @Body() dto: SaveNightEntriesRequestDto,
   ) {
     return await this.ordersService.saveNightEntriesService(
-      Number(sheetId),
+      sheetId,
       dto.entries,
       dto.expectedUpdatedAt,
     );
   }
 
   @Post('sheet/:sheetId/morning-save')
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Roles('EMPLOYEE')
   async saveMorningEntries(
-    @Param('sheetId', ParseIntPipe)
+    @Param('sheetId', ParseIdPipe)
     sheetId: number,
     @Body() dto: SaveMorningEntriesRequestDto,
   ) {
     return this.ordersService.saveMorningEntriesService(
-      Number(sheetId),
+      sheetId,
 
       dto.entries,
       dto.expectedUpdatedAt,
@@ -85,7 +86,7 @@ export class OrdersController {
   @Post('sheet/:sheetId/products')
   @Roles('EMPLOYEE')
   async addProduct(
-    @Param('sheetId', ParseIntPipe) sheetId: number,
+    @Param('sheetId', ParseIdPipe) sheetId: number,
     @Body() dto: AddProductDto,
   ) {
     return this.ordersService.addProductToSheet(sheetId, dto);
@@ -94,9 +95,19 @@ export class OrdersController {
   @Delete('sheet/:sheetId/products/:productId')
   @Roles('EMPLOYEE')
   async removeProduct(
-    @Param('sheetId', ParseIntPipe) sheetId: number,
-    @Param('productId', ParseIntPipe) productId: number,
+    @Param('sheetId', ParseIdPipe) sheetId: number,
+    @Param('productId', ParseIdPipe) productId: number,
+    @Query('expectedUpdatedAt') expectedUpdatedAt?: string,
   ) {
-    return this.ordersService.removeProductFromSheet(sheetId, productId);
+    // OD-12.7: omission is invalid. Explicit null is sent as the literal text "null".
+    if (expectedUpdatedAt === undefined || expectedUpdatedAt === '') {
+      throw new BadRequestException(
+        'expectedUpdatedAt is required. Send the last itemsUpdatedAt, or the literal "null" if the sheet has never been saved.',
+      );
+    }
+    // a query string cannot carry a JSON null, so the literal text "null" is the
+    // explicit-null token; any other value is parsed by the service
+    const token = expectedUpdatedAt === 'null' ? null : expectedUpdatedAt;
+    return this.ordersService.removeProductFromSheet(sheetId, productId, token);
   }
 }

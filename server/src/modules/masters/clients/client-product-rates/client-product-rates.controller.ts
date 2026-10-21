@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -13,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 import { ClientProductRatesService } from './client-product-rates.service.js';
 import { CreateClientProductRateDto } from './dto/create-client-product-rate.dto.js';
 import { UpdateClientProductRateDto } from './dto/update-client-product-rate.dto.js';
@@ -36,7 +36,7 @@ export class ClientProductRatesController {
   }
 
   @Get(':id')
-  findById(@Param('id', ParseIntPipe) id: number) {
+  findById(@Param('id', ParseIdPipe) id: number) {
     return this.clientProductRatesService.findById(id);
   }
 
@@ -47,14 +47,14 @@ export class ClientProductRatesController {
 
   @Patch(':id')
   update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIdPipe) id: number,
     @Body() dto: UpdateClientProductRateDto,
   ) {
     return this.clientProductRatesService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id', ParseIntPipe) id: number) {
+  delete(@Param('id', ParseIdPipe) id: number) {
     return this.clientProductRatesService.delete(id);
   }
 }

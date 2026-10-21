@@ -1,10 +1,12 @@
 import {
   ArgumentsHost,
   Catch,
+  ConflictException,
   ExceptionFilter,
   HttpException,
   HttpStatus,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 
@@ -18,11 +20,31 @@ import { Request, Response } from 'express';
  * body without leaking internal error details for unexpected (non-Http)
  * exceptions.
  */
+
+function mapPrismaError(e: unknown): HttpException | null {
+  const code = (e as { code?: unknown } | null)?.code;
+  switch (code) {
+    case 'P2002':
+      return new ConflictException(
+        'A record with the same unique value already exists.',
+      );
+    case 'P2003':
+      return new ConflictException(
+        'This record is referenced by, or references, other data.',
+      );
+    case 'P2025':
+      return new NotFoundException('Record not found.');
+    default:
+      return null;
+  }
+}
+
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger('ExceptionFilter');
 
-  catch(exception: unknown, host: ArgumentsHost): void {
+  catch(rawException: unknown, host: ArgumentsHost): void {
+    const exception = mapPrismaError(rawException) ?? rawException;
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request & { requestId?: string }>();

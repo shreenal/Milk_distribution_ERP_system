@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -13,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 import { PackagingTypesService } from './packaging-types.service.js';
 import { CreatePackagingTypeDto } from './dto/create-packaging-type.dto.js';
 import { UpdatePackagingTypeDto } from './dto/update-packaging-type.dto.js';
@@ -29,7 +29,7 @@ export class PackagingTypesController {
   }
 
   @Get(':id')
-  findById(@Param('id', ParseIntPipe) id: number) {
+  findById(@Param('id', ParseIdPipe) id: number) {
     return this.packagingTypesService.findById(id);
   }
 
@@ -40,14 +40,14 @@ export class PackagingTypesController {
 
   @Patch(':id')
   update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIdPipe) id: number,
     @Body() dto: UpdatePackagingTypeDto,
   ) {
     return this.packagingTypesService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id', ParseIntPipe) id: number) {
+  delete(@Param('id', ParseIdPipe) id: number) {
     return this.packagingTypesService.delete(id);
   }
 }

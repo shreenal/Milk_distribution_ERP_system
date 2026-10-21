@@ -295,4 +295,21 @@ export class ProductsRepository {
       },
     };
   }
+
+  createWithCode(dto: CreateProductDto, buildCode: (id: number) => string) {
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.master_product.create({ data: dto });
+      return tx.master_product.update({
+        where: { id: created.id },
+        data: { code: buildCode(created.id) },
+        include: {
+          master_brand: true,
+          master_product_group: true,
+          master_product_type: true,
+          master_packaging_type: true,
+          product_order_unit: { include: { order_unit_type: true } },
+        },
+      });
+    });
+  }
 }

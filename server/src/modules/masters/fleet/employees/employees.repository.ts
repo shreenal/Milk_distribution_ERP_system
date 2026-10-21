@@ -36,11 +36,10 @@ export class EmployeesRepository {
     });
   }
 
+  /** Case-insensitive: 'Asha' and 'asha' are the same employee. */
   findByName(name: string) {
-    return this.prisma.master_employee.findUnique({
-      where: {
-        name,
-      },
+    return this.prisma.master_employee.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

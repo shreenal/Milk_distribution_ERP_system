@@ -45,11 +45,10 @@ export class DriversRepository {
     });
   }
 
+  /** Case-insensitive: 'Ravi' and 'ravi' are the same driver. */
   findByName(name: string) {
-    return this.prisma.master_driver.findUnique({
-      where: {
-        name,
-      },
+    return this.prisma.master_driver.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

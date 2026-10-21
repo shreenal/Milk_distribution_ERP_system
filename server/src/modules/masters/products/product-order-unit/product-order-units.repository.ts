@@ -32,6 +32,7 @@ export class ProductOrderUnitsRepository {
   async create(dto: CreateProductOrderUnitDto) {
     return this.prisma.product_order_unit.create({
       data: dto,
+      include: { order_unit_type: true },
     });
   }
 
@@ -39,6 +40,7 @@ export class ProductOrderUnitsRepository {
     return this.prisma.product_order_unit.update({
       where: { id },
       data: dto,
+      include: { order_unit_type: true },
     });
   }
 

@@ -2,19 +2,20 @@ import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { OrdersRepository } from '.././orders.repository.js';
 import { ERROR_MESSAGES, QUANTITY_PRECISION } from './../orders.constants.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
-import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
-import {
-  ProductTrayRule,
-  TrayRuleProduct,
-} from '../../../../types/tray.types.js';
+import { toDecimal } from '../../../../common/utils/money.util.js';
 
 @Injectable()
 export class OrdersValidationService {
   private readonly logger = new Logger(OrdersValidationService.name);
-  constructor(
-    private readonly ordersRepository: OrdersRepository,
-    private readonly trayCalculationService: TrayCalculationService,
-  ) {}
+  constructor(private readonly ordersRepository: OrdersRepository) {}
+
+  private productLabels(
+    items: { product_id: number; master_product: { code: string | null } }[],
+  ): string {
+    return [
+      ...new Set(items.map((i) => i.master_product.code ?? `#${i.product_id}`)),
+    ].join(', ');
+  }
 
   async validateProduct(productId: number, db: PrismaOrTransaction) {
     const product = await db.master_product.findUnique({
@@ -32,9 +33,7 @@ export class OrdersValidationService {
     }
 
     if (!product.is_active) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.PRODUCT_INACTIVE(String(productId)),
-      );
+      throw new BadRequestException(ERROR_MESSAGES.PRODUCT_INACTIVE(productId));
     }
 
     return product;
@@ -65,66 +64,50 @@ export class OrdersValidationService {
     }
   }
 
-  validateOrderedQuantity(
-    qty: number,
-    product: TrayRuleProduct,
-    trayRules: ProductTrayRule[],
-  ) {
-    if (qty < 0) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.QUANTITY_NEGATIVE('ordered quantity', qty),
-      );
-    }
-
-    const trayRule = this.trayCalculationService.resolveTrayRule(
-      product,
-      trayRules,
-    );
-
-    // No tray rule = product is not tray-based.
-    if (!trayRule) {
-      return;
-    }
-
-    this.validateTrayQuantity(qty);
+  validateOrderedQuantity(qty: number) {
+    this.validateQuantity(qty, 'ordered quantity');
   }
 
-  validateDeliveredQuantity(
-    qty: number,
-    item: {
-      tray_type_id: number | null;
-    },
-  ) {
-    if (qty < 0) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.QUANTITY_NEGATIVE('delivered quantity', qty),
-      );
-    }
-
-    // Product was not tray-based when the order item was created.
-    if (item.tray_type_id === null) {
-      return;
-    }
-
-    this.validateTrayQuantity(qty);
+  validateDeliveredQuantity(qty: number) {
+    this.validateQuantity(qty, 'delivered quantity');
   }
 
-  private validateTrayQuantity(qty: number) {
-    const decimalPlaces = QUANTITY_PRECISION.QTY_DECIMAL_PLACES;
-    const factor = 10 ** decimalPlaces;
-
+  private validateQuantity(qty: number, label: string) {
     if (!Number.isFinite(qty)) {
       throw new BadRequestException(
         ERROR_MESSAGES.INVALID_QUANTITY_PRECISION(qty),
       );
     }
-
-    const rounded = Math.round(qty * factor) / factor;
-
-    if (Math.abs(qty - rounded) > 1e-9) {
+    if (qty < 0) {
+      throw new BadRequestException(
+        ERROR_MESSAGES.QUANTITY_NEGATIVE(label, qty),
+      );
+    }
+    if (
+      toDecimal(qty).decimalPlaces() > QUANTITY_PRECISION.QTY_DECIMAL_PLACES
+    ) {
       throw new BadRequestException(
         ERROR_MESSAGES.INVALID_QUANTITY_PRECISION(qty),
       );
+    }
+  }
+
+  async validateProductsOnSheet(
+    sheetId: number,
+    productIds: number[],
+    db: PrismaOrTransaction,
+  ) {
+    const unique = [...new Set(productIds)];
+    if (unique.length === 0) return;
+    const available = await this.ordersRepository.getProductIdsAvailableOnSheet(
+      sheetId,
+      unique,
+      db,
+    );
+    for (const id of unique) {
+      if (!available.has(id)) {
+        throw new BadRequestException(ERROR_MESSAGES.PRODUCT_NOT_ON_SHEET(id));
+      }
     }
   }
 
@@ -133,9 +116,12 @@ export class OrdersValidationService {
     groupName: string,
     db: PrismaOrTransaction,
   ) {
-    const entries = await this.ordersRepository.getSheetItems(sheetId, db);
+    // Business rule: an active group must have a real order. Rows that were
+    // zeroed out (ordered_qty = 0) do not count.
+    const positiveOrders =
+      await this.ordersRepository.countPositiveOrderedItems(sheetId, db);
 
-    if (entries.length === 0) {
+    if (positiveOrders === 0) {
       throw new BadRequestException(
         ERROR_MESSAGES.NO_ORDERS_IN_SHEET(groupName),
       );
@@ -151,15 +137,26 @@ export class OrdersValidationService {
       db,
     );
 
-    if (items.length === 0) return; // Empty OK
+    if (items.length === 0) {
+      const sheet = await db.order_sheet.findUnique({
+        where: { id: sheetId },
+        select: { master_group: { select: { name: true } } },
+      });
+      throw new BadRequestException(
+        ERROR_MESSAGES.NO_ORDER_LINES_IN_SHEET(
+          sheet?.master_group.name ?? `#${sheetId}`,
+        ),
+      );
+    }
 
     const incomplete = items.filter(
       (i) => i.delivered_qty === null || i.delivered_qty === undefined,
     );
-
     if (incomplete.length > 0) {
       const codes = incomplete.map((i) => i.master_product.code).join(', ');
-      throw new BadRequestException(`Delivered quantity missing for: ${codes}`);
+      throw new BadRequestException(
+        `Delivered quantity missing for: ${this.productLabels(incomplete)}`,
+      );
     }
   }
 
@@ -171,25 +168,11 @@ export class OrdersValidationService {
       sheetId,
       db,
     );
-
-    // Check no negative quantities
     const negative = items.filter((i) => Number(i.delivered_qty) < 0);
     if (negative.length > 0) {
-      const codes = negative.map((i) => i.master_product.code).join(', ');
       throw new BadRequestException(
-        `Negative quantities not allowed: ${codes}`,
+        `Negative quantities not allowed: ${this.productLabels(negative)}`,
       );
-    }
-
-    // Log extreme over-delivery but don't fail
-    const extreme = items.filter((i) => {
-      const ord = Number(i.ordered_qty ?? 0);
-      const del = Number(i.delivered_qty ?? 0);
-      return ord > 0 && del > ord * 1.5;
-    });
-
-    if (extreme.length > 0) {
-      this.logger.warn(`Over-delivery detected: ${extreme.length} items`);
     }
   }
 
@@ -197,7 +180,7 @@ export class OrdersValidationService {
     entries: { clientId: number; productId: number }[],
     groupId: number,
     db: PrismaOrTransaction,
-    checkCategoryAuthorization = true,
+    enforceLiveMasterRules = true,
   ) {
     const clientIds = [...new Set(entries.map((e) => e.clientId))];
     const productIds = [...new Set(entries.map((e) => e.productId))];
@@ -218,10 +201,6 @@ export class OrdersValidationService {
         select: {
           id: true,
           is_active: true,
-          brand_id: true,
-          product_group_id: true,
-          product_type_id: true,
-          packaging_type_id: true,
           master_product_group: {
             select: {
               category: true,
@@ -241,12 +220,12 @@ export class OrdersValidationService {
           ERROR_MESSAGES.CLIENT_NOT_FOUND(entry.clientId),
         );
       }
-      if (!client.is_active) {
+      if (enforceLiveMasterRules && !client.is_active) {
         throw new BadRequestException(
           ERROR_MESSAGES.CLIENT_INACTIVE(client.name),
         );
       }
-      if (client.delivery_group_id !== groupId) {
+      if (enforceLiveMasterRules && client.delivery_group_id !== groupId) {
         throw new BadRequestException(
           ERROR_MESSAGES.CLIENT_NOT_IN_GROUP(entry.clientId, groupId),
         );
@@ -258,14 +237,14 @@ export class OrdersValidationService {
           ERROR_MESSAGES.PRODUCT_NOT_FOUND(entry.productId),
         );
       }
-      if (!product.is_active) {
+      if (enforceLiveMasterRules && !product.is_active) {
         throw new BadRequestException(
-          ERROR_MESSAGES.PRODUCT_INACTIVE(String(entry.productId)),
+          ERROR_MESSAGES.PRODUCT_INACTIVE(entry.productId),
         );
       }
 
       const productCategory = product.master_product_group.category;
-      if (checkCategoryAuthorization) {
+      if (enforceLiveMasterRules) {
         const isAllowed = client.categories.some(
           (c) => c.category === productCategory,
         );
@@ -276,7 +255,5 @@ export class OrdersValidationService {
         }
       }
     }
-
-    return productMap;
   }
 }

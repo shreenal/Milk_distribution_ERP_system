@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -11,6 +12,7 @@ import { ProductGroupRepository } from '../../products/product-groups/product-gr
 import { CreateProcurementRuleDto } from './dto/create-procurement-rules.dto.js';
 import { UpdateProcurementRuleDto } from './dto/update-procurement-rules.dto.js';
 import { ProcurementRulesRepository } from './procurement-rules.repository.js';
+import { SupplyCategory } from '../../../../generated/prisma/client.js';
 
 @Injectable()
 export class ProcurementRulesService {
@@ -92,6 +94,7 @@ export class ProcurementRulesService {
     distributor_id: number;
     brand_id: number;
     product_group_id: number;
+    category: SupplyCategory;
   }) {
     const distributor = await this.distributorRepository.findById(
       data.distributor_id,
@@ -110,9 +113,12 @@ export class ProcurementRulesService {
     const productGroup = await this.productGroupRepository.findById(
       data.product_group_id,
     );
+    if (!productGroup) throw new NotFoundException('Product group not found.');
 
-    if (!productGroup) {
-      throw new NotFoundException('Product group not found.');
+    if (productGroup.category !== data.category) {
+      throw new BadRequestException(
+        `Rule category ${data.category} does not match product group category ${productGroup.category}.`,
+      );
     }
   }
 }

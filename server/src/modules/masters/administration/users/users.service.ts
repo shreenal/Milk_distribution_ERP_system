@@ -96,7 +96,9 @@ export class UsersService {
       updateData.password = await bcrypt.hash(dto.password, 10);
     }
 
-    return this.usersRepository.update(id, updateData);
+    const revokeSessions = !!dto.password || dto.is_active === false;
+
+    return this.usersRepository.update(id, updateData, { revokeSessions });
   }
 
   async delete(id: number) {

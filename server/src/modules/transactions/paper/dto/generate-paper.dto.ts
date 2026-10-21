@@ -1,10 +1,13 @@
-import { IsISO8601 } from 'class-validator';
+import { IsOptional, Matches } from 'class-validator';
 
-// FIX H5 (production review): this endpoint previously read `date` off the
-// raw body with @Body('date'), which bypasses the global ValidationPipe
-// entirely (it only validates class-based DTOs). Every other write endpoint
-// in the codebase goes through a DTO; this brings paper generation in line.
+// `date` is optional: papers are generated for the current business day only,
+// so the server derives the date. If a client still sends one it must be a
+// strict YYYY-MM-DD string and must equal the derived date (checked in the
+// service, including calendar validity such as rejecting 2026-02-31).
 export class GeneratePaperDto {
-  @IsISO8601()
-  date!: string;
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'date must be in YYYY-MM-DD format',
+  })
+  date?: string;
 }

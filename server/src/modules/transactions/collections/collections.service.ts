@@ -1,7 +1,15 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { CollectionBuilder } from './collections.builder.js';
-import { CollectionsRepository } from './collections.repository.js';
+import {
+  AmountColumn,
+  CollectionsRepository,
+} from './collections.repository.js';
 
 import { SaveAdminCollectionsDto } from './dto/save-admin-collection.dto.js';
 import { SaveNightCollectionsDto } from './dto/save-night-collection.dto.js';
@@ -13,15 +21,37 @@ import {
   COLLECTION_SUCCESS_MESSAGES,
 } from './collections.constants.js';
 
-import { SupplyCategory } from '../../../generated/prisma/client.js';
+import {
+  OrderPaperStatus,
+  SupplyCategory,
+} from '../../../generated/prisma/client.js';
 import { CollectionsValidationService } from './services/collections-validation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
-import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
 
 const STALE_DATA_MESSAGE =
   'Collections data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+
+const ADMIN_ROLE = 'ADMIN';
+
+// The columns one phase owns. A phase never writes another phase's columns.
+type PhaseValues = Partial<Record<AmountColumn, number>>;
+
+type PhaseRow = { clientId: number; values: PhaseValues };
+
+type SavePhaseParams = {
+  sheetId: number;
+  category: SupplyCategory;
+  columns: AmountColumn[];
+  rows: PhaseRow[];
+  expectedUpdatedAt: string | null;
+  role: string;
+  canEdit: (status: OrderPaperStatus) => boolean;
+  notAllowedMessage: (status: OrderPaperStatus) => string;
+  successMessage: string;
+};
 
 @Injectable()
 export class CollectionsService {
@@ -33,16 +63,16 @@ export class CollectionsService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async getCollectionGrid(sheetId: number) {
+  async getCollectionGrid(sheetId: number, role: string) {
+    const includeAdminColumns = role === ADMIN_ROLE;
+
     return this.prisma.$transaction(async (tx) => {
       const sheet = await this.collectionsRepository.getOrderSheetById(
         sheetId,
         tx,
       );
       if (!sheet) {
-        throw new BadRequestException(
-          COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
-        );
+        throw new NotFoundException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
       }
 
       const [milkClients, nonMilkClients, savedCollections] = await Promise.all(
@@ -68,259 +98,209 @@ export class CollectionsService {
         milkClients,
         nonMilkClients,
         savedCollections,
+        includeAdminColumns,
       );
     });
   }
 
-  async saveNightCollections(
+  // CD-2.1: blank / null / omitted amounts are 0 inside a submitted row.
+  saveNightCollections(
     sheetId: number,
     category: SupplyCategory,
     dto: SaveNightCollectionsDto,
+    role: string,
   ) {
-    const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
-    if (!sheet) {
-      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
-    }
-
-    if (!this.workflowState.canEditNightCollections(sheet.order_paper.status)) {
-      throw new BadRequestException(
-        COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
-      );
-    }
-
-    const validClients =
-      await this.collectionsRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        category,
-      );
-
-    this.collectionsValidationService.validateClientsForCategory(
-      dto.entries,
-      validClients,
+    return this.savePhase({
+      sheetId,
       category,
-    );
-
-    this.collectionsValidationService.validateNoDuplicateClients(dto.entries);
-
-    return withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const currentSheet =
-            await this.collectionsRepository.getOrderSheetById(sheetId, tx);
-          if (!currentSheet) {
-            throw new BadRequestException(
-              COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
-            );
-          }
-          if (
-            !this.workflowState.canEditNightCollections(
-              currentSheet.order_paper.status,
-            )
-          ) {
-            throw new BadRequestException(
-              COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
-            );
-          }
-
-          if (dto.expectedUpdatedAt) {
-            await assertNotStale(
-              () =>
-                this.collectionsRepository.touchCollectionsIfUnchanged(
-                  sheetId,
-                  new Date(dto.expectedUpdatedAt!),
-                  tx,
-                ),
-              STALE_DATA_MESSAGE,
-            );
-          } else {
-            await this.collectionsRepository.touchCollectionsIfUnchanged(
-              sheetId,
-              null,
-              tx,
-            );
-          }
-
-          await this.collectionsRepository.replaceNightCollections(
-            sheetId,
-            category,
-            dto.entries,
-            tx,
-          );
-
-          return { message: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED };
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+      columns: ['office_cash_collection'],
+      rows: dto.entries.map((e) => ({
+        clientId: e.clientId,
+        values: { office_cash_collection: e.officeCashCollection ?? 0 },
+      })),
+      expectedUpdatedAt: dto.expectedUpdatedAt,
+      role,
+      canEdit: (s) => this.workflowState.canEditNightCollections(s),
+      notAllowedMessage: () => COLLECTION_ERROR_MESSAGES.NIGHT_EDIT_NOT_ALLOWED,
+      successMessage: COLLECTION_SUCCESS_MESSAGES.NIGHT_SAVED,
+    });
   }
 
-  async saveMorningCollections(
+  saveMorningCollections(
     sheetId: number,
     category: SupplyCategory,
     dto: SaveMorningCollectionsDto,
+    role: string,
   ) {
-    const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
-    if (!sheet) {
-      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
-    }
-
-    if (
-      !this.workflowState.canEditMorningCollections(sheet.order_paper.status)
-    ) {
-      throw new BadRequestException(
-        COLLECTION_ERROR_MESSAGES.MORNING_EDIT_NOT_ALLOWED,
-      );
-    }
-
-    const validClients =
-      await this.collectionsRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        category,
-      );
-
-    this.collectionsValidationService.validateClientsForCategory(
-      dto.entries,
-      validClients,
+    return this.savePhase({
+      sheetId,
       category,
-    );
-
-    this.collectionsValidationService.validateNoDuplicateClients(dto.entries);
-
-    return withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const currentSheet =
-            await this.collectionsRepository.getOrderSheetById(sheetId, tx);
-          if (!currentSheet) {
-            throw new BadRequestException(
-              COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
-            );
-          }
-          if (
-            !this.workflowState.canEditMorningCollections(
-              currentSheet.order_paper.status,
-            )
-          ) {
-            throw new BadRequestException(
-              COLLECTION_ERROR_MESSAGES.MORNING_EDIT_NOT_ALLOWED,
-            );
-          }
-
-          if (dto.expectedUpdatedAt) {
-            await assertNotStale(
-              () =>
-                this.collectionsRepository.touchCollectionsIfUnchanged(
-                  sheetId,
-                  new Date(dto.expectedUpdatedAt!),
-                  tx,
-                ),
-              STALE_DATA_MESSAGE,
-            );
-          } else {
-            await this.collectionsRepository.touchCollectionsIfUnchanged(
-              sheetId,
-              null,
-              tx,
-            );
-          }
-
-          await this.collectionsRepository.replaceMorningCollections(
-            sheetId,
-            category,
-            dto.entries,
-            tx,
-          );
-
-          return { message: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED };
+      columns: ['cash_collection', 'cheque_collection'],
+      rows: dto.entries.map((e) => ({
+        clientId: e.clientId,
+        values: {
+          cash_collection: e.cashCollection ?? 0,
+          cheque_collection: e.chequeCollection ?? 0,
         },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+      })),
+      expectedUpdatedAt: dto.expectedUpdatedAt,
+      role,
+      canEdit: (s) => this.workflowState.canEditMorningCollections(s),
+      notAllowedMessage: (s) =>
+        COLLECTION_ERROR_MESSAGES.MORNING_EDIT_NOT_ALLOWED(s),
+      successMessage: COLLECTION_SUCCESS_MESSAGES.MORNING_SAVED,
+    });
   }
 
-  async saveAdminCollections(
+  saveAdminCollections(
     sheetId: number,
     category: SupplyCategory,
     dto: SaveAdminCollectionsDto,
+    role: string,
   ) {
-    const sheet = await this.collectionsRepository.getOrderSheetById(sheetId);
-    if (!sheet) {
-      throw new BadRequestException(COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND);
-    }
-
-    const status = sheet.order_paper.status;
-    if (!this.workflowState.canAdminEditCollections(status)) {
-      throw new BadRequestException(
-        COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
-      );
-    }
-
-    const validClients =
-      await this.collectionsRepository.getClientsByGroupAndCategory(
-        sheet.group_id,
-        category,
-      );
-
-    this.collectionsValidationService.validateClientsForCategory(
-      dto.entries,
-      validClients,
+    return this.savePhase({
+      sheetId,
       category,
-    );
+      columns: ['online_collection', 'bank_deposit'],
+      rows: dto.entries.map((e) => ({
+        clientId: e.clientId,
+        values: {
+          online_collection: e.onlineCollection ?? 0,
+          bank_deposit: e.bankDeposit ?? 0,
+        },
+      })),
+      expectedUpdatedAt: dto.expectedUpdatedAt,
+      role,
+      canEdit: (s) => this.workflowState.canAdminEditCollections(s),
+      notAllowedMessage: () => COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
+      successMessage: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED,
+    });
+  }
 
-    this.collectionsValidationService.validateNoDuplicateClients(dto.entries);
+  /**
+   * The one save flow shared by all three phases (CD-5):
+   * sheet (404) -> status (400) -> token (409) -> client rules for NEW rows
+   * (400) -> diff against stored rows -> advance token only if something
+   * changes -> write -> return the new token and recalculated totals.
+   */
+  private async savePhase(p: SavePhaseParams) {
+    this.collectionsValidationService.validateNoDuplicateClients(p.rows);
 
-    return withSerializableRetry(() =>
+    const includeAdminColumns = p.role === ADMIN_ROLE;
+
+    const { token, totals } = await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
-          const currentSheet =
-            await this.collectionsRepository.getOrderSheetById(sheetId, tx);
-          if (!currentSheet) {
-            throw new BadRequestException(
+          const sheet = await this.collectionsRepository.getOrderSheetById(
+            p.sheetId,
+            tx,
+          );
+          if (!sheet) {
+            throw new NotFoundException(
               COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
             );
           }
-          if (
-            !this.workflowState.canAdminEditCollections(
-              currentSheet.order_paper.status,
-            )
-          ) {
-            throw new BadRequestException(
-              COLLECTION_ERROR_MESSAGES.ADMIN_EDIT_NOT_ALLOWED,
+
+          const status = sheet.order_paper.status;
+          if (!p.canEdit(status)) {
+            throw new BadRequestException(p.notAllowedMessage(status));
+          }
+
+          // CD-9.3: compared first, so a stale token is 409 even for a no-op.
+          const expected =
+            p.expectedUpdatedAt === null ? null : new Date(p.expectedUpdatedAt);
+          this.assertTokenMatches(sheet.collections_updated_at, expected);
+
+          const existing =
+            await this.collectionsRepository.getCollectionsForClients(
+              p.sheetId,
+              p.category,
+              p.rows.map((r) => r.clientId),
+              tx,
+            );
+
+          // CD-6.2: a client who already has a row stays updatable even if
+          // since deactivated or moved. Live rules apply only to new rows.
+          const existingClientIds = new Set(existing.map((e) => e.client_id));
+          const newClientRows = p.rows.filter(
+            (r) => !existingClientIds.has(r.clientId),
+          );
+          if (newClientRows.length > 0) {
+            const validClients =
+              await this.collectionsRepository.getClientsByGroupAndCategory(
+                sheet.group_id,
+                p.category,
+                tx,
+              );
+            this.collectionsValidationService.validateClientsForCategory(
+              newClientRows,
+              validClients,
+              p.category,
             );
           }
 
-          if (dto.expectedUpdatedAt) {
-            await assertNotStale(
-              () =>
-                this.collectionsRepository.touchCollectionsIfUnchanged(
-                  sheetId,
-                  new Date(dto.expectedUpdatedAt!),
-                  tx,
-                ),
-              STALE_DATA_MESSAGE,
-            );
-          } else {
-            await this.collectionsRepository.touchCollectionsIfUnchanged(
-              sheetId,
-              null,
+          // Only rows that would actually change anything are written
+          // (CD-9.4). Clients not in the request are never touched.
+          const { toInsert, toUpdate } = diffByKey(
+            existing,
+            p.rows,
+            (e) => String(e.client_id),
+            (r) => String(r.clientId),
+            (e, r) =>
+              (Object.entries(r.values) as [AmountColumn, number][]).some(
+                ([column, value]) => Number(e[column]) !== value,
+              ),
+          );
+
+          // CD-2.2: an all-zero row for a client with no stored row creates nothing.
+          const changedRows = [
+            ...toInsert.filter((r) =>
+              Object.values(r.values).some((v) => v !== 0),
+            ),
+            ...toUpdate.map((u) => u.incomingRow),
+          ];
+
+          let token = sheet.collections_updated_at;
+
+          if (changedRows.length > 0) {
+            const touched =
+              await this.collectionsRepository.touchCollectionsIfTokenMatches(
+                p.sheetId,
+                expected,
+                tx,
+              );
+            if (touched.count !== 1) {
+              throw new ConflictException(STALE_DATA_MESSAGE);
+            }
+            token = touched.touchedAt;
+
+            await this.collectionsRepository.upsertCollections(
+              p.sheetId,
+              p.category,
+              p.columns,
+              changedRows,
               tx,
             );
           }
 
-          await this.collectionsRepository.replaceAdminCollections(
-            sheetId,
-            category,
-            dto.entries,
-            tx,
-          );
+          // CD-4.2: totals are rebuilt from stored data after the write.
+          const [clients, saved] = await Promise.all([
+            this.collectionsRepository.getClientsForCollectionDisplay(
+              p.sheetId,
+              sheet.group_id,
+              p.category,
+              tx,
+            ),
+            this.collectionsRepository.getCollectionEntries(p.sheetId, tx),
+          ]);
 
-          return { message: COLLECTION_SUCCESS_MESSAGES.ADMIN_SAVED };
+          const totals = this.collectionBuilder.buildGrid(
+            clients,
+            saved.filter((c) => c.category === p.category),
+            includeAdminColumns,
+          ).totals;
+
+          return { token, totals };
         },
         {
           timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
@@ -328,5 +308,21 @@ export class CollectionsService {
         },
       ),
     );
+
+    return {
+      success: true,
+      message: p.successMessage,
+      collectionsUpdatedAt: token?.toISOString() ?? null,
+      totals,
+    };
+  }
+
+  // Read-only comparison. Does NOT advance the token.
+  private assertTokenMatches(current: Date | null, expected: Date | null) {
+    const same =
+      expected === null
+        ? current === null
+        : current !== null && current.getTime() === expected.getTime();
+    if (!same) throw new ConflictException(STALE_DATA_MESSAGE);
   }
 }

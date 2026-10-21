@@ -7,7 +7,6 @@ import { OrdersBuilder } from './order.builder.js';
 import { OrdersValidationService } from './services/orders-validation.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { ProductColumnsBuilder } from '../../../common/builders/product-columns.builder.js';
-import { VehicleAllocationModule } from '../vehicle-allocation/vehicle-allocation.module.js';
 import { OrderCommercialService } from './services/order-commercial.service.js';
 import { NightBillingService } from './services/night-billing.service.js';
 import { FinalBillingService } from './services/final-billing.service.js';
@@ -16,7 +15,7 @@ import { DependencyModule } from '../dependencies/dependency.module.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
 
 @Module({
-  imports: [WorkflowModule, VehicleAllocationModule, DependencyModule],
+  imports: [WorkflowModule, DependencyModule],
 
   controllers: [OrdersController],
 

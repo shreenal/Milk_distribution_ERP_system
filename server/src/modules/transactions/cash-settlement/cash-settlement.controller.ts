@@ -1,12 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 
 import { CashSettlementService } from './cash-settlement.service.js';
 
@@ -20,7 +12,7 @@ import { SaveBankDepositsDto } from './dto/save-bank-deposit.dto.js';
 import { JwtAuthGuard } from '../auth/auth.guard.js';
 
 import { RolesGuard } from '../auth/roles.guard.js';
-
+import { ParseIdPipe } from '../../../common/pipes/parse-id.pipe.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { Throttle } from '@nestjs/throttler';
 
@@ -32,7 +24,7 @@ export class CashSettlementController {
   @Get(':paperId')
   @Roles('EMPLOYEE')
   async getCashSettlement(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
   ) {
     return this.cashSettlementService.getCashSettlementService(paperId);
@@ -42,7 +34,7 @@ export class CashSettlementController {
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveRouteExpenses(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
 
     @Body()
@@ -55,7 +47,7 @@ export class CashSettlementController {
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveRouteDenominations(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
 
     @Body()
@@ -71,7 +63,7 @@ export class CashSettlementController {
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveDirectCollections(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
 
     @Body()
@@ -87,7 +79,7 @@ export class CashSettlementController {
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveBankDeposits(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
 
     @Body()

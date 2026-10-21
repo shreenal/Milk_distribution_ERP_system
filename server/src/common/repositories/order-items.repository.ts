@@ -16,7 +16,7 @@ export class OrderItemsRepository {
         order_sheet: {
           include: {
             master_group: {
-              select: { id: true, name: true, delivery_session: true },
+              select: { id: true, name: true },
             },
           },
         },
@@ -29,11 +29,6 @@ export class OrderItemsRepository {
           },
         },
         product_link: {
-          // FIX F6 (consistency review): distributor name is now selected
-          // here too, so Vehicle Allocation (built from this repository's
-          // output) can display a distributor name the same way Purchase
-          // already does from its own, separately-included distributor
-          // relation.
           select: {
             distributor_id: true,
             distributor: { select: { name: true } },
@@ -51,7 +46,7 @@ export class OrderItemsRepository {
         sheetId: item.order_sheet_id,
         groupId: item.order_sheet.group_id,
         groupName: item.order_sheet.master_group.name,
-        deliverySession: item.order_sheet.master_group.delivery_session,
+        deliverySession: item.order_sheet.delivery_session,
         clientId: item.client_id,
         distributorId,
         distributorName,

@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -13,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 
 import { ProductGroupService } from './product-group.service.js';
 import { CreateProductGroupDto } from './dto/create-product-group.dto.js';
@@ -30,7 +30,7 @@ export class ProductGroupController {
   }
 
   @Get(':id')
-  findById(@Param('id', ParseIntPipe) id: number) {
+  findById(@Param('id', ParseIdPipe) id: number) {
     return this.productGroupService.findById(id);
   }
 
@@ -41,14 +41,14 @@ export class ProductGroupController {
 
   @Patch(':id')
   update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIdPipe) id: number,
     @Body() dto: UpdateProductGroupDto,
   ) {
     return this.productGroupService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id', ParseIntPipe) id: number) {
+  delete(@Param('id', ParseIdPipe) id: number) {
     return this.productGroupService.delete(id);
   }
 }

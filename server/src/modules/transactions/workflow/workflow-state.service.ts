@@ -104,7 +104,10 @@ export class WorkflowStateService {
   }
 
   canEditRouteDenominations(status: OrderPaperStatus): boolean {
-    return status === OrderPaperStatus.NIGHT_SUBMITTED;
+    return (
+      status === OrderPaperStatus.NIGHT_SUBMITTED ||
+      status === OrderPaperStatus.REOPENED
+    );
   }
 
   canEditDirectCollections(status: OrderPaperStatus): boolean {
@@ -129,7 +132,8 @@ export class WorkflowStateService {
   ): boolean {
     switch (status) {
       case OrderPaperStatus.DRAFT:
-        return session === DeliverySession.NIGHT;
+        // VA-2.1: NIGHT and MORNING are planned independently while DRAFT.
+        return true;
 
       case OrderPaperStatus.NIGHT_SUBMITTED:
         return session === DeliverySession.MORNING;

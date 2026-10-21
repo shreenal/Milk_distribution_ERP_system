@@ -5,25 +5,10 @@ import { Redis } from 'ioredis';
 
 @Controller('health')
 export class HealthController {
-  private readonly redis: Redis;
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
-  ) {
-    this.redis = new Redis({
-      host: this.config.get<string>('REDIS_HOST', 'localhost'),
-      port: this.config.get<number>('REDIS_PORT', 6379),
-      password: this.config.get<string>('REDIS_PASSWORD') || undefined,
-      tls: this.config.get<boolean>('REDIS_TLS') ? {} : undefined,
-      lazyConnect: true,
-      connectTimeout: 1000,
-      maxRetriesPerRequest: 0,
-    });
-  }
-
-  async onModuleDestroy() {
-    this.redis.disconnect();
-  }
+  ) {}
 
   @Get()
   async check() {
@@ -65,11 +50,12 @@ export class HealthController {
     const client = new Redis({
       host: this.config.get<string>('REDIS_HOST', 'localhost'),
       port: this.config.get<number>('REDIS_PORT', 6379),
+      password: this.config.get<string>('REDIS_PASSWORD') || undefined,
+      tls: this.config.get<boolean>('REDIS_TLS') ? {} : undefined,
       lazyConnect: true,
       connectTimeout: 1000,
       maxRetriesPerRequest: 0,
     });
-
     try {
       await client.connect();
       await client.ping();

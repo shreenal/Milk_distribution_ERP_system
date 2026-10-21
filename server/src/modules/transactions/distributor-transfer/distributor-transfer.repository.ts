@@ -3,7 +3,10 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
-import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
+import {
+  touchIfTokenMatches,
+  touchIfUnchanged,
+} from '../../../common/prisma/touch-if-unchanged.util.js';
 
 @Injectable()
 export class DistributorTransferRepository {
@@ -49,6 +52,8 @@ export class DistributorTransferRepository {
             owner_distributor: true,
           },
         },
+
+        owner_distributor: true,
 
         master_product: {
           include: {
@@ -164,12 +169,12 @@ export class DistributorTransferRepository {
     }
   }
 
-  async touchOrderPaperIfUnchanged(
+  async touchOrderPaperIfTokenMatches(
     paperId: number,
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return touchIfUnchanged(
+    return touchIfTokenMatches(
       db.order_paper,
       { id: paperId },
       'updated_at',

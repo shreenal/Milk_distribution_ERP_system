@@ -1,8 +1,8 @@
-import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsOptional } from 'class-validator';
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 
 export class CreateBankDto {
-  @IsString()
-  @MaxLength(100)
+  @TrimmedName(100)
   name!: string;
 
   @IsOptional()

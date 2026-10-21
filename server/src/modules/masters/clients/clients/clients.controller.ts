@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -13,6 +12,7 @@ import {
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 
 import { ClientsService } from './clients.service.js';
 import { CreateClientDto } from './dto/create-client.dto.js';
@@ -35,7 +35,7 @@ export class ClientsController {
   }
 
   @Get(':id')
-  findById(@Param('id', ParseIntPipe) id: number) {
+  findById(@Param('id', ParseIdPipe) id: number) {
     return this.clientsService.findById(id);
   }
 
@@ -45,12 +45,12 @@ export class ClientsController {
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateClientDto) {
+  update(@Param('id', ParseIdPipe) id: number, @Body() dto: UpdateClientDto) {
     return this.clientsService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id', ParseIntPipe) id: number) {
+  delete(@Param('id', ParseIdPipe) id: number) {
     return this.clientsService.delete(id);
   }
 }

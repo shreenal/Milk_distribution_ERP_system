@@ -1,4 +1,4 @@
-import { PurchaseVarianceSeverity } from 'src/types/purchase.types.js';
+import { PurchaseVarianceSeverity } from '../../../../types/purchase.types.js';
 import {
   DeliverySession,
   SupplyCategory,
@@ -59,7 +59,7 @@ export interface DayReportClientTrayMovement {
 
 export interface DayReportCollections {
   cash: number;
-  officeAmountGiven: number;
+  officeCashCollection: number;
   cheque: number;
   online: number;
   bankDeposit: number;
@@ -89,7 +89,7 @@ export interface DayReportPurchaseRow {
   purchaseAmount: number;
 
   variance: number;
-  variancePercentage: number;
+  variancePercentage: number | null;
   varianceSeverity: PurchaseVarianceSeverity;
   hasVariance: boolean;
 }
@@ -127,8 +127,6 @@ export interface DayReportDairyTrayRow {
   traysTaken: number;
   traysReturned: number;
   closingBalance: number;
-
-  remarks: string | null;
 }
 
 export interface DayReportTrayMovementType {
@@ -211,7 +209,6 @@ export interface DayReportRouteExpense {
   expenseTypeName: string;
 
   amount: number;
-  remarks: string | null;
 }
 
 export interface DayReportRouteDenomination {
@@ -246,8 +243,6 @@ export interface DayReportDirectCollection {
   coins: number;
 
   collectionAmount: number;
-
-  remarks: string | null;
 }
 
 export interface DayReportBankDeposit {
@@ -266,9 +261,6 @@ export interface DayReportBankDeposit {
   coins: number;
 
   depositAmount: number;
-
-  depositReference: string | null;
-  remarks: string | null;
 }
 
 export interface DayReportCashSettlementSummary {

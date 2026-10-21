@@ -23,8 +23,8 @@ export class ProductGroupRepository {
   }
 
   async findByName(name: string) {
-    return this.prisma.master_product_group.findUnique({
-      where: { name },
+    return this.prisma.master_product_group.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 
@@ -44,6 +44,18 @@ export class ProductGroupRepository {
   async delete(id: number) {
     return this.prisma.master_product_group.delete({
       where: { id },
+    });
+  }
+
+  countUsage(id: number) {
+    return this.prisma.product_tray_rule.count({
+      where: { product_group_id: id },
+    });
+  }
+
+  countProcurementRules(id: number) {
+    return this.prisma.distributor_procurement_rule.count({
+      where: { product_group_id: id },
     });
   }
 }

@@ -52,16 +52,11 @@ export class ClientsService {
       throw new NotFoundException('Distributor not found');
     }
 
-    const client = await this.clientsRepository.create({
-      ...dto,
-      code: null,
-    });
-
-    const code = `${CLIENT_CODE_PREFIX}${client.id
-      .toString()
-      .padStart(CLIENT_CODE_LENGTH, '0')}`;
-
-    return this.clientsRepository.updateCode(client.id, code);
+    return this.clientsRepository.createWithCode(
+      dto,
+      (id) =>
+        `${CLIENT_CODE_PREFIX}${id.toString().padStart(CLIENT_CODE_LENGTH, '0')}`,
+    );
   }
 
   async update(id: number, dto: UpdateClientDto) {

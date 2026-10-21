@@ -4,6 +4,8 @@ import {
   IsInt,
   IsOptional,
   IsNumber,
+  Max,
+  Min,
 } from 'class-validator';
 
 export class CreateClientProductRateDto {
@@ -16,6 +18,8 @@ export class CreateClientProductRateDto {
   @IsNumber({
     maxDecimalPlaces: 2,
   })
+  @Min(0)
+  @Max(99999999.99)
   selling_rate!: number;
 
   @IsOptional()
@@ -24,7 +28,7 @@ export class CreateClientProductRateDto {
 
   @IsOptional()
   @IsDateString()
-  effective_to?: string;
+  effective_to?: string | null;
 
   @IsOptional()
   @IsBoolean()

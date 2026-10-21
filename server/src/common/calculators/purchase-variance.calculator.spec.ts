@@ -1,76 +1,61 @@
+import { PurchaseVarianceCalculator } from './purchase-variance.calculator.js';
+import {
+  PurchaseVarianceSeverity as Sev,
+  PurchaseVarianceStatus as St,
+} from '../../types/purchase.types.js';
 import { describe, expect, it } from 'vitest';
 
-import { PurchaseVarianceCalculator } from './purchase-variance.calculator.js';
+describe('PurchaseVarianceCalculator (PD-43, PD-44, PD-41)', () => {
+  const calc = new PurchaseVarianceCalculator();
 
-import { PurchaseVarianceSeverity } from '../../types/purchase.types.js';
-
-describe('PurchaseVarianceCalculator', () => {
-  const calculator = new PurchaseVarianceCalculator();
-
-  it('returns no variance when purchased quantity equals allocated quantity', () => {
-    expect(calculator.calculate(100, 100)).toEqual({
-      hasVariance: false,
-      variance: 0,
-      variancePercentage: 0,
-      severity: PurchaseVarianceSeverity.NONE,
-    });
-  });
-
-  it('calculates positive variance correctly', () => {
-    expect(calculator.calculate(100, 105)).toEqual({
-      hasVariance: true,
-      variance: 5,
+  it('38 of 40 is a LOW shortfall with a signed percentage', () => {
+    const r = calc.calculate(40, 38);
+    expect(r).toMatchObject({
+      status: St.SHORTFALL,
+      severity: Sev.LOW,
+      variance: -2,
       variancePercentage: 5,
-      severity: PurchaseVarianceSeverity.LOW,
+      signedVariancePercentage: -5,
+      fulfillmentPercentage: 95,
+      shortfallWarning: false,
     });
   });
-
-  it('calculates negative variance using absolute percentage', () => {
-    expect(calculator.calculate(100, 95)).toEqual({
-      hasVariance: true,
-      variance: -5,
-      variancePercentage: 5,
-      severity: PurchaseVarianceSeverity.LOW,
+  it('0 of 40 is a CRITICAL shortfall that raises the warning', () => {
+    const r = calc.calculate(40, 0);
+    expect(r).toMatchObject({
+      status: St.SHORTFALL,
+      severity: Sev.CRITICAL,
+      signedVariancePercentage: -100,
+      shortfallWarning: true,
     });
   });
-
-  it('uses the correct severity at each threshold', () => {
-    expect(calculator.calculate(100, 105).severity).toBe(
-      PurchaseVarianceSeverity.LOW,
-    );
-
-    expect(calculator.calculate(100, 110).severity).toBe(
-      PurchaseVarianceSeverity.MEDIUM,
-    );
-
-    expect(calculator.calculate(100, 120).severity).toBe(
-      PurchaseVarianceSeverity.HIGH,
-    );
-
-    expect(calculator.calculate(100, 121).severity).toBe(
-      PurchaseVarianceSeverity.CRITICAL,
-    );
-  });
-
-  it('rounds variance percentage to two decimal places', () => {
-    expect(calculator.calculate(300, 310).variancePercentage).toBe(3.33);
-  });
-
-  it('treats zero allocation and zero purchase as no variance', () => {
-    expect(calculator.calculate(0, 0)).toEqual({
-      hasVariance: false,
-      variance: 0,
-      variancePercentage: 0,
-      severity: PurchaseVarianceSeverity.NONE,
+  it('a surplus is flagged SURPLUS and never warns', () => {
+    const r = calc.calculate(35, 38);
+    expect(r).toMatchObject({
+      status: St.SURPLUS,
+      severity: Sev.MEDIUM,
+      variancePercentage: 8.57,
+      shortfallWarning: false,
     });
   });
-
-  it('treats a purchase against zero allocation as 100 percent critical variance', () => {
-    expect(calculator.calculate(0, 10)).toEqual({
-      hasVariance: true,
-      variance: 10,
-      variancePercentage: 100,
-      severity: PurchaseVarianceSeverity.CRITICAL,
-    });
+  it('exact match', () =>
+    expect(calc.calculate(40, 40)).toMatchObject({
+      status: St.MATCHED,
+      severity: Sev.NONE,
+    }));
+  it('purchase with no allocation is UNPLANNED_ALLOCATION with a null percentage', () =>
+    expect(calc.calculate(0, 5)).toMatchObject({
+      status: St.UNPLANNED_ALLOCATION,
+      severity: Sev.CRITICAL,
+      variancePercentage: null,
+      signedVariancePercentage: null,
+    }));
+  it('zero against zero is matched', () =>
+    expect(calc.calculate(0, 0).status).toBe(St.MATCHED));
+  it('tier boundaries: 10% MEDIUM, 10.01% HIGH, 20% HIGH, 20.01% CRITICAL', () => {
+    expect(calc.calculate(100, 90).severity).toBe(Sev.MEDIUM);
+    expect(calc.calculate(10000, 8999).severity).toBe(Sev.HIGH);
+    expect(calc.calculate(100, 80).severity).toBe(Sev.HIGH);
+    expect(calc.calculate(10000, 7999).severity).toBe(Sev.CRITICAL);
   });
 });

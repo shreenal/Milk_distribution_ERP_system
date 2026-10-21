@@ -1,13 +1,24 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import {
-  PricingUnit,
-  Prisma,
-  SupplyCategory,
-} from '../../../generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
-import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { DeliveredRow, UpsertRow } from '../../../types/order.types.js';
+import { istDayBoundsUtc } from '../paper/paper-date.util.js';
+
+const SQL_CHUNK = 1000; // 20 params/row => 20k params, far below the 65,535 wire limit
+
+const isUniqueViolation = (e: any): boolean =>
+  e?.code === '23505' ||
+  e?.code === 'P2002' ||
+  e?.meta?.code === '23505' ||
+  e?.cause?.originalCode === '23505' ||
+  e?.meta?.driverAdapterError?.cause?.originalCode === '23505';
 
 @Injectable()
 export class OrdersRepository {
@@ -22,36 +33,6 @@ export class OrdersRepository {
       include: {
         master_group: true,
         order_paper: true,
-      },
-    });
-  }
-
-  async getSheetItemsByPaperId(
-    paperId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet_items.findMany({
-      where: {
-        order_sheet: {
-          order_paper_id: paperId,
-        },
-      },
-    });
-  }
-
-  async getClientsByGroupId(
-    groupId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.master_client.findMany({
-      where: {
-        delivery_group_id: groupId,
-
-        is_active: true,
-      },
-
-      orderBy: {
-        name: 'asc',
       },
     });
   }
@@ -104,18 +85,6 @@ export class OrdersRepository {
     });
   }
 
-  async createSheetItems(
-    data: Prisma.order_sheet_itemsCreateManyInput[],
-    tx: PrismaOrTransaction = this.prisma,
-  ) {
-    const result = await tx.order_sheet_items.createMany({
-      data,
-      skipDuplicates: true,
-    });
-
-    return result;
-  }
-
   async deleteSheetItems(
     sheetId: number,
     productId: number,
@@ -130,7 +99,7 @@ export class OrdersRepository {
   }
 
   async findAvailableProducts(
-    category?: SupplyCategory,
+    category: SupplyCategory,
     db: PrismaOrTransaction = this.prisma,
   ) {
     return db.master_product.findMany({
@@ -209,7 +178,9 @@ export class OrdersRepository {
       if ((a.display_order ?? Infinity) !== (b.display_order ?? Infinity)) {
         return (a.display_order ?? Infinity) - (b.display_order ?? Infinity);
       }
-      return a.master_brand.name.localeCompare(b.master_brand.name);
+      return (
+        a.master_brand.name.localeCompare(b.master_brand.name) || a.id - b.id
+      );
     });
   }
 
@@ -220,8 +191,7 @@ export class OrdersRepository {
       },
 
       include: {
-        master_client: true,
-
+        master_client: { select: { id: true, code: true, name: true } },
         master_product: {
           include: {
             master_brand: true,
@@ -231,8 +201,10 @@ export class OrdersRepository {
           },
         },
         product_link: {
-          include: {
-            distributor: true,
+          select: {
+            id: true,
+            distributor_id: true,
+            distributor: { select: { id: true, name: true } },
           },
         },
       },
@@ -283,27 +255,6 @@ export class OrdersRepository {
     });
   }
 
-  async findSheetItem(
-    sheetId: number,
-    clientId: number,
-    productLinkId: number,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ) {
-    return prismaClient.order_sheet_items.findUnique({
-      where: {
-        order_sheet_id_client_id_product_link_id: {
-          order_sheet_id: sheetId,
-          client_id: clientId,
-          product_link_id: productLinkId,
-        },
-      },
-      include: {
-        master_product: true,
-        product_link: true,
-      },
-    });
-  }
-
   async getMorningValidationItems(
     sheetId: number,
     db: PrismaOrTransaction = this.prisma,
@@ -317,6 +268,7 @@ export class OrdersRepository {
         id: true,
         delivered_qty: true,
 
+        product_id: true,
         master_product: {
           select: {
             code: true,
@@ -337,189 +289,14 @@ export class OrdersRepository {
 
       select: {
         id: true,
-        ordered_qty: true,
         delivered_qty: true,
 
+        product_id: true,
         master_product: {
           select: {
             code: true,
           },
         },
-      },
-    });
-  }
-
-  async upsertSheetEntry(
-    data: {
-      order_sheet_id: number;
-      client_id: number;
-      product_id: number;
-      product_link_id: number;
-
-      ordered_qty?: number;
-      delivered_qty?: number;
-
-      night_selling_rate?: number;
-      night_bill_amount?: number;
-
-      final_selling_rate?: number;
-      final_gst_percentage?: number;
-      final_gst_amount?: number;
-      final_taxable_amount?: number;
-      final_bill_amount?: number;
-
-      tray_type_id?: number | null;
-
-      // Required for creation; frozen after creation.
-      units_per_order_unit: number;
-      pricing_quantity: number;
-      pricing_unit: PricingUnit;
-    },
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet_items.upsert({
-      where: {
-        order_sheet_id_client_id_product_link_id: {
-          order_sheet_id: data.order_sheet_id,
-          client_id: data.client_id,
-          product_link_id: data.product_link_id,
-        },
-      },
-
-      update: {
-        ...(data.ordered_qty !== undefined && {
-          ordered_qty: data.ordered_qty,
-        }),
-
-        ...(data.delivered_qty !== undefined && {
-          delivered_qty: data.delivered_qty,
-        }),
-
-        ...(data.night_selling_rate !== undefined && {
-          night_selling_rate: data.night_selling_rate,
-        }),
-
-        ...(data.night_bill_amount !== undefined && {
-          night_bill_amount: data.night_bill_amount,
-        }),
-
-        ...(data.final_selling_rate !== undefined && {
-          final_selling_rate: data.final_selling_rate,
-        }),
-
-        ...(data.final_gst_percentage !== undefined && {
-          final_gst_percentage: data.final_gst_percentage,
-        }),
-
-        ...(data.final_gst_amount !== undefined && {
-          final_gst_amount: data.final_gst_amount,
-        }),
-
-        ...(data.final_taxable_amount !== undefined && {
-          final_taxable_amount: data.final_taxable_amount,
-        }),
-
-        ...(data.final_bill_amount !== undefined && {
-          final_bill_amount: data.final_bill_amount,
-        }),
-
-        // Intentionally NOT updated:
-        // tray_type_id
-        // units_per_order_unit
-        // pricing_quantity
-        // pricing_unit
-      },
-
-      create: {
-        order_sheet_id: data.order_sheet_id,
-        client_id: data.client_id,
-        product_id: data.product_id,
-        product_link_id: data.product_link_id,
-
-        ...(data.ordered_qty !== undefined && {
-          ordered_qty: data.ordered_qty,
-        }),
-
-        ...(data.delivered_qty !== undefined && {
-          delivered_qty: data.delivered_qty,
-        }),
-
-        ...(data.night_selling_rate !== undefined && {
-          night_selling_rate: data.night_selling_rate,
-        }),
-
-        ...(data.night_bill_amount !== undefined && {
-          night_bill_amount: data.night_bill_amount,
-        }),
-
-        ...(data.final_selling_rate !== undefined && {
-          final_selling_rate: data.final_selling_rate,
-        }),
-
-        ...(data.final_gst_percentage !== undefined && {
-          final_gst_percentage: data.final_gst_percentage,
-        }),
-
-        ...(data.final_gst_amount !== undefined && {
-          final_gst_amount: data.final_gst_amount,
-        }),
-
-        ...(data.final_taxable_amount !== undefined && {
-          final_taxable_amount: data.final_taxable_amount,
-        }),
-
-        ...(data.final_bill_amount !== undefined && {
-          final_bill_amount: data.final_bill_amount,
-        }),
-
-        ...(data.tray_type_id !== undefined && {
-          tray_type_id: data.tray_type_id,
-        }),
-
-        // Required snapshot fields.
-        units_per_order_unit: data.units_per_order_unit,
-        pricing_quantity: data.pricing_quantity,
-        pricing_unit: data.pricing_unit,
-      },
-    });
-  }
-
-  async getProductCategory(
-    productId: number,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ): Promise<SupplyCategory> {
-    const product = await prismaClient.master_product.findUnique({
-      where: { id: productId },
-      select: {
-        master_product_group: {
-          select: {
-            category: true,
-          },
-        },
-      },
-    });
-
-    if (!product) {
-      throw new BadRequestException(`Product ${productId} not found`);
-    }
-
-    return product.master_product_group.category;
-  }
-
-  async getClientCategorySupplier(
-    clientId: number,
-    category: SupplyCategory,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.master_client_category.findUnique({
-      where: {
-        client_id_category: {
-          client_id: clientId,
-          category,
-        },
-      },
-      select: {
-        supplier_distributor_id: true,
       },
     });
   }
@@ -547,155 +324,6 @@ export class OrdersRepository {
     return product;
   }
 
-  async getProductLink(
-    distributorId: number,
-    productId: number,
-    prismaClient: PrismaOrTransaction = this.prisma,
-    activeOnly = false,
-  ) {
-    return prismaClient.master_product_link.findUnique({
-      where: {
-        distributor_id_product_id: {
-          distributor_id: distributorId,
-          product_id: productId,
-        },
-        ...(activeOnly ? { is_active: true } : {}),
-      },
-      select: {
-        id: true,
-        distributor_id: true,
-        product_id: true,
-      },
-    });
-  }
-
-  async getSheetCommercialContext(
-    sheetId: number,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ) {
-    return prismaClient.order_sheet.findUnique({
-      where: { id: sheetId },
-      select: {
-        id: true,
-        group_id: true,
-
-        master_group: {
-          select: {
-            delivery_session: true,
-          },
-        },
-
-        order_paper: {
-          select: {
-            sale_date: true,
-          },
-        },
-      },
-    });
-  }
-
-  async getEligibleDistributorsForProduct(
-    groupId: number,
-    productId: number,
-    brandId: number,
-    productGroupId: number,
-    category: SupplyCategory,
-    primaryDistributorId: number,
-    prismaClient: PrismaOrTransaction = this.prisma,
-  ) {
-    const procurementRules =
-      await prismaClient.distributor_procurement_rule.findMany({
-        where: {
-          brand_id: brandId,
-          product_group_id: productGroupId,
-          category,
-          is_active: true,
-        },
-        select: {
-          distributor_id: true,
-        },
-      });
-
-    const eligibleDistributorIds = procurementRules.map(
-      (rule) => rule.distributor_id,
-    );
-
-    if (eligibleDistributorIds.length === 0) {
-      return [];
-    }
-
-    const priorities = await prismaClient.distributor_product_priority.findMany(
-      {
-        where: {
-          group_id: groupId,
-          product_id: productId,
-          distributor_id: {
-            in: eligibleDistributorIds,
-          },
-          is_active: true,
-        },
-        orderBy: {
-          priority: 'asc',
-        },
-        select: {
-          distributor_id: true,
-          priority: true,
-        },
-      },
-    );
-
-    const priorityMap = new Map(
-      priorities.map((item) => [item.distributor_id, item.priority]),
-    );
-
-    return eligibleDistributorIds
-      .filter(
-        (distributorId) =>
-          distributorId === primaryDistributorId ||
-          priorityMap.has(distributorId),
-      )
-      .map((distributorId) => ({
-        distributorId,
-        priority:
-          distributorId === primaryDistributorId
-            ? 0
-            : priorityMap.get(distributorId)!,
-      }))
-      .sort((a, b) => a.priority - b.priority);
-  }
-
-  async findSheetItemByProduct(
-    sheetId: number,
-    clientId: number,
-    productId: number,
-    tx: Prisma.TransactionClient,
-  ) {
-    return tx.order_sheet_items.findFirst({
-      where: {
-        order_sheet_id: sheetId,
-        client_id: clientId,
-        product_id: productId,
-      },
-      include: {
-        master_product: { include: { master_packaging_type: true } },
-        product_link: true,
-      },
-    });
-  }
-
-  async getProductWithPackaging(
-    productId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    const product = await db.master_product.findUnique({
-      where: { id: productId },
-      include: { master_packaging_type: true },
-    });
-    if (!product)
-      throw new BadRequestException(`Product ${productId} not found`);
-    return product;
-  }
-
   async findSheetItemsByProductBatch(
     sheetId: number,
     pairs: { clientId: number; productId: number }[],
@@ -704,15 +332,10 @@ export class OrdersRepository {
     const items = await tx.order_sheet_items.findMany({
       where: {
         order_sheet_id: sheetId,
-        OR: pairs.map((p) => ({
-          client_id: p.clientId,
-          product_id: p.productId,
-        })),
+        client_id: { in: [...new Set(pairs.map((p) => p.clientId))] },
+        product_id: { in: [...new Set(pairs.map((p) => p.productId))] },
       },
-      include: {
-        master_product: { include: { master_packaging_type: true } },
-        product_link: true,
-      },
+      include: { master_product: true, product_link: true },
     });
 
     const map = new Map<string, (typeof items)[number]>();
@@ -720,17 +343,6 @@ export class OrdersRepository {
       map.set(`${item.client_id}_${item.product_id}`, item);
     }
     return map;
-  }
-
-  async getSheetProductLinksBatch(
-    sheetId: number,
-    productIds: number[],
-    tx: Prisma.TransactionClient,
-  ) {
-    const links = await tx.order_sheet_product.findMany({
-      where: { order_sheet_id: sheetId, product_id: { in: productIds } },
-    });
-    return new Map(links.map((l) => [l.product_id, l]));
   }
 
   async getProductsWithPackagingBatch(
@@ -756,23 +368,20 @@ export class OrdersRepository {
 
   async getSellingRatesBatch(
     pairs: { clientId: number; productLinkId: number }[],
-    effectiveDate: Date,
+    saleDate: Date,
     db: PrismaOrTransaction,
   ) {
     const clientIds = [...new Set(pairs.map((p) => p.clientId))];
     const linkIds = [...new Set(pairs.map((p) => p.productLinkId))];
-
+    const { start: dayStart, end: dayEnd } = istDayBoundsUtc(saleDate);
     const [clientRates, distributorRates] = await Promise.all([
       db.master_client_rate_product.findMany({
         where: {
           client_id: { in: clientIds },
           product_link_id: { in: linkIds },
           is_active: true,
-          effective_from: { lte: effectiveDate },
-          OR: [
-            { effective_to: null },
-            { effective_to: { gte: effectiveDate } },
-          ],
+          effective_from: { lt: dayEnd },
+          OR: [{ effective_to: null }, { effective_to: { gte: dayStart } }],
         },
         orderBy: { effective_from: 'desc' },
       }),
@@ -780,11 +389,8 @@ export class OrdersRepository {
         where: {
           product_link_id: { in: linkIds },
           is_active: true,
-          effective_from: { lte: effectiveDate },
-          OR: [
-            { effective_to: null },
-            { effective_to: { gte: effectiveDate } },
-          ],
+          effective_from: { lt: dayEnd },
+          OR: [{ effective_to: null }, { effective_to: { gte: dayStart } }],
         },
         orderBy: { effective_from: 'desc' },
       }),
@@ -827,23 +433,6 @@ export class OrdersRepository {
         order_morning_entry_saved_at: new Date(),
       },
     });
-  }
-
-  async getProductLinksBatch(
-    distributorIds: number[],
-    productId: number,
-    prismaClient: PrismaOrTransaction = this.prisma,
-    activeOnly = false,
-  ) {
-    const links = await prismaClient.master_product_link.findMany({
-      where: {
-        product_id: productId,
-        distributor_id: { in: distributorIds },
-        ...(activeOnly ? { is_active: true } : {}),
-      },
-      select: { id: true, distributor_id: true, product_id: true },
-    });
-    return new Map(links.map((l) => [l.distributor_id, l]));
   }
 
   async getProductsWithGroupBatch(
@@ -897,6 +486,7 @@ export class OrdersRepository {
     const rows = await db.distributor_procurement_rule.findMany({
       where: {
         is_active: true,
+        master_distributor: { is_active: true },
         OR: triples.map((t) => ({
           brand_id: t.brandId,
           category: t.category,
@@ -918,6 +508,25 @@ export class OrdersRepository {
       map.set(key, list);
     }
     return map;
+  }
+
+  async getProductIdsAvailableOnSheet(
+    sheetId: number,
+    productIds: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const rows = await db.master_product.findMany({
+      where: {
+        id: { in: productIds },
+        OR: [
+          { show_by_default: true },
+          { order_sheet_product: { some: { order_sheet_id: sheetId } } },
+          { order_sheet_items: { some: { order_sheet_id: sheetId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    return new Set(rows.map((r) => r.id));
   }
 
   async getProductPrioritiesBatch(
@@ -984,43 +593,33 @@ export class OrdersRepository {
   }
 
   async upsertSheetEntriesBatch(
-    rows: {
-      order_sheet_id: number;
-      client_id: number;
-      product_id: number;
-      product_link_id: number;
-      ordered_qty: number;
-      night_selling_rate: number | null;
-      night_bill_amount: number;
-      tray_type_id: number | null;
-      units_per_order_unit: number;
-      pricing_quantity: number;
-      pricing_unit: PricingUnit;
-      delivered_qty: number | null;
-      final_selling_rate: number | null;
-      final_gst_percentage: number | null;
-      final_gst_amount: number | null;
-      final_taxable_amount: number | null;
-      final_bill_amount: number | null;
-    }[],
+    rows: UpsertRow[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    if (rows.length === 0) return;
+    for (let i = 0; i < rows.length; i += SQL_CHUNK) {
+      await this.upsertChunk(rows.slice(i, i + SQL_CHUNK), db);
+    }
+  }
 
-    const values = Prisma.join(
-      rows.map(
-        (r) =>
-          Prisma.sql`(${r.order_sheet_id}, ${r.client_id}, ${r.product_id}, ${r.product_link_id}, ${r.ordered_qty}, ${r.night_selling_rate}, ${r.night_bill_amount}, ${r.tray_type_id}, ${r.units_per_order_unit}, ${r.pricing_quantity}, ${r.pricing_unit}::"PricingUnit", ${r.delivered_qty}, ${r.final_selling_rate}, ${r.final_gst_percentage}, ${r.final_gst_amount}, ${r.final_taxable_amount}, ${r.final_bill_amount}, now(), now())`,
-      ),
-    );
+  private valuesTuple(r: UpsertRow) {
+    return Prisma.sql`(${r.order_sheet_id}, ${r.client_id}, ${r.product_id}, ${r.product_link_id}, ${r.ordered_qty}, ${r.night_selling_rate}, ${r.night_bill_amount}, ${r.tray_type_id}, ${r.units_per_order_unit}, ${r.pricing_quantity}, ${r.pricing_unit}::"PricingUnit", ${r.delivered_qty}, ${r.final_selling_rate}, ${r.final_gst_percentage}, ${r.final_gst_amount}, ${r.final_taxable_amount}, ${r.final_bill_amount}, ${r.owner_distributor_id}, ${r.final_gst_inclusive}, ${r.resolved_via_fallback}, (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'))`;
+  }
 
-    await db.$executeRaw(Prisma.sql`
+  private async upsertChunk(rows: UpsertRow[], db: PrismaOrTransaction) {
+    const values = Prisma.join(rows.map((r) => this.valuesTuple(r)));
+
+    // Pre-update row: a line zeroed (ordered 0) and re-raised must forget its zero billing.
+    const reraised = Prisma.sql`(order_sheet_items.ordered_qty = 0 AND EXCLUDED.ordered_qty > 0)`;
+
+    try {
+      await db.$executeRaw(Prisma.sql`
       INSERT INTO order_sheet_items
         (order_sheet_id, client_id, product_id, product_link_id, ordered_qty,
          night_selling_rate, night_bill_amount, tray_type_id,
          units_per_order_unit, pricing_quantity, pricing_unit,
          delivered_qty, final_selling_rate, final_gst_percentage,
          final_gst_amount, final_taxable_amount, final_bill_amount,
+         owner_distributor_id, final_gst_inclusive, resolved_via_fallback,
          created_at, updated_at)
       VALUES ${values}
       ON CONFLICT (order_sheet_id, client_id, product_link_id)
@@ -1028,66 +627,111 @@ export class OrdersRepository {
         ordered_qty = EXCLUDED.ordered_qty,
         night_selling_rate = COALESCE(EXCLUDED.night_selling_rate, order_sheet_items.night_selling_rate),
         night_bill_amount = EXCLUDED.night_bill_amount,
-        delivered_qty = COALESCE(EXCLUDED.delivered_qty, order_sheet_items.delivered_qty),
-        final_selling_rate = COALESCE(EXCLUDED.final_selling_rate, order_sheet_items.final_selling_rate),
-        final_gst_percentage = COALESCE(EXCLUDED.final_gst_percentage, order_sheet_items.final_gst_percentage),
-        final_gst_amount = COALESCE(EXCLUDED.final_gst_amount, order_sheet_items.final_gst_amount),
-        final_taxable_amount = COALESCE(EXCLUDED.final_taxable_amount, order_sheet_items.final_taxable_amount),
-        final_bill_amount = COALESCE(EXCLUDED.final_bill_amount, order_sheet_items.final_bill_amount),
+        delivered_qty        = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.delivered_qty, order_sheet_items.delivered_qty) END,
+        final_selling_rate   = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.final_selling_rate, order_sheet_items.final_selling_rate) END,
+        final_gst_percentage = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.final_gst_percentage, order_sheet_items.final_gst_percentage) END,
+        final_gst_amount     = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.final_gst_amount, order_sheet_items.final_gst_amount) END,
+        final_taxable_amount = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.final_taxable_amount, order_sheet_items.final_taxable_amount) END,
+        final_bill_amount    = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.final_bill_amount, order_sheet_items.final_bill_amount) END,
+        final_gst_inclusive  = CASE WHEN ${reraised} THEN NULL ELSE COALESCE(EXCLUDED.final_gst_inclusive, order_sheet_items.final_gst_inclusive) END,
+        owner_distributor_id = COALESCE(order_sheet_items.owner_distributor_id, EXCLUDED.owner_distributor_id),
         updated_at = EXCLUDED.updated_at
-        -- tray_type_id, units_per_order_unit, pricing_quantity, pricing_unit
-        -- intentionally NOT updated: frozen after creation (unchanged rule).
+        -- tray_type_id, units_per_order_unit, pricing_*, resolved_via_fallback: frozen at creation
     `);
+    } catch (e) {
+      // Second unique key (client, product) hit with a different link: only reachable via a race.
+      if (isUniqueViolation(e)) {
+        throw new ConflictException(
+          'Another save changed this sheet at the same time. Please reload and retry.',
+        );
+      }
+      throw e;
+    }
   }
 
-  /**
-   * H9: batched replacement for the per-entry `tx.order_sheet_items.update`
-   * loop in saveMorningEntriesBatch. Every row here is known to already
-   * exist (callers only include entries with a resolved existingItem), so
-   * this is a plain set-based UPDATE, not an upsert.
-   */
   async updateDeliveredEntriesBatch(
-    rows: {
-      order_sheet_id: number;
-      client_id: number;
-      product_link_id: number;
-      delivered_qty: number;
-      final_selling_rate: number;
-      final_gst_percentage: number;
-      final_gst_amount: number;
-      final_taxable_amount: number;
-      final_bill_amount: number;
-    }[],
+    rows: DeliveredRow[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    if (rows.length === 0) return;
-
-    const values = Prisma.join(
-      rows.map(
-        (r) =>
-          Prisma.sql`(${r.order_sheet_id}, ${r.client_id}, ${r.product_link_id}, ${r.delivered_qty}, ${r.final_selling_rate}, ${r.final_gst_percentage}, ${r.final_gst_amount}, ${r.final_taxable_amount}, ${r.final_bill_amount})`,
-      ),
-    );
-
-    await db.$executeRaw(Prisma.sql`
+    for (let i = 0; i < rows.length; i += SQL_CHUNK) {
+      const chunk = rows.slice(i, i + SQL_CHUNK);
+      const values = Prisma.join(
+        chunk.map(
+          (r) =>
+            Prisma.sql`(${r.order_sheet_id}::int, ${r.client_id}::int, ${r.product_link_id}::int, ${r.delivered_qty}::numeric, ${r.final_selling_rate}::numeric, ${r.final_gst_percentage}::numeric, ${r.final_gst_amount}::numeric, ${r.final_taxable_amount}::numeric, ${r.final_bill_amount}::numeric, ${r.final_gst_inclusive}::boolean)`,
+        ),
+      );
+      await db.$executeRaw(Prisma.sql`
       UPDATE order_sheet_items AS osi
-      SET
-        delivered_qty = v.delivered_qty,
-        final_selling_rate = v.final_selling_rate,
-        final_gst_percentage = v.final_gst_percentage,
-        final_gst_amount = v.final_gst_amount,
-        final_taxable_amount = v.final_taxable_amount,
-        final_bill_amount = v.final_bill_amount,
-        updated_at = now()
-      FROM (VALUES ${values}) AS v(
-        order_sheet_id, client_id, product_link_id, delivered_qty,
-        final_selling_rate, final_gst_percentage, final_gst_amount,
-        final_taxable_amount, final_bill_amount
-      )
-      WHERE osi.order_sheet_id = v.order_sheet_id
-        AND osi.client_id = v.client_id
+      SET delivered_qty = v.delivered_qty, final_selling_rate = v.final_selling_rate,
+          final_gst_percentage = v.final_gst_percentage, final_gst_amount = v.final_gst_amount,
+          final_taxable_amount = v.final_taxable_amount, final_bill_amount = v.final_bill_amount,
+          final_gst_inclusive = v.final_gst_inclusive, updated_at = (now() AT TIME ZONE 'UTC')
+      FROM (VALUES ${values}) AS v(order_sheet_id, client_id, product_link_id, delivered_qty,
+        final_selling_rate, final_gst_percentage, final_gst_amount, final_taxable_amount,
+        final_bill_amount, final_gst_inclusive)
+      WHERE osi.order_sheet_id = v.order_sheet_id AND osi.client_id = v.client_id
         AND osi.product_link_id = v.product_link_id
     `);
+    }
+  }
+
+  async insertMorningCreatedLinesBatch(
+    rows: UpsertRow[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    for (let i = 0; i < rows.length; i += SQL_CHUNK) {
+      const values = Prisma.join(
+        rows.slice(i, i + SQL_CHUNK).map((r) => this.valuesTuple(r)),
+      );
+      try {
+        await db.$executeRaw(Prisma.sql`
+          INSERT INTO order_sheet_items
+            (order_sheet_id, client_id, product_id, product_link_id, ordered_qty,
+             night_selling_rate, night_bill_amount, tray_type_id,
+             units_per_order_unit, pricing_quantity, pricing_unit,
+             delivered_qty, final_selling_rate, final_gst_percentage,
+             final_gst_amount, final_taxable_amount, final_bill_amount,
+             owner_distributor_id, final_gst_inclusive, resolved_via_fallback,
+             created_at, updated_at)
+          VALUES ${values}
+        `);
+      } catch (e) {
+        if (isUniqueViolation(e)) {
+          throw new ConflictException(
+            'Another save changed this sheet at the same time. Please reload and retry.',
+          );
+        }
+        throw e;
+      }
+    }
+  }
+
+  async countPositiveOrderedItems(
+    sheetId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_sheet_items.count({
+      where: { order_sheet_id: sheetId, ordered_qty: { gt: 0 } },
+    });
+  }
+
+  async getClientOwnersBatch(
+    clientIds: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const owners = new Map<number, number>();
+    if (clientIds.length === 0) return owners;
+
+    const clients = await db.master_client.findMany({
+      where: { id: { in: clientIds } },
+      select: { id: true, owner_distributor_id: true },
+    });
+
+    for (const client of clients) {
+      owners.set(client.id, client.owner_distributor_id);
+    }
+    return owners;
   }
 
   async touchOrderItemsIfUnchanged(
@@ -1095,7 +739,7 @@ export class OrdersRepository {
     expectedUpdatedAt: Date | null,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return touchIfUnchanged(
+    return touchIfTokenMatches(
       db.order_sheet,
       { id: sheetId },
       'order_items_updated_at',

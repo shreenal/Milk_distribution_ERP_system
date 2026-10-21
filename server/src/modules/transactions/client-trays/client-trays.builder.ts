@@ -1,116 +1,32 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
-import {
-  OrderPaperStatus,
-  SupplyCategory,
-} from '../../../generated/prisma/client.js';
+import { SupplyCategory } from '../../../generated/prisma/client.js';
 import {
   TrayClient,
-  ClientTraySheetItem,
-  ClientTrayTransaction,
   ClientTrayColumnNode,
   ClientTrayGrid,
   ClientTrayRow,
   ClientTrayTotals,
 } from '../../../types/client-trays.types.js';
 
-import type { ProductTrayRule, TrayType } from '../../../types/tray.types.js';
-import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
-import { WorkflowStateService } from '../workflow/workflow-state.service.js';
+import type { TrayType } from '../../../types/tray.types.js';
+import { ClientTrayLedgerLine } from '../../../common/calculators/tray-calculation.service.js';
+import { buildClientTrayKey } from '../../../common/utils/client-tray-key.util.js';
 
+/**
+ * Display only. The ledger lines (opening, taken, returned, closing) are
+ * calculated by the service; this turns them into the two grids.
+ */
 @Injectable()
 export class ClientTraysBuilder {
-  private readonly logger = new Logger(ClientTraysBuilder.name);
-
-  constructor(
-    private readonly trayCalculationService: TrayCalculationService,
-    private readonly workflowState: WorkflowStateService,
-  ) {}
-  buildTrayBilling(
-    data: {
-      milkClients: TrayClient[];
-      nonMilkClients: TrayClient[];
-      trayTypes: TrayType[];
-      sheetItems: ClientTraySheetItem[];
-      trayRules: ProductTrayRule[];
-      trayTransactions: ClientTrayTransaction[];
-      openingBalanceMap: Map<string, number>;
-    },
-    paperStatus: OrderPaperStatus,
-    morningEntrySaved: boolean,
-  ) {
-    const milkSheetItems = data.sheetItems.filter(
-      (item) =>
-        item.master_product.master_product_group.category ===
-        SupplyCategory.MILK,
-    );
-
-    const nonMilkSheetItems = data.sheetItems.filter(
-      (item) =>
-        item.master_product.master_product_group.category ===
-        SupplyCategory.NON_MILK,
-    );
-
-    const milkTrayTypes = this.getTrayTypesForItems(
-      milkSheetItems,
-      data.trayRules,
-      data.trayTypes,
-    );
-
-    if (process.env.DEBUG_TRAY_LOGGING === 'true') {
-      this.logger.debug(
-        `[TRAY TYPES] milk=${JSON.stringify(
-          milkTrayTypes.map((t) => ({
-            id: t.id,
-            color: t.color,
-            brand: t.master_brand?.name,
-          })),
-        )}`,
-      );
-    }
-
-    const nonMilkTrayTypes = this.getTrayTypesForItems(
-      nonMilkSheetItems,
-      data.trayRules,
-      data.trayTypes,
-    );
-
-    if (process.env.DEBUG_TRAY_LOGGING === 'true') {
-      this.logger.debug(
-        `[TRAY TYPES] nonMilk=${JSON.stringify(
-          nonMilkTrayTypes.map((t) => ({
-            id: t.id,
-            color: t.color,
-            brand: t.master_brand?.name,
-          })),
-        )}`,
-      );
-    }
-
-    const useOrderedQuantity = this.workflowState.resolveUseOrderedQuantity(
-      paperStatus,
-      morningEntrySaved,
-    );
-
-    const milkTrayGrid = this.buildGrid({
-      ...data,
-      clients: data.milkClients,
-      sheetItems: milkSheetItems,
-      trayTypes: milkTrayTypes,
-      useOrderedQuantity,
-    });
-
-    const nonMilkTrayGrid = this.buildGrid({
-      ...data,
-      clients: data.nonMilkClients,
-      sheetItems: nonMilkSheetItems,
-      trayTypes: nonMilkTrayTypes,
-      useOrderedQuantity,
-    });
-
+  buildTrayBilling(data: {
+    clients: TrayClient[];
+    trayTypes: TrayType[];
+    ledgerLines: ClientTrayLedgerLine[];
+  }) {
     return {
-      milkTrayGrid,
-      nonMilkTrayGrid,
+      milkTrayGrid: this.buildGrid(SupplyCategory.MILK, data),
+      nonMilkTrayGrid: this.buildGrid(SupplyCategory.NON_MILK, data),
     };
   }
 
@@ -165,7 +81,8 @@ export class ClientTraysBuilder {
 
             field: `tray_${trayType.id}_returned`,
 
-            editable: true,
+            // Decision 10: inactive tray types are shown read-only.
+            editable: trayType.is_active,
           },
 
           {
@@ -192,131 +109,63 @@ export class ClientTraysBuilder {
     ];
   }
 
-  private buildGrid(data: {
-    clients: TrayClient[];
-    trayTypes: TrayType[];
-    sheetItems: ClientTraySheetItem[];
-    trayRules: ProductTrayRule[];
-    trayTransactions: ClientTrayTransaction[];
-    openingBalanceMap: Map<string, number>;
-    useOrderedQuantity: boolean;
-  }): ClientTrayGrid {
-    const {
-      clients,
-      trayTypes,
-      sheetItems,
-      trayRules,
-      trayTransactions,
-      openingBalanceMap,
-    } = data;
+  private buildGrid(
+    category: SupplyCategory,
+    data: {
+      clients: TrayClient[];
+      trayTypes: TrayType[];
+      ledgerLines: ClientTrayLedgerLine[];
+    },
+  ): ClientTrayGrid {
+    // Decisions 7, 8 and 9: a grid shows exactly the clients and tray types
+    // that have a ledger line in its own category.
+    const lines = data.ledgerLines.filter((line) => line.category === category);
+
+    const trayTypeIds = new Set(lines.map((line) => line.trayTypeId));
+    const clientIds = new Set(lines.map((line) => line.clientId));
+
+    const trayTypes = data.trayTypes.filter((t) => trayTypeIds.has(t.id));
+    const clients = data.clients
+      .filter((c) => clientIds.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+
     const columns = this.buildTrayColumns(trayTypes);
 
-    const itemsByClientId = new Map<number, ClientTraySheetItem[]>();
-    for (const item of sheetItems) {
-      const list = itemsByClientId.get(item.client_id);
-      if (list) {
-        list.push(item);
-      } else {
-        itemsByClientId.set(item.client_id, [item]);
-      }
-    }
-
-    const transactionByClientAndTrayType = new Map<
-      string,
-      ClientTrayTransaction
-    >();
-    for (const transaction of trayTransactions) {
-      transactionByClientAndTrayType.set(
-        `${transaction.client_id}_${transaction.tray_type_id}`,
-        transaction,
-      );
-    }
+    const lineByKey = new Map(
+      lines.map((line) => [buildClientTrayKey(line), line]),
+    );
 
     // =========================
     // ROWS
     // =========================
 
-    const rows = clients
-      .map((client) => {
-        const row: ClientTrayRow = {
-          clientId: client.id,
-          clientName: client.name,
-        };
+    const rows = clients.map((client) => {
+      const row: ClientTrayRow = {
+        clientId: client.id,
+        clientName: client.name,
+      };
 
-        // =========================
-        // AUTO CALCULATE TRAYS TAKEN
-        // =========================
+      for (const trayType of trayTypes) {
+        const line = lineByKey.get(
+          buildClientTrayKey({
+            clientId: client.id,
+            trayTypeId: trayType.id,
+            category,
+          }),
+        );
 
-        const clientItems = itemsByClientId.get(client.id) ?? [];
+        // A returned value that was never entered is shown as 0.
+        row[`tray_${trayType.id}_opening`] = line?.opening ?? 0;
 
-        if (clientItems.length === 0) {
-          return null;
-        }
+        row[`tray_${trayType.id}`] = line?.taken ?? 0;
 
-        const trayCountMap = new Map<number, number>();
+        row[`tray_${trayType.id}_returned`] = line?.returned ?? 0;
 
-        for (const item of clientItems) {
-          const trayTypeId =
-            this.trayCalculationService.resolveFrozenTrayTypeId(
-              item,
-              trayRules,
-            );
+        row[`tray_${trayType.id}_closing`] = line?.closing ?? 0;
+      }
 
-          if (trayTypeId === null) {
-            continue;
-          }
-
-          const orderedQty = Number(item.ordered_qty ?? 0);
-
-          const deliveredQty = Number(item.delivered_qty ?? 0);
-          const trays = this.trayCalculationService.calculateTraysTaken(
-            orderedQty,
-            deliveredQty,
-            data.useOrderedQuantity,
-          );
-
-          const existing = trayCountMap.get(trayTypeId) ?? 0;
-
-          trayCountMap.set(trayTypeId, existing + trays);
-        }
-
-        // =========================
-        // BUILD TRAY COLUMNS
-        // =========================
-
-        for (const trayType of trayTypes) {
-          const trayTypeId = trayType.id;
-
-          const savedTransaction = transactionByClientAndTrayType.get(
-            `${client.id}_${trayTypeId}`,
-          );
-
-          const opening = Number(
-            openingBalanceMap.get(`${client.id}_${trayTypeId}`) ?? 0,
-          );
-
-          const trays = Number(trayCountMap.get(trayTypeId) ?? 0);
-
-          const returned = Number(savedTransaction?.trays_returned ?? 0);
-
-          const closing = this.trayCalculationService.calculateClosingBalance(
-            opening,
-            trays,
-            returned,
-          );
-
-          row[`tray_${trayTypeId}_opening`] = opening;
-
-          row[`tray_${trayTypeId}`] = trays;
-
-          row[`tray_${trayTypeId}_returned`] = returned;
-
-          row[`tray_${trayTypeId}_closing`] = closing;
-        }
-
-        return row;
-      })
-      .filter((row): row is ClientTrayRow => row !== null);
+      return row;
+    });
 
     // =========================
     // TOTALS
@@ -356,47 +205,10 @@ export class ClientTraysBuilder {
       };
     }
 
-    if (process.env.DEBUG_TRAY_LOGGING === 'true') {
-      this.logger.debug(
-        `[TRAY GRID] ${JSON.stringify(
-          rows.map((row) => ({
-            clientId: row.clientId,
-            clientName: row.clientName,
-            tray4: row.tray_4,
-            tray5: row.tray_5,
-            tray3: row.tray_3,
-          })),
-        )}`,
-      );
-    }
-
     return {
       columns,
       rows,
       totals,
     };
-  }
-
-  private getTrayTypesForItems(
-    sheetItems: ClientTraySheetItem[],
-    trayRules: ProductTrayRule[],
-    trayTypes: TrayType[],
-  ): TrayType[] {
-    const trayTypeIds = new Set<number>();
-
-    for (const item of sheetItems) {
-      const trayTypeId = this.trayCalculationService.resolveFrozenTrayTypeId(
-        item,
-        trayRules,
-      );
-
-      if (trayTypeId === null) {
-        continue;
-      }
-
-      trayTypeIds.add(trayTypeId);
-    }
-
-    return trayTypes.filter((trayType) => trayTypeIds.has(trayType.id));
   }
 }

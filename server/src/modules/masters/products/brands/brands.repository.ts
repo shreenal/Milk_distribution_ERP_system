@@ -42,8 +42,8 @@ export class BrandsRepository {
   }
 
   async findByName(name: string) {
-    return this.prisma.master_brand.findUnique({
-      where: { name },
+    return this.prisma.master_brand.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

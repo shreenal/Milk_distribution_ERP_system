@@ -11,11 +11,25 @@ import {
   VehicleAllocationRow,
   AllocationGrid,
   AllocationGridResult,
+  AllocationCoverageLine,
   Product,
 } from '../../../types/vehicle-allocation.types.js';
 
 import { AllocationSummary } from '../../../common/builders/allocation-summary.builder.js';
 import { sumNumericFields } from '../../../common/builders/row-aggregation.util.js';
+import {
+  Decimal,
+  moneyEquals,
+  toDecimal,
+  toFixedNumber,
+} from '../../../common/utils/money.util.js';
+import { VEHICLE_ALLOCATION_LIMITS } from './vehicle-allocation.constants.js';
+import {
+  buildRequirementKey,
+  describeProduct,
+} from './vehicle-allocation.util.js';
+
+const IDENTITY_KEYS = ['groupId', 'groupName'];
 
 @Injectable()
 export class VehicleAllocationBuilder {
@@ -29,6 +43,81 @@ export class VehicleAllocationBuilder {
       products,
       includePackagingType,
     );
+  }
+
+  /**
+   * VA-3.3: products whose total required quantity is zero are not part
+   * of the allocation grid, the required keys or the coverage check. Done here
+   * (not in the shared AllocationSummaryBuilder, which Purchase also uses).
+   */
+  filterPositiveDemand(summaries: AllocationSummary[]): AllocationSummary[] {
+    const result: AllocationSummary[] = [];
+
+    for (const summary of summaries) {
+      const totals = sumNumericFields(summary.rows, IDENTITY_KEYS);
+      const keep = new Set(
+        Object.entries(totals)
+          .filter(([, value]) => toDecimal(value).greaterThan(0))
+          .map(([field]) => field),
+      );
+
+      const products = summary.products.filter((p) =>
+        keep.has(`product_${p.id}`),
+      );
+
+      if (products.length === 0) continue;
+
+      result.push({
+        ...summary,
+        products,
+        rows: summary.rows.map((row) => {
+          const kept: typeof row = {
+            groupId: row.groupId,
+            groupName: row.groupName,
+          };
+          for (const [field, value] of Object.entries(row)) {
+            if (keep.has(field)) kept[field] = value;
+          }
+          return kept;
+        }),
+      });
+    }
+
+    return result;
+  }
+
+  /** distributor + category + product -> required quantity (positive only). */
+  buildRequiredTotals(summaries: AllocationSummary[]): Map<string, number> {
+    const required = new Map<string, number>();
+
+    for (const summary of summaries) {
+      const totals = sumNumericFields(summary.rows, IDENTITY_KEYS);
+      for (const product of summary.products) {
+        const total = toFixedNumber(toDecimal(totals[`product_${product.id}`]));
+        if (total > 0) {
+          required.set(
+            buildRequirementKey(
+              summary.distributorId,
+              summary.category,
+              product.id,
+            ),
+            total,
+          );
+        }
+      }
+    }
+
+    return required;
+  }
+
+  buildProductLabelMap(summaries: AllocationSummary[]): Map<number, string> {
+    const labels = new Map<number, string>();
+    for (const summary of summaries) {
+      for (const product of summary.products) {
+        labels.set(product.id, describeProduct(product));
+      }
+    }
+    return labels;
   }
 
   buildVehicleAllocationGrids(
@@ -57,10 +146,11 @@ export class VehicleAllocationBuilder {
         });
       }
 
-      const totals: DynamicProductFields = sumNumericFields(summary.rows, [
-        'groupId',
-        'groupName',
-      ]);
+      const rawTotals = sumNumericFields(summary.rows, IDENTITY_KEYS);
+      const totals: DynamicProductFields = {};
+      for (const [field, value] of Object.entries(rawTotals)) {
+        totals[field] = toFixedNumber(toDecimal(value));
+      }
 
       allocations.push({
         distributor: {
@@ -93,9 +183,6 @@ export class VehicleAllocationBuilder {
       for (const row of grid.rows) {
         for (const field of Object.keys(row)) {
           if (!field.startsWith('product_')) continue;
-          // FIX H1 (round 2 review): see purchase.builder.ts — key by
-          // distributor+category+field so the same product in two
-          // distributors' grids doesn't collide.
           const key = `${grid.distributor.id}_${grid.category}_${field}`;
           if (!gridByKey.has(key)) {
             gridByKey.set(key, grid);
@@ -134,6 +221,45 @@ export class VehicleAllocationBuilder {
     }
 
     return result;
+  }
+
+  /**
+   * VA-8 layer 1: one line per product with positive demand. Used by the grid
+   * (completion indicators) and by the submission gate, so both agree.
+   */
+  calculateCoverage(
+    grids: AllocationGridResult,
+    productLabels: Map<number, string>,
+  ): AllocationCoverageLine[] {
+    const lines: AllocationCoverageLine[] = [];
+
+    for (const grid of grids.allocations) {
+      for (const [field, requiredQty] of Object.entries(grid.totals)) {
+        const allocated = grid.rows.reduce(
+          (sum, row) => sum.plus(toDecimal(row[field] ?? 0)),
+          new Decimal(0),
+        );
+        const productId = Number(field.replace('product_', ''));
+
+        lines.push({
+          distributorId: grid.distributor.id,
+          distributorName: grid.distributor.name,
+          category: grid.category,
+          productId,
+          productName: productLabels.get(productId) ?? `product #${productId}`,
+          field,
+          requiredQty,
+          allocatedQty: toFixedNumber(allocated),
+          isComplete: moneyEquals(
+            allocated,
+            toDecimal(requiredQty),
+            VEHICLE_ALLOCATION_LIMITS.COVERAGE_TOLERANCE,
+          ),
+        });
+      }
+    }
+
+    return lines;
   }
 }
 

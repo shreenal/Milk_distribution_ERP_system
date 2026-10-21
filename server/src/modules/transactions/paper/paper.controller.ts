@@ -9,12 +9,14 @@ import {
   UseGuards,
   DefaultValuePipe,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { PaperService } from './paper.service.js';
 import { JwtAuthGuard } from '../auth/auth.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { GeneratePaperDto } from './dto/generate-paper.dto.js';
 import { ReopenPaperDto } from './dto/reopen-paper.dto.js';
+import { ParseIdPipe } from '../../../common/pipes/parse-id.pipe.js';
 
 @Controller('papers')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,6 +25,7 @@ export class PaperController {
 
   @Post()
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async generatePaper(
     @Body()
     dto: GeneratePaperDto,
@@ -34,6 +37,13 @@ export class PaperController {
   @Roles('EMPLOYEE')
   async getTodayPaper() {
     return this.paperService.getTodayPaperService();
+  }
+
+  // Admin view of every propagation that failed or is stuck, across papers.
+  @Get('propagation/problems')
+  @Roles('ADMIN')
+  async listPropagationProblems() {
+    return this.paperService.listPropagationProblemsService();
   }
 
   @Get()
@@ -53,16 +63,36 @@ export class PaperController {
   @Get(':paperId')
   @Roles('EMPLOYEE')
   async getPaperById(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
   ) {
     return this.paperService.getPaperByIdService(paperId);
   }
 
+  @Get(':paperId/propagation')
+  @Roles('EMPLOYEE')
+  async getPropagationStatus(
+    @Param('paperId', ParseIdPipe)
+    paperId: number,
+  ) {
+    return this.paperService.getPropagationStatusService(paperId);
+  }
+
+  @Post(':paperId/propagation/retry')
+  @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  async retryPropagation(
+    @Param('paperId', ParseIdPipe)
+    paperId: number,
+  ) {
+    return this.paperService.retryFailedPropagationService(paperId);
+  }
+
   @Post(':paperId/submit-night')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async submitNightEntry(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
   ) {
     return this.paperService.submitNightEntryService(paperId);
@@ -70,8 +100,9 @@ export class PaperController {
 
   @Post(':paperId/submit-morning')
   @Roles('EMPLOYEE')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async submitMorningEntry(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
   ) {
     return this.paperService.submitMorningEntryService(paperId);
@@ -79,8 +110,9 @@ export class PaperController {
 
   @Post(':paperId/finalize')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async finalizePaper(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
   ) {
     return this.paperService.finalizePaperService(paperId);
@@ -88,8 +120,9 @@ export class PaperController {
 
   @Post(':paperId/reopen')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   async reopenPaper(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
 
     @Body()

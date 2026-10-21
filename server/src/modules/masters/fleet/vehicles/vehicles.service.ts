@@ -59,7 +59,11 @@ export class VehiclesService {
 
   async delete(id: number) {
     await this.findById(id);
-
+    if ((await this.vehiclesRepository.countAssignments(id)) > 0) {
+      throw new ConflictException(
+        'Vehicle is assigned to groups or drivers. Reassign them or deactivate the vehicle.',
+      );
+    }
     return this.vehiclesRepository.delete(id);
   }
 }

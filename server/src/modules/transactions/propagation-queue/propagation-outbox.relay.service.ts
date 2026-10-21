@@ -3,6 +3,7 @@ import { Interval } from '@nestjs/schedule';
 import { PropagationOutboxRepository } from './propagation-outbox.repository.js';
 import { PropagationQueueService } from './propagation-queue.service.js';
 import {
+  PROPAGATION_OUTBOX_DISPATCH_TIMEOUT_MS,
   PROPAGATION_OUTBOX_MAX_ATTEMPTS,
   PROPAGATION_OUTBOX_RELAY_BATCH_SIZE,
   PROPAGATION_OUTBOX_RELAY_INTERVAL_MS,
@@ -10,16 +11,6 @@ import {
   PROPAGATION_OUTBOX_TYPES,
 } from './propagation-queue.constants.js';
 
-/**
- * FIX C3 (production review): the only component in the system that talks
- * to BullMQ/Redis for propagation. It polls propagation_outbox for rows
- * written (atomically, inside business transactions — see
- * PropagationOutboxRepository.enqueue) by DependencyOrchestratorService,
- * and hands each one to BullMQ. If Redis is down, dispatch just fails and
- * retries on the next tick (or is marked FAILED after
- * PROPAGATION_OUTBOX_MAX_ATTEMPTS) — it never blocks or corrupts the
- * business transaction that originally recorded the row.
- */
 @Injectable()
 export class PropagationOutboxRelayService {
   private readonly logger = new Logger(PropagationOutboxRelayService.name);
@@ -32,8 +23,6 @@ export class PropagationOutboxRelayService {
 
   @Interval(PROPAGATION_OUTBOX_RELAY_INTERVAL_MS)
   async relay(): Promise<void> {
-    // Guard against overlapping ticks if a previous run is still working
-    // through a large backlog when the next interval fires.
     if (this.running) {
       return;
     }
@@ -54,12 +43,6 @@ export class PropagationOutboxRelayService {
     }
   }
 
-  /**
-   * Recovers rows stuck in PROCESSING because the process crashed after
-   * claiming them but before BullMQ accepted the job (or before the job's
-   * completion handler marked them DONE). Runs far less often than the main
-   * relay tick.
-   */
   @Interval(PROPAGATION_OUTBOX_RELAY_INTERVAL_MS * 12)
   async requeueStuck(): Promise<void> {
     const count = await this.outboxRepository.requeueStuckProcessing(
@@ -81,43 +64,11 @@ export class PropagationOutboxRelayService {
     attempts: number;
   }): Promise<void> {
     try {
-      switch (row.type) {
-        case PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_FORWARD:
-          await this.propagationQueueService.enqueueClientTraysForward(
-            row.paper_id,
-            row.resume_from_id ?? undefined,
-            row.id,
-          );
-          break;
-
-        case PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET:
-          if (row.resume_from_id === null) {
-            throw new Error(
-              `CLIENT_TRAYS_CASCADE_FROM_SHEET outbox row ${row.id} is missing resume_from_id (start sheet id)`,
-            );
-          }
-          await this.propagationQueueService.enqueueClientTraysCascadeFromSheet(
-            row.resume_from_id,
-            undefined,
-            row.id,
-          );
-          break;
-
-        case PROPAGATION_OUTBOX_TYPES.DAIRY_TRAYS_FORWARD:
-          await this.propagationQueueService.enqueueDairyTraysForward(
-            row.paper_id,
-            row.resume_from_id ?? undefined,
-            row.id,
-          );
-          break;
-
-        default:
-          throw new Error(`Unknown propagation outbox type ${row.type}`);
-      }
-      // Dispatch to BullMQ succeeded. The row stays PROCESSING until the
-      // BullMQ job itself marks it DONE (see PropagationQueueProcessor) —
-      // that way a crash between "dispatched" and "processed" leaves the
-      // row recoverable via requeueStuck rather than silently lost.
+      await this.withTimeout(
+        this.enqueueByType(row),
+        PROPAGATION_OUTBOX_DISPATCH_TIMEOUT_MS,
+        `Dispatch of outbox row ${row.id}`,
+      );
     } catch (error) {
       const attempts = row.attempts + 1;
       const message = error instanceof Error ? error.message : String(error);
@@ -131,6 +82,69 @@ export class PropagationOutboxRelayService {
       } else {
         await this.outboxRepository.resetToPending(row.id, message, attempts);
       }
+    }
+  }
+
+  private withTimeout<T>(work: Promise<T>, ms: number, label: string) {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(`${label} timed out after ${ms}ms (is Redis reachable?)`),
+          ),
+        ms,
+      );
+      work.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error: unknown) => {
+          clearTimeout(timer);
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+    });
+  }
+
+  private async enqueueByType(row: {
+    id: number;
+    type: string;
+    paper_id: number;
+    resume_from_id: number | null;
+  }): Promise<void> {
+    switch (row.type) {
+      case PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_FORWARD:
+        await this.propagationQueueService.enqueueClientTraysForward(
+          row.paper_id,
+          row.resume_from_id ?? undefined,
+          row.id,
+        );
+        break;
+
+      case PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET:
+        if (row.resume_from_id === null) {
+          throw new Error(
+            `CLIENT_TRAYS_CASCADE_FROM_SHEET outbox row ${row.id} is missing resume_from_id (start sheet id)`,
+          );
+        }
+        await this.propagationQueueService.enqueueClientTraysCascadeFromSheet(
+          row.resume_from_id,
+          undefined,
+          row.id,
+        );
+        break;
+
+      case PROPAGATION_OUTBOX_TYPES.DAIRY_TRAYS_FORWARD:
+        await this.propagationQueueService.enqueueDairyTraysForward(
+          row.paper_id,
+          row.resume_from_id ?? undefined,
+          row.id,
+        );
+        break;
+
+      default:
+        throw new Error(`Unknown propagation outbox type ${row.type}`);
     }
   }
 }

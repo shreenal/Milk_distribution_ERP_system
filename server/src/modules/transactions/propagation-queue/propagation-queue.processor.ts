@@ -1,6 +1,6 @@
 import { OnWorkerEvent, Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
-import { Logger } from '@nestjs/common';
+import { Job, UnrecoverableError } from 'bullmq';
+import { HttpException, Logger } from '@nestjs/common';
 import { PROPAGATION_QUEUE } from './propagation-queue.constants.js';
 import {
   PropagationJob,
@@ -13,6 +13,29 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 
 const CHUNK_SIZE = 20;
+const MAX_REPORTED_DETAILS = 25;
+
+// CT-6.6: a conflict's `details` (date, client, tray, returned, outstanding)
+// must reach propagation_outbox.last_error, not only the generic message.
+function describeHttpFailure(error: HttpException): string {
+  const body = error.getResponse();
+  const details =
+    typeof body === 'object' &&
+    body !== null &&
+    'details' in body &&
+    Array.isArray(body.details)
+      ? body.details.map(String)
+      : [];
+
+  if (details.length === 0) return error.message;
+
+  const shown = details.slice(0, MAX_REPORTED_DETAILS).join('; ');
+  const more =
+    details.length > MAX_REPORTED_DETAILS
+      ? `; ...and ${details.length - MAX_REPORTED_DETAILS} more`
+      : '';
+  return `${error.message}: ${shown}${more}`;
+}
 
 @Processor(PROPAGATION_QUEUE)
 export class PropagationQueueProcessor extends WorkerHost {
@@ -29,6 +52,19 @@ export class PropagationQueueProcessor extends WorkerHost {
   }
 
   async process(job: Job<PropagationJob>): Promise<void> {
+    try {
+      await this.run(job);
+    } catch (error) {
+      // Business-rule failures (409 return conflict, 404 missing sheet) are
+      // deterministic: retrying cannot succeed. Fail now, with the details.
+      if (error instanceof HttpException) {
+        throw new UnrecoverableError(describeHttpFailure(error));
+      }
+      throw error; // P2034, connection errors etc. keep BullMQ's retry/backoff
+    }
+  }
+
+  private async run(job: Job<PropagationJob>): Promise<void> {
     if (job.data.type === 'CLIENT_TRAYS_FORWARD') {
       await this.processClientTraysForward(
         job.data.paperId,
@@ -64,8 +100,11 @@ export class PropagationQueueProcessor extends WorkerHost {
     const maxAttempts =
       typeof job.opts.attempts === 'number' ? job.opts.attempts : 1;
 
-    if (job.attemptsMade < maxAttempts) {
-      // Not the final attempt — BullMQ will retry this job itself.
+    const isFinal =
+      error instanceof UnrecoverableError || job.attemptsMade >= maxAttempts;
+
+    if (!isFinal) {
+      // Not the final attempt: BullMQ will retry this job itself.
       return;
     }
 

@@ -21,9 +21,10 @@ export class BanksRepository {
     });
   }
 
+  /** Case-insensitive: 'HDFC' and 'hdfc' are the same bank. */
   async findByName(name: string) {
-    return this.prisma.master_bank.findUnique({
-      where: { name },
+    return this.prisma.master_bank.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

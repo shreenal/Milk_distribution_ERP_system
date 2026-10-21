@@ -93,6 +93,16 @@ export class CashSettlementCalculationService {
     return toMoney(total);
   }
 
+  // CS-4.2: a route has settlement activity when any money is recorded on it
+  // (route cash, expenses or counted denominations).
+  hasRouteActivity(sheet: RouteCashSheet): boolean {
+    return (
+      this.getRouteCash(sheet) !== 0 ||
+      this.getRouteExpenseTotal(sheet) !== 0 ||
+      this.getDenominationAmountFromRow(sheet.cash_route_settlement) !== 0
+    );
+  }
+
   getRouteNetCash(sheet: RouteCashSheet): number {
     return toMoney(
       toDecimal(this.getRouteCash(sheet)).minus(

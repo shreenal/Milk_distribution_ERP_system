@@ -156,7 +156,7 @@ export class ClientStatementRepository {
 
       select: {
         cash_collection: true,
-        office_amount_given: true,
+        office_cash_collection: true,
         cheque_collection: true,
         online_collection: true,
         bank_deposit: true,
@@ -196,7 +196,7 @@ export class ClientStatementRepository {
 
       select: {
         cash_collection: true,
-        office_amount_given: true,
+        office_cash_collection: true,
         cheque_collection: true,
         online_collection: true,
         bank_deposit: true,

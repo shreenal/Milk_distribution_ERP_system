@@ -46,12 +46,20 @@ export class ProductGroupService {
   async update(id: number, dto: UpdateProductGroupDto) {
     const productGroup = await this.findById(id);
 
+    if (dto.category && dto.category !== productGroup.category) {
+      if ((await this.productGroupRepository.countProcurementRules(id)) > 0) {
+        throw new ConflictException(
+          'Category cannot change while procurement rules exist for this group.',
+        );
+      }
+    }
+
     if (dto.name && dto.name !== productGroup.name) {
       const existingProductGroup = await this.productGroupRepository.findByName(
         dto.name,
       );
 
-      if (existingProductGroup) {
+      if (existingProductGroup && existingProductGroup.id !== id) {
         throw new ConflictException(
           `Product Group '${dto.name}' already exists.`,
         );
@@ -63,7 +71,9 @@ export class ProductGroupService {
 
   async delete(id: number) {
     await this.findById(id);
-
+    if ((await this.productGroupRepository.countUsage(id)) > 0) {
+      throw new ConflictException('Product group is in use by tray rules.');
+    }
     return this.productGroupRepository.delete(id);
   }
 }

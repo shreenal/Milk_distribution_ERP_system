@@ -16,9 +16,12 @@ export class PrismaService extends PrismaClient {
       // Belt-and-suspenders: also cap query duration server-side so a
       // runaway query can't hold a pooled connection forever even if the
       // client-side driver settings above are bypassed.
-      options: `-c statement_timeout=${Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 15000)}`,
+      options: `-c statement_timeout=${Number(process.env.DB_STATEMENT_TIMEOUT_MS ?? 15000)} -c timezone=UTC`,
     });
 
     super({ adapter });
+  }
+  async onModuleDestroy() {
+    await this.$disconnect();
   }
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -19,6 +20,8 @@ import type { ProductConfigurationStatusDetail } from '../../../../types/product
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
 import { ProductOrderUnitsRepository } from '../product-order-unit/product-order-units.repository.js';
+import { isEffectiveOn } from '../../../../common/utils/effective-range.util.js';
+import { ProductConfigurationQueryDto } from './dto/product-configuration-query.dto.js';
 
 @Injectable()
 export class ProductsService {
@@ -76,6 +79,12 @@ export class ProductsService {
           `Product Type with ID ${dto.product_type_id} not found.`,
         );
       }
+
+      if (productType.brand_id !== dto.brand_id) {
+        throw new BadRequestException(
+          'Product type does not belong to the selected brand.',
+        );
+      }
     }
 
     if (dto.packaging_type_id) {
@@ -115,18 +124,22 @@ export class ProductsService {
       );
     }
 
-    const product = await this.productsRepository.create({
-      ...dto,
-      code: null,
-    });
-
-    const code = this.generateProductCode(product.id);
-
-    return this.productsRepository.updateCode(product.id, code);
+    return this.productsRepository.createWithCode(dto, (id) =>
+      this.generateProductCode(id),
+    );
   }
 
   async update(id: number, dto: UpdateProductDto) {
     const existingProduct = await this.findById(id);
+
+    if (
+      dto.brand_id !== undefined &&
+      dto.brand_id !== existingProduct.brand_id
+    ) {
+      throw new BadRequestException(
+        "A product's brand cannot be changed after creation.",
+      );
+    }
 
     const brandId = dto.brand_id ?? existingProduct.brand_id;
 
@@ -172,6 +185,12 @@ export class ProductsService {
       if (!productType) {
         throw new NotFoundException(
           `Product Type with ID ${productTypeId} not found.`,
+        );
+      }
+
+      if (productType.brand_id !== brandId) {
+        throw new BadRequestException(
+          "Product type does not belong to the product's brand.",
         );
       }
     }
@@ -226,13 +245,18 @@ export class ProductsService {
     return this.productsRepository.delete(id);
   }
 
-  async findConfigurationById(id: number) {
+  async findConfigurationById(
+    id: number,
+    query: ProductConfigurationQueryDto = {},
+  ) {
     const configuration =
       await this.productsRepository.findConfigurationById(id);
 
     if (!configuration) {
       throw new NotFoundException(`Product with ID ${id} not found.`);
     }
+
+    const asOf = query.asOf ? new Date(query.asOf) : new Date();
 
     const activeProductLinks = configuration.product_links.filter(
       (link) => link.is_active,
@@ -247,9 +271,19 @@ export class ProductsService {
     const distributorRatesConfigured =
       distributorConfigured && missingDistributorRates === 0;
 
-    const clientRatesConfigured = activeProductLinks.some((link) =>
-      link.client_rates.some((rate) => rate.is_active),
-    );
+    const hasCurrentClientRate = (link: (typeof activeProductLinks)[number]) =>
+      link.client_rates.some(
+        (rate) =>
+          rate.is_active &&
+          rate.master_client.is_active &&
+          (query.clientId === undefined || rate.client_id === query.clientId) &&
+          isEffectiveOn(rate, asOf),
+      );
+
+    const clientRatesConfigured = activeProductLinks.some(hasCurrentClientRate);
+    const missingClientRates = activeProductLinks.filter(
+      (link) => !hasCurrentClientRate(link),
+    ).length;
 
     const orderUnitConfigured = configuration.product_order_unit !== null;
     const issues: string[] = [];
@@ -275,7 +309,12 @@ export class ProductsService {
     }
 
     if (!clientRatesConfigured) {
-      issues.push('No active client product rate is configured.');
+      issues.push(
+        `No client product rate is effective on ${asOf.toISOString().slice(0, 10)}` +
+          (query.clientId !== undefined
+            ? ` for client ${query.clientId}.`
+            : '.'),
+      );
     }
 
     const configurationStatus: ProductConfigurationStatusDetail = {
@@ -285,13 +324,14 @@ export class ProductsService {
       clientRatesConfigured,
       activeDistributorCount: activeProductLinks.length,
       missingDistributorRates,
-      missingClientRates: 0,
+      missingClientRates,
       issues,
     };
 
     return {
       ...configuration,
       configurationStatus,
+      evaluatedAsOf: asOf.toISOString(),
     };
   }
 

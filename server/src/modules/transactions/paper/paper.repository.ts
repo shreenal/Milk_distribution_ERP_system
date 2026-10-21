@@ -1,8 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { OrderPaperStatus } from '../../../generated/prisma/client.js';
+import {
+  DeliverySession,
+  OrderPaperStatus,
+} from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
+import { PROPAGATION_OUTBOX_STATUS } from '../propagation-queue/propagation-queue.constants.js';
 
 export const PAPER_LIST_DEFAULT_PAGE_SIZE = 50;
 export const PAPER_LIST_MAX_PAGE_SIZE = 200;
@@ -16,7 +20,7 @@ export class PaperRepository {
     pageSize = PAPER_LIST_DEFAULT_PAGE_SIZE,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    const take = Math.min(pageSize, PAPER_LIST_MAX_PAGE_SIZE);
+    const take = Math.min(Math.max(pageSize, 1), PAPER_LIST_MAX_PAGE_SIZE);
     const skip = (Math.max(page, 1) - 1) * take;
 
     const [papers, total] = await Promise.all([
@@ -60,6 +64,30 @@ export class PaperRepository {
             id: 'asc',
           },
         },
+      },
+    });
+  }
+
+  async findPreviousPaper(
+    saleDate: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.order_paper.findFirst({
+      where: { sale_date: { lt: saleDate } },
+      orderBy: { sale_date: 'desc' },
+      select: { id: true, status: true, sale_date: true },
+    });
+  }
+
+  // PA-8.4: failed background propagation rows of one paper.
+  async countFailedPropagations(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.propagation_outbox.count({
+      where: {
+        paper_id: paperId,
+        status: PROPAGATION_OUTBOX_STATUS.FAILED,
       },
     });
   }
@@ -116,6 +144,8 @@ export class PaperRepository {
     });
   }
 
+  // PA-6.5 / PA-7.5: the readiness checks need to know whether a sheet's group
+  // is still active and whether the sheet has any order line at all.
   async getPaperSheets(paperId: number, db: PrismaOrTransaction = this.prisma) {
     return db.order_sheet.findMany({
       where: {
@@ -128,8 +158,10 @@ export class PaperRepository {
             id: true,
             name: true,
             delivery_session: true,
+            is_active: true,
           },
         },
+        _count: { select: { order_sheet_items: true } },
       },
 
       orderBy: {
@@ -163,7 +195,7 @@ export class PaperRepository {
 
   async generateOrderSheets(
     paperId: number,
-    groups: { id: number }[],
+    groups: { id: number; delivery_session: DeliverySession }[],
     db: PrismaOrTransaction = this.prisma,
   ) {
     return db.order_sheet.createMany({
@@ -171,6 +203,7 @@ export class PaperRepository {
         order_paper_id: paperId,
 
         group_id: group.id,
+        delivery_session: group.delivery_session,
       })),
       skipDuplicates: true,
     });

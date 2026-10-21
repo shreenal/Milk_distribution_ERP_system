@@ -23,8 +23,8 @@ export class PackagingTypesRepository {
   }
 
   async findByName(name: string) {
-    return this.prisma.master_packaging_type.findUnique({
-      where: { name },
+    return this.prisma.master_packaging_type.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 
@@ -45,5 +45,13 @@ export class PackagingTypesRepository {
     return this.prisma.master_packaging_type.delete({
       where: { id },
     });
+  }
+
+  async countUsage(id: number) {
+    const [rules, products] = await Promise.all([
+      this.prisma.product_tray_rule.count({ where: { packaging_type_id: id } }),
+      this.prisma.master_product.count({ where: { packaging_type_id: id } }),
+    ]);
+    return rules + products;
   }
 }

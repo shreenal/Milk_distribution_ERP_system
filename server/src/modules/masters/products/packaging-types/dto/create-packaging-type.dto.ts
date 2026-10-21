@@ -1,7 +1,6 @@
-import { IsString, MaxLength } from 'class-validator';
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 
 export class CreatePackagingTypeDto {
-  @IsString()
-  @MaxLength(100)
+  @TrimmedName(100)
   name!: string;
 }

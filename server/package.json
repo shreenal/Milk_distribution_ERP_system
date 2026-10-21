@@ -13,7 +13,7 @@
     "start": "node dist/src/main.js",
     "start:dev": "nest start --watch -b swc",
     "start:debug": "nest start --debug --watch -b swc",
-    "start:prod": "node dist/src/main.js",
+    "start:prod": "node dist/main.js",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "vitest",
     "test:watch": "vitest --watch",
@@ -81,6 +81,8 @@
     "vitest": "^4.1.8"
   },
   "overrides": {
-    "@hono/node-server": "^1.19.13"
+    "@hono/node-server": "^1.19.13",
+    "deepmerge-ts": "8.0.2",
+    "mysql2": "3.24.5"
   }
 }

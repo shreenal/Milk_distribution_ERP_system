@@ -1,25 +1,31 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+  HttpException,
+} from '@nestjs/common';
 
 import { OrdersRepository } from './orders.repository.js';
-
-import { SaveMorningEntriesDto } from './dto/save-morning-entries.dto.js';
-
-import { SaveNightEntriesDto } from './dto/save-night-entries.dto.js';
-
+import {
+  SaveMorningEntriesDto,
+  ExplicitMorningEntry,
+} from './dto/save-morning-entries.dto.js';
+import {
+  SaveNightEntriesDto,
+  ExplicitNightEntry,
+} from './dto/save-night-entries.dto.js';
 import { OrdersBuilder } from './order.builder.js';
-
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
-
 import { OrdersValidationService } from './services/orders-validation.service.js';
-
 import {
   OrderPaperStatus,
+  Prisma,
   SupplyCategory,
 } from '../../../generated/prisma/client.js';
-
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from './orders.constants.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
-
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { AddProductDto } from './dto/add-product.dto.js';
@@ -30,8 +36,6 @@ import {
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
-import { ConflictException } from '@nestjs/common';
-import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
 
 const STALE_DATA_MESSAGE =
   'Order data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
@@ -42,19 +46,12 @@ export class OrdersService {
 
   constructor(
     private readonly ordersRepository: OrdersRepository,
-
     private readonly ordersBuilder: OrdersBuilder,
-
     private readonly validationService: OrdersValidationService,
-
     private readonly billingService: BillingService,
-
     private readonly prisma: PrismaService,
-
     private readonly workflowState: WorkflowStateService,
-
     private readonly workflowBuilder: WorkflowBuilder,
-
     private readonly dependencyOrchestrator: DependencyOrchestratorService,
   ) {}
 
@@ -62,100 +59,122 @@ export class OrdersService {
     return this.ordersRepository.findAvailableProducts(category);
   }
 
+  private parseExpected(expected: string | null): Date | null {
+    if (expected === null) return null;
+    const d = new Date(expected);
+    if (Number.isNaN(d.getTime()))
+      throw new BadRequestException('Invalid expectedUpdatedAt');
+    return d;
+  }
+
+  // Read-only comparison. Does NOT advance the token (used so no-op saves can still 409 when stale).
+  private assertTokenMatches(
+    current: Date | null,
+    expected: string | null,
+  ): void {
+    const exp = this.parseExpected(expected);
+    const same =
+      exp === null
+        ? current === null
+        : current !== null && current.getTime() === exp.getTime();
+    if (!same) throw new ConflictException(STALE_DATA_MESSAGE);
+  }
+
+  // Atomic compare-and-advance. Only called when data is actually going to change.
+  private async touchToken(
+    sheetId: number,
+    expected: string | null,
+    tx: Prisma.TransactionClient,
+  ): Promise<Date> {
+    const res = await this.ordersRepository.touchOrderItemsIfUnchanged(
+      sheetId,
+      this.parseExpected(expected),
+      tx,
+    );
+    if (res.count !== 1) throw new ConflictException(STALE_DATA_MESSAGE);
+    return res.touchedAt;
+  }
+
   async getSheetService(sheetId: number) {
-    return this.prisma.$transaction(async (tx) => {
-      const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
-      if (!sheet) throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+    return this.prisma.$transaction(
+      async (tx) => {
+        const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+        if (!sheet) throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-      const [
-        milkProducts,
-        nonMilkProducts,
-        milkClients,
-        nonMilkClients,
-        sheetItems,
-      ] = await Promise.all([
-        this.ordersRepository.getProductsForSheet(
-          sheetId,
-          SupplyCategory.MILK,
-          tx,
-        ),
-        this.ordersRepository.getProductsForSheet(
-          sheetId,
-          SupplyCategory.NON_MILK,
-          tx,
-        ),
-        this.ordersRepository.getClientsForSheetDisplay(
-          sheet.id,
-          sheet.group_id,
-          SupplyCategory.MILK,
-          tx,
-        ),
-        this.ordersRepository.getClientsForSheetDisplay(
-          sheet.id,
-          sheet.group_id,
-          SupplyCategory.NON_MILK,
-          tx,
-        ),
-        this.ordersRepository.getSheetItems(sheet.id, tx),
-      ]);
-      const workflow = this.workflowBuilder.buildOrdersWorkflow(
-        sheet.order_paper.status,
-      );
-
-      const itemsUpdatedAt = sheet.order_items_updated_at;
-
-      const morningEntrySaved =
-        sheet.order_paper.status === OrderPaperStatus.NIGHT_SUBMITTED &&
-        sheet.order_morning_entry_saved_at !== null;
-
-      const orderBilling = this.ordersBuilder.buildOrderBillingSection(
-        {
+        const [
           milkProducts,
           nonMilkProducts,
           milkClients,
           nonMilkClients,
           sheetItems,
-        },
-        sheet.order_paper.status,
-        morningEntrySaved,
-      );
-      return {
-        sheet,
+        ] = await Promise.all([
+          this.ordersRepository.getProductsForSheet(
+            sheetId,
+            SupplyCategory.MILK,
+            tx,
+          ),
+          this.ordersRepository.getProductsForSheet(
+            sheetId,
+            SupplyCategory.NON_MILK,
+            tx,
+          ),
+          this.ordersRepository.getClientsForSheetDisplay(
+            sheet.id,
+            sheet.group_id,
+            SupplyCategory.MILK,
+            tx,
+          ),
+          this.ordersRepository.getClientsForSheetDisplay(
+            sheet.id,
+            sheet.group_id,
+            SupplyCategory.NON_MILK,
+            tx,
+          ),
+          this.ordersRepository.getSheetItems(sheet.id, tx),
+        ]);
+        const workflow = this.workflowBuilder.buildOrdersWorkflow(
+          sheet.order_paper.status,
+        );
 
-        workflow,
+        const itemsUpdatedAt = sheet.order_items_updated_at;
 
-        itemsUpdatedAt,
+        const morningEntrySaved =
+          sheet.order_paper.status === OrderPaperStatus.NIGHT_SUBMITTED &&
+          sheet.order_morning_entry_saved_at !== null;
 
-        ...orderBilling,
-      };
-    });
+        const orderBilling = this.ordersBuilder.buildOrderBillingSection(
+          {
+            milkProducts,
+            nonMilkProducts,
+            milkClients,
+            nonMilkClients,
+            sheetItems,
+          },
+          sheet.order_paper.status,
+          morningEntrySaved,
+        );
+        return { sheet, workflow, itemsUpdatedAt, ...orderBilling };
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead,
+        timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
+      },
+    );
   }
 
   async getSheetItemsService(sheetId: number) {
-    try {
-      if (!sheetId || sheetId <= 0) {
-        throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
-      }
-
-      return await this.ordersRepository.getSheetItems(sheetId);
-    } catch (error) {
-      this.logger.error(ERROR_MESSAGES.SHEET_NOT_FOUND, error);
-
-      throw error;
-    }
+    const sheet = await this.ordersRepository.findSheetById(sheetId);
+    if (!sheet) throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+    return this.ordersRepository.getSheetItems(sheetId);
   }
 
   async addProductToSheet(sheetId: number, dto: AddProductDto) {
-    if (!sheetId || sheetId <= 0) {
-      throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
-    }
-
     await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
           const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
           if (!sheet)
-            throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+            throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
           if (
             !this.workflowState.canEditNightEntries(sheet.order_paper.status)
@@ -164,6 +183,9 @@ export class OrdersService {
               'Products can only be added while the paper is in DRAFT',
             );
           }
+
+          // Decision 19: product add participates in the order-items concurrency token.
+          await this.touchToken(sheetId, dto.expectedUpdatedAt, tx);
 
           const existingLink = await this.ordersRepository.getSheetProductLink(
             sheetId,
@@ -179,10 +201,7 @@ export class OrdersService {
           await this.validationService.validateProduct(dto.productId, tx);
 
           await this.ordersRepository.createSheetProduct(
-            {
-              order_sheet_id: sheetId,
-              product_id: dto.productId,
-            },
+            { order_sheet_id: sheetId, product_id: dto.productId },
             tx,
           );
         },
@@ -193,20 +212,21 @@ export class OrdersService {
       ),
     );
 
+    // Full sheet response carries the new itemsUpdatedAt.
     return this.getSheetService(sheetId);
   }
 
-  async removeProductFromSheet(sheetId: number, productId: number) {
-    if (!sheetId || sheetId <= 0) {
-      throw new BadRequestException(ERROR_MESSAGES.INVALID_SHEET_ID);
-    }
-
+  async removeProductFromSheet(
+    sheetId: number,
+    productId: number,
+    expectedUpdatedAt: string | null,
+  ) {
     await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
           const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
           if (!sheet)
-            throw new BadRequestException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+            throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
           if (
             !this.workflowState.canEditNightEntries(sheet.order_paper.status)
@@ -215,6 +235,9 @@ export class OrdersService {
               'Products can only be removed while the paper is in DRAFT',
             );
           }
+
+          // Decision 19.
+          await this.touchToken(sheetId, expectedUpdatedAt, tx);
 
           const product = await this.ordersRepository.getProductWithGroup(
             productId,
@@ -232,20 +255,23 @@ export class OrdersService {
             },
             select: { id: true },
           });
-
           if (hasRealOrders) {
             throw new BadRequestException(
               'Cannot remove a product that already has ordered quantities. Set quantities to 0 first.',
             );
           }
 
-          const result = await this.ordersRepository.deleteSheetProduct(
+          const link = await this.ordersRepository.deleteSheetProduct(
             sheetId,
             productId,
             tx,
           );
-
-          if (result.count === 0) {
+          const lines = await this.ordersRepository.deleteSheetItems(
+            sheetId,
+            productId,
+            tx,
+          );
+          if (link.count === 0 && lines.count === 0) {
             throw new BadRequestException('Product not found in this sheet');
           }
 
@@ -264,14 +290,19 @@ export class OrdersService {
   async saveNightEntriesService(
     sheetId: number,
     entries: SaveNightEntriesDto[],
-    expectedUpdatedAt?: string,
+    expectedUpdatedAt: string | null,
   ) {
     try {
-      if (!sheetId || sheetId <= 0) {
-        throw new BadRequestException(`Invalid sheet ID: ${sheetId}`);
-      }
+      const effective = entries.filter(
+        (e): e is ExplicitNightEntry =>
+          e.orderedQty !== undefined && e.orderedQty !== null,
+      );
 
-      this.validationService.validateNoDuplicates(entries);
+      this.validationService.validateNoDuplicates(effective);
+      for (const e of effective)
+        this.validationService.validateOrderedQuantity(Number(e.orderedQty));
+
+      let itemsUpdatedAt = null as string | null;
 
       await withSerializableRetry(() =>
         this.prisma.$transaction(
@@ -280,12 +311,8 @@ export class OrdersService {
               sheetId,
               tx,
             );
-
-            if (!sheet) {
-              throw new BadRequestException(
-                `Sheet with ID ${sheetId} not found`,
-              );
-            }
+            if (!sheet)
+              throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
             if (
               !this.workflowState.canEditNightEntries(sheet.order_paper.status)
@@ -295,61 +322,75 @@ export class OrdersService {
               );
             }
 
-            if (expectedUpdatedAt) {
-              await assertNotStale(
-                () =>
-                  this.ordersRepository.touchOrderItemsIfUnchanged(
-                    sheetId,
-                    new Date(expectedUpdatedAt),
-                    tx,
-                  ),
-                STALE_DATA_MESSAGE,
-              );
-            } else {
-              await this.ordersRepository.touchOrderItemsIfUnchanged(
+            // OD-12.8: token compared first; stale = 409 even for a no-op.
+            this.assertTokenMatches(
+              sheet.order_items_updated_at,
+              expectedUpdatedAt,
+            );
+            itemsUpdatedAt =
+              sheet.order_items_updated_at?.toISOString() ?? null;
+
+            if (effective.length === 0) return;
+
+            // (a) existence only, for every explicit entry
+            await this.validationService.validateEntriesBatch(
+              effective,
+              sheet.group_id,
+              tx,
+              false,
+            );
+
+            const existingItemMap =
+              await this.ordersRepository.findSheetItemsByProductBatch(
                 sheetId,
-                null,
+                effective.map((e) => ({
+                  clientId: e.clientId,
+                  productId: e.productId,
+                })),
                 tx,
               );
-            }
+            const hasLine = (e: ExplicitNightEntry) =>
+              existingItemMap.has(`${e.clientId}_${e.productId}`);
 
-            const productMap =
+            // (c) new line = no line and qty > 0 -> full live checks
+            const newLines = effective.filter(
+              (e) => !hasLine(e) && Number(e.orderedQty) > 0,
+            );
+            if (newLines.length > 0) {
               await this.validationService.validateEntriesBatch(
-                entries,
+                newLines,
                 sheet.group_id,
                 tx,
-              );
-
-            const trayRules = await this.billingService.getTrayRulesOnce(tx);
-
-            for (const entry of entries) {
-              if (entry.orderedQty === undefined || entry.orderedQty === null) {
-                throw new BadRequestException(
-                  ERROR_MESSAGES.MISSING_REQUIRED_FIELD('orderedQty'),
-                );
-              }
-              const product = productMap.get(entry.productId);
-
-              if (!product) {
-                throw new BadRequestException(
-                  ERROR_MESSAGES.PRODUCT_NOT_FOUND(entry.productId),
-                );
-              }
-
-              this.validationService.validateOrderedQuantity(
-                Number(entry.orderedQty),
-                product,
-                trayRules,
+                true,
               );
             }
 
+            // processed = existing lines (any explicit qty) + new lines. New zeros are no-ops (d).
+            const processed = effective.filter(
+              (e) => hasLine(e) || Number(e.orderedQty) > 0,
+            );
+            if (processed.length === 0) return; // true no-op: token unchanged
+
+            await this.validationService.validateProductsOnSheet(
+              sheetId,
+              processed.map((e) => e.productId),
+              tx,
+            );
+
+            itemsUpdatedAt = (
+              await this.touchToken(sheetId, expectedUpdatedAt, tx)
+            ).toISOString();
+
+            const trayRules = await this.billingService.getTrayRulesOnce(tx);
             await this.billingService.saveNightEntriesBatch(
               tx,
               sheet,
               sheetId,
-              entries,
+              processed,
               trayRules,
+              existingItemMap,
             );
+
             await this.dependencyOrchestrator.execute(
               DEPENDENCY_MODULES.ORDERS,
               DEPENDENCY_TRIGGERS.ON_SAVE,
@@ -370,15 +411,16 @@ export class OrdersService {
 
       return {
         success: true,
-
         message: SUCCESS_MESSAGES.NIGHT_ENTRIES_SAVED,
+        itemsUpdatedAt,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to save night entries for sheet ${sheetId}`,
-        error,
-      );
-
+      if (!(error instanceof HttpException)) {
+        this.logger.error(
+          `Failed to save night entries for sheet ${sheetId}`,
+          error,
+        );
+      }
       throw error;
     }
   }
@@ -386,14 +428,25 @@ export class OrdersService {
   async saveMorningEntriesService(
     sheetId: number,
     entries: SaveMorningEntriesDto[],
-    expectedUpdatedAt?: string,
+    expectedUpdatedAt: string | null,
   ) {
     try {
       if (!sheetId || sheetId <= 0) {
         throw new BadRequestException(`Invalid sheet ID: ${sheetId}`);
       }
 
-      this.validationService.validateNoDuplicates(entries);
+      const effective = entries.filter(
+        (e): e is ExplicitMorningEntry =>
+          e.deliveredQty !== undefined && e.deliveredQty !== null,
+      );
+
+      this.validationService.validateNoDuplicates(effective);
+      for (const e of effective)
+        this.validationService.validateDeliveredQuantity(
+          Number(e.deliveredQty),
+        );
+
+      let itemsUpdatedAt = null as string | null;
 
       await withSerializableRetry(() =>
         this.prisma.$transaction(
@@ -402,98 +455,82 @@ export class OrdersService {
               sheetId,
               tx,
             );
-
-            if (!sheet) {
-              throw new BadRequestException(
-                `Sheet with ID ${sheetId} not found`,
-              );
-            }
+            if (!sheet)
+              throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
             const status = sheet.order_paper.status;
-
             if (!this.workflowState.canEditMorningEntries(status)) {
               throw new BadRequestException(
                 ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
               );
             }
 
-            if (expectedUpdatedAt) {
-              await assertNotStale(
-                () =>
-                  this.ordersRepository.touchOrderItemsIfUnchanged(
-                    sheetId,
-                    new Date(expectedUpdatedAt),
-                    tx,
-                  ),
-                STALE_DATA_MESSAGE,
-              );
-            } else {
-              await this.ordersRepository.touchOrderItemsIfUnchanged(
-                sheetId,
-                null,
-                tx,
-              );
-            }
+            this.assertTokenMatches(
+              sheet.order_items_updated_at,
+              expectedUpdatedAt,
+            );
+            itemsUpdatedAt =
+              sheet.order_items_updated_at?.toISOString() ?? null;
+
+            if (effective.length === 0) return;
 
             await this.validationService.validateEntriesBatch(
-              entries,
+              effective,
               sheet.group_id,
               tx,
-              false, // morning only records delivery for already-resolved items
+              false,
             );
 
             const existingItemMap =
               await this.ordersRepository.findSheetItemsByProductBatch(
                 sheetId,
-                entries.map((entry) => ({
-                  clientId: entry.clientId,
-                  productId: entry.productId,
+                effective.map((e) => ({
+                  clientId: e.clientId,
+                  productId: e.productId,
                 })),
                 tx,
               );
+            const hasLine = (e: ExplicitMorningEntry) =>
+              existingItemMap.has(`${e.clientId}_${e.productId}`);
 
-            for (const entry of entries) {
-              if (
-                entry.deliveredQty === undefined ||
-                entry.deliveredQty === null
-              ) {
+            const newLines = effective.filter(
+              (e) => !hasLine(e) && Number(e.deliveredQty) > 0,
+            );
+            const processedCount =
+              effective.filter(hasLine).length + newLines.length;
+            if (processedCount === 0) return; // true no-op: token unchanged
+
+            if (newLines.length > 0) {
+              // OD-7.11
+              if (status !== OrderPaperStatus.NIGHT_SUBMITTED) {
                 throw new BadRequestException(
-                  ERROR_MESSAGES.MISSING_REQUIRED_FIELD('deliveredQty'),
+                  ERROR_MESSAGES.NEW_LINE_NOT_ALLOWED_WHEN_REOPENED,
                 );
               }
-
-              const existingItem = existingItemMap.get(
-                `${entry.clientId}_${entry.productId}`,
+              await this.validationService.validateEntriesBatch(
+                newLines,
+                sheet.group_id,
+                tx,
+                true,
               );
-
-              const deliveredQty = Number(entry.deliveredQty);
-
-              if (!existingItem) {
-                if (deliveredQty === 0) {
-                  continue;
-                }
-
-                throw new BadRequestException(
-                  ERROR_MESSAGES.NO_ORDERED_QUANTITY(
-                    entry.clientId,
-                    entry.productId,
-                  ),
-                );
-              }
-
-              this.validationService.validateDeliveredQuantity(
-                deliveredQty,
-                existingItem,
+              await this.validationService.validateProductsOnSheet(
+                sheetId,
+                newLines.map((e) => e.productId),
+                tx,
               );
             }
+
+            itemsUpdatedAt = (
+              await this.touchToken(sheetId, expectedUpdatedAt, tx)
+            ).toISOString();
 
             await this.billingService.saveMorningEntriesBatch(
               tx,
               sheet,
               sheetId,
-              entries,
+              effective,
+              existingItemMap,
             );
-
             await this.ordersRepository.markOrderMorningEntrySaved(sheetId, tx);
 
             await this.dependencyOrchestrator.execute(
@@ -516,15 +553,16 @@ export class OrdersService {
 
       return {
         success: true,
-
         message: SUCCESS_MESSAGES.MORNING_ENTRIES_SAVED,
+        itemsUpdatedAt,
       };
     } catch (error) {
-      this.logger.error(
-        `Failed to save morning entries for sheet ${sheetId}`,
-        error,
-      );
-
+      if (!(error instanceof HttpException)) {
+        this.logger.error(
+          `Failed to save morning entries for sheet ${sheetId}`,
+          error,
+        );
+      }
       throw error;
     }
   }

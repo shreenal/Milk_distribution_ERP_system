@@ -1,18 +1,51 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { DATE_CONFIG, ERROR_MESSAGES } from './paper.constants.js';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
+import {
+  DATE_CONFIG,
+  ERROR_MESSAGES,
+  PAPER_TRANSACTION_TIMEOUT_MS,
+} from './paper.constants.js';
 import { PaperValidationService } from './services/paper-validation.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { PaperRepository } from './paper.repository.js';
-import { OrderPaperStatus } from '../../../generated/prisma/client.js';
+import { OrderPaperStatus, Prisma } from '../../../generated/prisma/client.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { DependencyOrchestratorService } from '../dependencies/dependency-orchestrator.service.js';
 import {
   DEPENDENCY_MODULES,
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
+import { DairyTraysRepository } from '../dairy-trays/dairy-trays.repository.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
+import { PropagationOutboxRepository } from '../propagation-queue/propagation-outbox.repository.js';
+import { PROPAGATION_OUTBOX_PROBLEM_AFTER_MS } from '../propagation-queue/propagation-queue.constants.js';
+import {
+  addDaysUtc,
+  formatIsoDate,
+  getTodayInZone,
+  parseStrictDate,
+  resolveGenerationDates,
+} from './paper-date.util.js';
+
+type PaperWithSheets = NonNullable<
+  Awaited<ReturnType<PaperRepository['findPaperById']>>
+>;
+
+// PA-4.6: the generation race can surface as a unique violation in several
+// shapes depending on the driver; same check the repositories use.
+const isUniqueViolation = (e: any): boolean =>
+  e?.code === '23505' ||
+  e?.code === 'P2002' ||
+  e?.meta?.code === '23505' ||
+  e?.cause?.originalCode === '23505' ||
+  e?.meta?.driverAdapterError?.cause?.originalCode === '23505';
 
 @Injectable()
 export class PaperService {
@@ -24,68 +57,136 @@ export class PaperService {
     private readonly workflowBuilder: WorkflowBuilder,
     private readonly prisma: PrismaService,
     private readonly dependencyOrchestrator: DependencyOrchestratorService,
+    private readonly propagationOutboxRepository: PropagationOutboxRepository,
+    private readonly dairyTraysRepository: DairyTraysRepository,
   ) {}
 
-  async generatePaperService(date: string) {
-    if (!date) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.MISSING_REQUIRED_FIELD('date'),
+  // Additive: write endpoints used to return the bare paper row. Spreading the
+  // row keeps every existing field in place and adds `workflow`, so callers
+  // no longer need a follow-up GET to know what they may do next.
+  private withWorkflow<T extends { status: OrderPaperStatus }>(paper: T) {
+    return {
+      ...paper,
+      workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+    };
+  }
+
+  // PA-8.5 / PA-9.4: finalize and reopen also report background propagation,
+  // so FINALIZED is never read as "everything downstream is already settled".
+  private async withWorkflowAndPropagation<
+    T extends { id: number; status: OrderPaperStatus },
+  >(paper: T) {
+    return {
+      ...this.withWorkflow(paper),
+      propagation: await this.propagationOutboxRepository.summarizeForPaper(
+        paper.id,
+      ),
+    };
+  }
+
+  // PA-5.1: the paper returned as LATEST is not today's paper, so it is
+  // offered for viewing only. No action is advertised.
+  private buildReadOnlyWorkflow(status: OrderPaperStatus) {
+    return {
+      ...this.workflowBuilder.buildPaperWorkflow(status),
+      activeExecutionSession: null,
+      canSubmitNight: false,
+      canSubmitMorning: false,
+      canFinalize: false,
+      canReopen: false,
+    };
+  }
+
+  // PA-11.3: submit-night, submit-morning and finalize run every other
+  // module's checks in one serializable transaction, so they get the longer
+  // paper-specific limit. A transaction that still times out saved nothing;
+  // that is reported as a retryable 409 instead of a generic 500.
+  private async runHeavyTransaction<T>(
+    run: (tx: Prisma.TransactionClient) => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await withSerializableRetry(() =>
+        this.prisma.$transaction(run, {
+          timeout: PAPER_TRANSACTION_TIMEOUT_MS,
+          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+        }),
       );
+    } catch (err: unknown) {
+      if (
+        typeof err === 'object' &&
+        err !== null &&
+        'code' in err &&
+        err.code === 'P2028'
+      ) {
+        throw new ConflictException(ERROR_MESSAGES.TRANSACTION_TIMED_OUT);
+      }
+      throw err;
+    }
+  }
+
+  // PA-4.4: while a paper is still DRAFT, a group that became active after
+  // generation gets its sheet when generate is pressed again. Existing sheets
+  // are never changed or removed, and a paper past DRAFT is returned as is.
+  private async addMissingSheetsWhileDraft(
+    paper: PaperWithSheets,
+    tx: Prisma.TransactionClient,
+  ): Promise<PaperWithSheets> {
+    if (paper.status !== OrderPaperStatus.DRAFT) {
+      return paper;
     }
 
-    const [year, month, day] = date.split('-').map(Number);
+    const groups = await this.paperRepository.getActiveGroups(tx);
+    const haveSheet = new Set(paper.order_sheet.map((s) => s.group_id));
+    const missing = groups.filter((g) => !haveSheet.has(g.id));
 
-    if (!year || !month || !day) {
-      throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
+    if (missing.length === 0) {
+      return paper;
     }
 
-    const saleDate = new Date(Date.UTC(year, month - 1, day));
-    const orderDate = new Date(saleDate);
-    orderDate.setUTCDate(orderDate.getUTCDate() - 1);
+    await this.paperRepository.generateOrderSheets(paper.id, missing, tx);
 
-    const tomorrowSale = new Date(saleDate);
-    tomorrowSale.setUTCDate(tomorrowSale.getUTCDate() + 1);
+    return (await this.paperRepository.findPaperById(paper.id, tx)) ?? paper;
+  }
 
-    const now = new Date();
-
-    const istDate = new Intl.DateTimeFormat('en-CA', {
-      timeZone: DATE_CONFIG.TIMEZONE,
-    }).format(now); // YYYY-MM-DD
-
-    const [istYear, istMonth, istDay] = istDate.split('-').map(Number);
-
-    const todayIst = new Date(Date.UTC(istYear, istMonth - 1, istDay));
-
-    if (saleDate < todayIst) {
-      throw new BadRequestException(ERROR_MESSAGES.PAST_DATE_NOT_ALLOWED);
-    }
-
-    const thirtyDaysAhead = new Date(todayIst);
-
-    thirtyDaysAhead.setUTCDate(
-      thirtyDaysAhead.getUTCDate() + DATE_CONFIG.MAX_FUTURE_DAYS,
+  async generatePaperService(date?: string) {
+    // Business decision: papers are generated for the current business day
+    // only. No past dates, no future dates, no "+30 days" window.
+    const { orderDate, saleDate } = resolveGenerationDates(
+      new Date(),
+      DATE_CONFIG.TIMEZONE,
+      DATE_CONFIG.GENERATION_SALE_DATE_OFFSET_DAYS,
     );
 
-    if (saleDate > thirtyDaysAhead) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.FUTURE_DATE_TOO_FAR(DATE_CONFIG.MAX_FUTURE_DAYS),
-      );
+    if (date !== undefined) {
+      const requested = parseStrictDate(date);
+
+      if (!requested) {
+        throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
+      }
+
+      if (requested.getTime() !== saleDate.getTime()) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.ONLY_CURRENT_BUSINESS_DAY(formatIsoDate(saleDate)),
+        );
+      }
     }
 
-    return withSerializableRetry(() =>
+    const nextSaleDay = addDaysUtc(saleDate, 1);
+
+    const paper = await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
           const existingPaper = await this.paperRepository.findPaperBySaleDate(
             saleDate,
-            tomorrowSale,
+            nextSaleDay,
             tx,
           );
 
           if (existingPaper) {
-            return existingPaper;
+            return this.addMissingSheetsWhileDraft(existingPaper, tx);
           }
 
-          const paper = await this.paperRepository.generatePaperFromOrderDate(
+          const created = await this.paperRepository.generatePaperFromOrderDate(
             orderDate,
             tx,
           );
@@ -96,9 +197,30 @@ export class PaperService {
             throw new BadRequestException(ERROR_MESSAGES.NO_ACTIVE_GROUPS);
           }
 
-          await this.paperRepository.generateOrderSheets(paper.id, groups, tx);
+          await this.paperRepository.generateOrderSheets(
+            created.id,
+            groups,
+            tx,
+          );
 
-          return paper;
+          await this.dairyTraysRepository.getOrCreateDairyTrayPaper(
+            created.id,
+            tx,
+          );
+
+          // Same shape as the "already exists" path (paper + sheets).
+          const withSheets = await this.paperRepository.findPaperById(
+            created.id,
+            tx,
+          );
+
+          if (!withSheets) {
+            throw new Error(
+              `Paper ${created.id} vanished inside its own transaction`,
+            );
+          }
+
+          return withSheets;
         },
         {
           timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
@@ -108,19 +230,13 @@ export class PaperService {
     ).catch(async (err: unknown) => {
       // Two concurrent requests for the same date can both pass the
       // existingPaper check and race on the unique (sale_date/order_date)
-      // constraint. Postgres SSI does not guarantee this is caught as a
-      // 40001 serialization failure — it can surface as a plain unique
-      // violation instead. Since generation is meant to be idempotent
-      // per date, resolve that case by returning the winner's paper.
-      if (
-        typeof err === 'object' &&
-        err !== null &&
-        'code' in err &&
-        err.code === 'P2002'
-      ) {
+      // constraint. Generation is idempotent per date, so resolve that case
+      // by returning the winner's paper. The re-query by sale date is the
+      // guard: a different unique violation finds no paper and is rethrown.
+      if (isUniqueViolation(err)) {
         const existingPaper = await this.paperRepository.findPaperBySaleDate(
           saleDate,
-          tomorrowSale,
+          nextSaleDay,
         );
         if (existingPaper) {
           return existingPaper;
@@ -128,24 +244,16 @@ export class PaperService {
       }
       throw err;
     });
+
+    return this.withWorkflow(paper);
   }
 
   async getTodayPaperService() {
     try {
       this.logger.log('Fetching today or latest paper');
 
-      const now = new Date();
-
-      const istDate = new Intl.DateTimeFormat('en-CA', {
-        timeZone: DATE_CONFIG.TIMEZONE,
-      }).format(now); // YYYY-MM-DD
-
-      const [year, month, day] = istDate.split('-').map(Number);
-
-      const today = new Date(Date.UTC(year, month - 1, day));
-
-      const tomorrow = new Date(today);
-      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      const today = getTodayInZone(new Date(), DATE_CONFIG.TIMEZONE);
+      const tomorrow = addDaysUtc(today, 1);
 
       const todayPaper = await this.paperRepository.findPaperBySaleDate(
         today,
@@ -157,19 +265,25 @@ export class PaperService {
           type: 'TODAY',
           paper: todayPaper,
           workflow: this.workflowBuilder.buildPaperWorkflow(todayPaper.status),
+          propagation: await this.propagationOutboxRepository.summarizeForPaper(
+            todayPaper.id,
+          ),
         };
       }
 
       const latestPaper = await this.paperRepository.findLatestPaper();
 
       if (!latestPaper) {
-        throw new BadRequestException(ERROR_MESSAGES.NO_PAPERS_FOUND);
+        throw new NotFoundException(ERROR_MESSAGES.NO_PAPERS_FOUND);
       }
 
       return {
         type: 'LATEST',
         paper: latestPaper,
-        workflow: this.workflowBuilder.buildPaperWorkflow(latestPaper.status),
+        workflow: this.buildReadOnlyWorkflow(latestPaper.status),
+        propagation: await this.propagationOutboxRepository.summarizeForPaper(
+          latestPaper.id,
+        ),
       };
     } catch (error) {
       this.logger.error('Failed to fetch today/latest paper', error);
@@ -182,36 +296,40 @@ export class PaperService {
     const paper = await this.paperRepository.findPaperById(paperId);
 
     if (!paper) {
-      throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+      throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
     }
 
     return {
       paper,
       workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+      propagation: await this.propagationOutboxRepository.summarizeForPaper(
+        paper.id,
+      ),
     };
   }
 
   async getPapersService(date?: string, page = 1, pageSize?: number) {
     if (date) {
-      const [year, month, day] = date.split('-').map(Number);
+      const start = parseStrictDate(date);
 
-      if (!year || !month || !day) {
+      if (!start) {
         throw new BadRequestException(ERROR_MESSAGES.INVALID_DATE_FORMAT);
       }
 
-      const start = new Date(Date.UTC(year, month - 1, day));
-      const end = new Date(start);
-      end.setUTCDate(end.getUTCDate() + 1);
+      const end = addDaysUtc(start, 1);
 
       const paper = await this.paperRepository.findPaperBySaleDate(start, end);
 
       if (!paper) {
-        throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+        throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
       }
 
       return {
         paper,
         workflow: this.workflowBuilder.buildPaperWorkflow(paper.status),
+        propagation: await this.propagationOutboxRepository.summarizeForPaper(
+          paper.id,
+        ),
       };
     }
 
@@ -234,101 +352,91 @@ export class PaperService {
   }
 
   async submitNightEntryService(paperId: number) {
-    return withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const paper =
-            await this.paperValidationService.validateNightSubmitReadiness(
-              paperId,
-              tx,
-            );
+    const paper = await this.runHeavyTransaction(async (tx) => {
+      const current =
+        await this.paperValidationService.validateNightSubmitReadiness(
+          paperId,
+          tx,
+        );
 
-          this.workflowState.validateTransition(
-            paper.status,
-            OrderPaperStatus.NIGHT_SUBMITTED,
-          );
+      this.workflowState.validateTransition(
+        current.status,
+        OrderPaperStatus.NIGHT_SUBMITTED,
+      );
 
-          return this.paperRepository.submitNightEntry(paperId, tx);
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+      return this.paperRepository.submitNightEntry(paperId, tx);
+    });
+
+    return this.withWorkflow(paper);
   }
 
   async submitMorningEntryService(paperId: number) {
-    return withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const paper =
-            await this.paperValidationService.validateMorningSubmitReadiness(
-              paperId,
-              tx,
-            );
+    const paper = await this.runHeavyTransaction(async (tx) => {
+      const current =
+        await this.paperValidationService.validateMorningSubmitReadiness(
+          paperId,
+          tx,
+        );
 
-          this.workflowState.validateTransition(
-            paper.status,
-            OrderPaperStatus.MORNING_SUBMITTED,
-          );
+      this.workflowState.validateTransition(
+        current.status,
+        OrderPaperStatus.MORNING_SUBMITTED,
+      );
 
-          return this.paperRepository.submitMorningEntry(paperId, tx);
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+      return this.paperRepository.submitMorningEntry(paperId, tx);
+    });
+
+    return this.withWorkflow(paper);
   }
 
   async finalizePaperService(paperId: number) {
-    return withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const paper =
-            await this.paperValidationService.validateFinalizeReadiness(
-              paperId,
-              tx,
-            );
+    const paper = await this.runHeavyTransaction(async (tx) => {
+      const current =
+        await this.paperValidationService.validateFinalizeReadiness(
+          paperId,
+          tx,
+        );
 
-          this.workflowState.validateTransition(
-            paper.status,
-            OrderPaperStatus.FINALIZED,
-          );
+      this.workflowState.validateTransition(
+        current.status,
+        OrderPaperStatus.FINALIZED,
+      );
 
-          await this.dependencyOrchestrator.execute(
-            DEPENDENCY_MODULES.PAPER,
-            DEPENDENCY_TRIGGERS.ON_FINALIZE,
-            {
-              paperId,
-              tx,
-            },
-          );
-
-          return this.paperRepository.finalizePaper(paperId, tx);
-        },
+      // Financial finalization is synchronous. Downstream tray
+      // propagation is recorded in the outbox in this same transaction
+      // and completes asynchronously; its progress is returned with the
+      // response and tracked separately (see getPropagationStatusService).
+      await this.dependencyOrchestrator.execute(
+        DEPENDENCY_MODULES.PAPER,
+        DEPENDENCY_TRIGGERS.ON_FINALIZE,
         {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+          paperId,
+          tx,
         },
-      ),
-    );
+      );
+
+      return this.paperRepository.finalizePaper(paperId, tx);
+    });
+
+    return this.withWorkflowAndPropagation(paper);
   }
 
   async reopenPaperService(paperId: number, reason: string) {
-    return withSerializableRetry(() =>
+    const paper = await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
-          const paper = await this.paperRepository.findPaperById(paperId, tx);
+          const current = await this.paperRepository.findPaperById(paperId, tx);
 
-          if (!paper) {
-            throw new BadRequestException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+          if (!current) {
+            throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+          }
+
+          if (current.status === OrderPaperStatus.REOPENED) {
+            throw new ConflictException(ERROR_MESSAGES.ALREADY_REOPENED);
           }
 
           this.workflowState.validateTransition(
-            paper.status,
+            current.status,
             OrderPaperStatus.REOPENED,
           );
 
@@ -339,6 +447,34 @@ export class PaperService {
           isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
         },
       ),
+    );
+
+    return this.withWorkflowAndPropagation(paper);
+  }
+
+  private async assertPaperExists(paperId: number) {
+    const paper = await this.paperRepository.findPaperById(paperId);
+
+    if (!paper) {
+      throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    }
+  }
+
+  async getPropagationStatusService(paperId: number) {
+    await this.assertPaperExists(paperId);
+    return this.propagationOutboxRepository.summarizeForPaper(paperId);
+  }
+
+  async retryFailedPropagationService(paperId: number) {
+    await this.assertPaperExists(paperId);
+    const requeued =
+      await this.propagationOutboxRepository.requeueFailedForPaper(paperId);
+    return { requeued };
+  }
+
+  async listPropagationProblemsService() {
+    return this.propagationOutboxRepository.listProblems(
+      PROPAGATION_OUTBOX_PROBLEM_AFTER_MS,
     );
   }
 }

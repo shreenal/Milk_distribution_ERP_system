@@ -35,9 +35,9 @@ export class CollectionsValidationService {
       await this.collectionsRepository.getCollectionsForValidation(sheetId, db);
 
     for (const row of collections) {
-      if (Number(row.office_amount_given ?? 0) < 0) {
+      if (Number(row.office_cash_collection ?? 0) < 0) {
         throw new BadRequestException(
-          COLLECTION_ERROR_MESSAGES.NEGATIVE_OFFICE_AMOUNT,
+          COLLECTION_ERROR_MESSAGES.NEGATIVE_OFFICE_CASH_COLLECTION,
         );
       }
     }

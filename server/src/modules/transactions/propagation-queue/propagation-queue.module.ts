@@ -13,8 +13,6 @@ import { PrismaModule } from '../../../prisma/prisma.module.js';
 
 @Module({
   imports: [
-    // FIX C3 (production review): backs PropagationOutboxRelayService's
-    // @Interval polling. Requires the `@nestjs/schedule` package.
     ScheduleModule.forRoot(),
     BullModule.forRootAsync({
       imports: [ConfigModule],

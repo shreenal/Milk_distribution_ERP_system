@@ -19,6 +19,15 @@ export const envValidationSchema = Joi.object({
   TRUST_PROXY_HOPS: Joi.number().default(1),
   CORS_ORIGINS: Joi.string().required(),
 
+  // Refresh-token cookie. Same-site setups (e.g. localhost:5173 -> localhost:3000, or
+  // app.example.com -> api.example.com) use lax. Unrelated domains need none (forces Secure).
+  REFRESH_COOKIE_SAMESITE: Joi.string().valid('lax', 'strict', 'none').default('lax'),
+  REFRESH_COOKIE_SECURE: Joi.boolean().default(
+    Joi.ref('NODE_ENV', { adjust: (v: string) => v === 'production' }),
+  ),
+
   REDIS_HOST: Joi.string().default('localhost'),
   REDIS_PORT: Joi.number().default(6379),
+  REDIS_PASSWORD: Joi.string().allow('').optional(),
+  REDIS_TLS: Joi.boolean().default(false),
 });

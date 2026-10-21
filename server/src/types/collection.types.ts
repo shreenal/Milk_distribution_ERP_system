@@ -1,51 +1,51 @@
 import { Prisma } from '../generated/prisma/client.js';
 
+// Admin-side fields are optional: they are projected away for non-admin
+// callers (CD-3.8), so they are simply absent from the payload.
 export interface CollectionRow {
-  collectionId;
+  collectionId: number | null;
 
-  clientId;
+  clientId: number;
 
-  clientCode;
+  clientCode: string | null;
 
-  clientName;
+  clientName: string;
 
-  cashCollection;
+  officeCashCollection: number;
 
-  officeAmountGiven;
-
-  chequeCollection;
-
-  onlineCollection;
-
-  bankDeposit;
-
-  employeeRemarks;
-
-  adminRemarks;
-
-  employeeTotal;
-
-  adminTotal;
-
-  grandTotal;
-}
-
-export interface CollectionTotals {
   cashCollection: number;
-
-  officeAmountGiven: number;
 
   chequeCollection: number;
 
-  onlineCollection: number;
+  employeeTotal: number;
 
-  bankDeposit: number;
+  onlineCollection?: number;
+
+  bankDeposit?: number;
+
+  adminTotal?: number;
+
+  grandTotal?: number;
+}
+
+export interface CollectionTotals {
+  totalClients: number;
+
+  officeCashCollection: number;
+
+  cashCollection: number;
+
+  chequeCollection: number;
 
   employeeTotal: number;
 
-  adminTotal: number;
+  onlineCollection?: number;
 
-  grandTotal: number;
+  bankDeposit?: number;
+
+  adminTotal?: number;
+
+  grandTotal?: number;
 }
 
 export type CollectionSheet = Prisma.order_sheetGetPayload<{
@@ -61,20 +61,17 @@ export type CollectionClient = {
   name: string;
 };
 
+export type CollectionColumnNode = {
+  field?: string;
+  headerName: string;
+  editable?: boolean;
+  children?: CollectionColumnNode[];
+};
+
 export type CollectionGrid = {
-  columns: any[];
-  rows: any[];
-  totals: {
-    totalClients: number;
-    cashCollection: number;
-    officeAmountGiven: number;
-    chequeCollection: number;
-    onlineCollection: number;
-    bankDeposit: number;
-    employeeTotal: number;
-    adminTotal: number;
-    grandTotal: number;
-  };
+  columns: CollectionColumnNode[];
+  rows: CollectionRow[];
+  totals: CollectionTotals;
 };
 
 export type SavedCollection = Prisma.client_collectionGetPayload<{
@@ -83,11 +80,9 @@ export type SavedCollection = Prisma.client_collectionGetPayload<{
     client_id: true;
     category: true;
     cash_collection: true;
-    office_amount_given: true;
+    office_cash_collection: true;
     cheque_collection: true;
     online_collection: true;
     bank_deposit: true;
-    employee_remarks: true;
-    admin_remarks: true;
   };
 }>;

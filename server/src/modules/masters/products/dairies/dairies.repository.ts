@@ -33,8 +33,8 @@ export class DairiesRepository {
   }
 
   async findByName(name: string) {
-    return this.prisma.master_dairy.findUnique({
-      where: { name },
+    return this.prisma.master_dairy.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

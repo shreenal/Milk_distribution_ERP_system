@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -53,18 +54,20 @@ export class ClientProductRatesService {
       throw new NotFoundException('Product link not found');
     }
 
-    const effectiveFrom = dto.effective_from
-      ? new Date(dto.effective_from)
-      : new Date();
-
-    const existingRate = await this.clientProductRatesRepository.findDuplicate(
-      dto.client_id,
-      dto.product_link_id,
-      effectiveFrom,
+    this.assertDateRange(
+      dto.effective_from ? new Date(dto.effective_from) : new Date(),
+      dto.effective_to ? new Date(dto.effective_to) : null,
     );
 
-    if (existingRate) {
-      throw new ConflictException('Client product rate already exists');
+    if (dto.effective_from) {
+      const existingRate =
+        await this.clientProductRatesRepository.findDuplicate(
+          dto.client_id,
+          dto.product_link_id,
+          new Date(dto.effective_from),
+        );
+      if (existingRate)
+        throw new ConflictException('Client product rate already exists');
     }
 
     return this.clientProductRatesRepository.create(dto);
@@ -100,6 +103,15 @@ export class ClientProductRatesService {
       }
     }
 
+    this.assertDateRange(
+      effectiveFrom,
+      dto.effective_to !== undefined
+        ? dto.effective_to
+          ? new Date(dto.effective_to)
+          : null
+        : clientProductRate.effective_to,
+    );
+
     const existingRate = await this.clientProductRatesRepository.findDuplicate(
       clientId,
       productLinkId,
@@ -117,5 +129,13 @@ export class ClientProductRatesService {
     await this.findById(id);
 
     return this.clientProductRatesRepository.delete(id);
+  }
+
+  private assertDateRange(from: Date, to: Date | null) {
+    if (to !== null && to.getTime() < from.getTime()) {
+      throw new BadRequestException(
+        'Effective to date cannot be before effective from date',
+      );
+    }
   }
 }

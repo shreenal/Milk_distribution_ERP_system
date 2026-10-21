@@ -91,7 +91,7 @@ export class DayReportRepository {
         category: true,
 
         cash_collection: true,
-        office_amount_given: true,
+        office_cash_collection: true,
         cheque_collection: true,
         online_collection: true,
         bank_deposit: true,
@@ -176,7 +176,6 @@ export class DayReportRepository {
         trays_taken: true,
         trays_returned: true,
         closing_balance: true,
-        remarks: true,
 
         master_vehicle: {
           select: {
@@ -326,7 +325,6 @@ export class DayReportRepository {
               select: {
                 id: true,
                 amount: true,
-                remarks: true,
 
                 expense_type: {
                   select: {
@@ -360,8 +358,6 @@ export class DayReportRepository {
         note_10: true,
         coins: true,
 
-        remarks: true,
-
         employee: {
           select: {
             id: true,
@@ -389,9 +385,6 @@ export class DayReportRepository {
         note_20: true,
         note_10: true,
         coins: true,
-
-        deposit_reference: true,
-        remarks: true,
 
         bank: {
           select: {

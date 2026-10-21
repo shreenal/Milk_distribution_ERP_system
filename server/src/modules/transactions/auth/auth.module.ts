@@ -12,6 +12,7 @@ import { PassportModule } from '@nestjs/passport';
 import { RolesGuard } from './roles.guard.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { RefreshTokenRepository } from './refresh-token.repository.js';
+import { AuthCookieService } from './auth-cookie.service.js';
 import { PrismaModule } from '../../../prisma/prisma.module.js';
 
 @Module({
@@ -34,6 +35,13 @@ import { PrismaModule } from '../../../prisma/prisma.module.js';
 
   controllers: [AuthController],
 
-  providers: [AuthService, JwtStrategy, RolesGuard, RefreshTokenRepository],
+  providers: [
+    AuthService,
+    AuthCookieService,
+    JwtStrategy,
+    RolesGuard,
+    RefreshTokenRepository,
+  ],
+  exports: [JwtModule],
 })
 export class AuthModule {}

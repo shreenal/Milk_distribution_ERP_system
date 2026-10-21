@@ -15,6 +15,7 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { GenerateTransferDto } from './dto/generate-transfer.dto.js';
 import { Throttle } from '@nestjs/throttler';
+import { ParseIdPipe } from '../../../common/pipes/parse-id.pipe.js';
 
 @Controller('distributor-transfer')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -26,7 +27,7 @@ export class DistributorTransferController {
   @Get(':paperId')
   @Roles('EMPLOYEE')
   getTransferSummary(
-    @Param('paperId', ParseIntPipe)
+    @Param('paperId', ParseIdPipe)
     paperId: number,
   ) {
     return this.distributorTransferService.getTransferSummary(paperId);
@@ -36,11 +37,11 @@ export class DistributorTransferController {
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   generateTransfer(
-    @Param('paperId', ParseIntPipe) paperId: number,
+    @Param('paperId', ParseIdPipe) paperId: number,
     @Body() dto: GenerateTransferDto,
   ) {
     return this.distributorTransferService.generateTransfer(paperId, {
-      expectedUpdatedAt: dto?.expectedUpdatedAt,
+      expectedUpdatedAt: dto.expectedUpdatedAt,
     });
   }
 }

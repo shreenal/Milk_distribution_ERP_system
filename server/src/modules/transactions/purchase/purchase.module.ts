@@ -15,6 +15,7 @@ import { WorkflowModule } from '../workflow/workflow.module.js';
 import { PurchaseVarianceCalculator } from '../../../common/calculators/purchase-variance.calculator.js';
 import { PurchaseBillingService } from './services/purchase-billing.service.js';
 import { PurchaseCommercialService } from './services/purchase-commercial.service.js';
+import { PurchaseAdminService } from './services/purchase-admin.service.js';
 import { DependencyModule } from '../dependencies/dependency.module.js';
 import { DairyTraysModule } from '../dairy-trays/dairy-trays.module.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
@@ -40,6 +41,7 @@ import { TrayCalculationService } from '../../../common/calculators/tray-calcula
     PurchaseVarianceCalculator,
     PurchaseBillingService,
     PurchaseCommercialService,
+    PurchaseAdminService,
     TrayCalculationService,
   ],
 

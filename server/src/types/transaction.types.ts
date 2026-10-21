@@ -1,6 +1,6 @@
 // ✅ src/common/types/transaction.types.ts
 
-import { Prisma } from '../../src/generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../../src/generated/prisma/client.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 
 export type TransactionClient = Prisma.TransactionClient;
@@ -11,6 +11,7 @@ export type TrayTransactionEntry = {
   order_sheet_id: number;
   client_id: number;
   tray_type_id: number;
+  category: SupplyCategory;
   opening_balance: number;
   trays_taken: number;
   trays_returned: number | null;

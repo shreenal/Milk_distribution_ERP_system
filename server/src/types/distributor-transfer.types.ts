@@ -21,6 +21,8 @@ export type TransferSourceItem = Prisma.order_sheet_itemsGetPayload<{
       };
     };
 
+    owner_distributor: true;
+
     master_product: {
       include: {
         master_brand: true;

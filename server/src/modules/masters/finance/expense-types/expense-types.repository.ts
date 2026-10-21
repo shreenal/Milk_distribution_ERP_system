@@ -32,9 +32,10 @@ export class ExpenseTypesRepository {
     });
   }
 
+  /** Case-insensitive: 'Fuel' and 'fuel' are the same expense type. */
   async findByName(name: string) {
-    return this.prisma.master_expense_type.findUnique({
-      where: { name },
+    return this.prisma.master_expense_type.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

@@ -117,3 +117,12 @@ export interface RouteExpenseRowDto {
 
   amount: number;
 }
+
+// CS-4.4 / CS-12: live "is this ready to submit" view. Saving is permissive and
+// submission is strict, so the screen shows the difference. Deposit problems are
+// warnings at save time and block only at submission (CS-9.6).
+export interface CashSubmissionStatusDto {
+  ready: boolean;
+  routeMismatches: string[];
+  depositProblems: string[];
+}

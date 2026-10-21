@@ -5,7 +5,6 @@ import {
   Get,
   Param,
   ParseEnumPipe,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -15,6 +14,7 @@ import { SupplyCategory } from '../../../../generated/prisma/client.js';
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 
 import { ClientCategoriesService } from './client-categories.service.js';
 import { CreateClientCategoryDto } from './dto/create-client-category.dto.js';
@@ -34,7 +34,7 @@ export class ClientCategoriesController {
   }
 
   @Get('client/:clientId')
-  findByClient(@Param('clientId', ParseIntPipe) clientId: number) {
+  findByClient(@Param('clientId', ParseIdPipe) clientId: number) {
     return this.clientCategoriesService.findByClient(clientId);
   }
 
@@ -45,7 +45,7 @@ export class ClientCategoriesController {
 
   @Patch(':clientId/:category')
   update(
-    @Param('clientId', ParseIntPipe) clientId: number,
+    @Param('clientId', ParseIdPipe) clientId: number,
     @Param('category', new ParseEnumPipe(SupplyCategory))
     category: SupplyCategory,
     @Body() dto: UpdateClientCategoryDto,
@@ -55,7 +55,7 @@ export class ClientCategoriesController {
 
   @Delete(':clientId/:category')
   delete(
-    @Param('clientId', ParseIntPipe) clientId: number,
+    @Param('clientId', ParseIdPipe) clientId: number,
     @Param('category', new ParseEnumPipe(SupplyCategory))
     category: SupplyCategory,
   ) {

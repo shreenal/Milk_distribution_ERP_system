@@ -2,6 +2,7 @@ import {
   Injectable,
   Logger,
   BadRequestException,
+  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
 import { ClientTraysRepository } from './client-trays.repository.js';
@@ -10,21 +11,30 @@ import { SaveTrayReturnDto } from './dto/save-trays-entries.dto.js';
 import {
   CLIENT_TRAY_ERROR_MESSAGES,
   CLIENT_TRAY_SUCCESS_MESSAGES,
+  MAX_RECALCULATION_RANGE_DAYS,
 } from './client-trays.constants.js';
-import { TrayTransactionEntry } from '../../../types/transaction.types.js';
+import { TransactionClient } from '../../../types/transaction.types.js';
+import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
-import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
-import { ClientTraysPropagationService } from './services/client-trays-propagation.service.js';
+import { ClientTraysValidationService } from './services/client-trays-validation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { TransactionClient } from '../../../types/transaction.types.js';
 import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
 import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
-import { assertNotStale } from '../../../common/prisma/optimistic-concurrency.util.js';
+import {
+  buildClientTrayKey,
+  parseClientTrayKey,
+} from '../../../common/utils/client-tray-key.util.js';
+import { PropagationOutboxRepository } from '../propagation-queue/propagation-outbox.repository.js';
+import { PROPAGATION_OUTBOX_TYPES } from '../propagation-queue/propagation-queue.constants.js';
+import { parseStrictDate } from '../paper/paper-date.util.js';
+import { ClientTraysPropagationService } from './services/client-trays-propagation.service.js';
 
 const STALE_DATA_MESSAGE =
   'Client Trays data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class ClientTraysService {
@@ -41,87 +51,123 @@ export class ClientTraysService {
 
     private readonly workflowBuilder: WorkflowBuilder,
 
+    private readonly clienttraysValidationService: ClientTraysValidationService,
+
+    private readonly propagationOutboxRepository: PropagationOutboxRepository,
+
     private readonly clientTraysPropagationService: ClientTraysPropagationService,
 
     private readonly prisma: PrismaService,
   ) {}
-  async getTraySheetService(sheetId: number, tx?: TransactionClient) {
-    const run = async (t: TransactionClient) => {
-      const sheet = await this.clienttraysRepository.findSheetById(sheetId, t);
 
-      if (!sheet) {
-        throw new NotFoundException(CLIENT_TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND);
-      }
+  /**
+   * Calculates the sheet's ledger from live data: previous sheet's closing
+   * (opening), order lines (taken) and stored returns. This is the single
+   * source for both the grid and save validation.
+   */
+  private async loadSheetLedger(
+    sheetId: number,
+    t: TransactionClient,
+    keepPositiveReturns = false,
+  ) {
+    const sheet = await this.clienttraysRepository.findSheetById(sheetId, t);
 
-      const [
-        milkClients,
-        nonMilkClients,
-        sheetItems,
-        trayRules,
-        trayTypes,
-        trayTransactions,
-      ] = await Promise.all([
-        this.clienttraysRepository.getClientsByGroupAndCategory(
-          sheet.group_id,
-          SupplyCategory.MILK,
-          t,
-        ),
-        this.clienttraysRepository.getClientsByGroupAndCategory(
-          sheet.group_id,
-          SupplyCategory.NON_MILK,
-          t,
-        ),
-        this.clienttraysRepository.getSheetItems(sheet.id, t),
-        this.clienttraysRepository.getProductTrayRules(t),
-        this.clienttraysRepository.getTrayTypes(t),
-        this.clienttraysRepository.getTrayTransactions(sheet.id, t),
-      ]);
+    if (!sheet) {
+      throw new NotFoundException(CLIENT_TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND);
+    }
 
-      const openingBalanceMap = new Map<string, number>();
-
-      const previousSheet = await this.clienttraysRepository.getPreviousSheet(
+    const [
+      sheetItems,
+      trayRules,
+      trayTypes,
+      trayTransactions,
+      openingBalances,
+    ] = await Promise.all([
+      this.clienttraysRepository.getSheetItems(sheet.id, t),
+      this.clienttraysRepository.getProductTrayRules(t),
+      this.clienttraysRepository.getAllTrayTypes(t),
+      this.clienttraysRepository.getTrayTransactions(sheet.id, t),
+      this.clienttraysRepository.getOpeningBalances(
         sheet.group_id,
         sheet.order_paper.sale_date,
         t,
+      ),
+    ]);
+
+    // Ordered quantities until the morning delivered quantities are saved in
+    // Orders; delivered quantities after that.
+    const useOrderedQuantity =
+      this.workflowStateService.resolveUseOrderedQuantity(
+        sheet.order_paper.status,
+        sheet.order_morning_entry_saved_at !== null,
       );
 
-      if (previousSheet) {
-        const balances =
-          await this.clienttraysRepository.getPreviousTrayBalances(
-            previousSheet.id,
-            t,
-          );
+    const takenByKey = this.trayCalculationService.buildTakenMap(
+      sheetItems,
+      trayRules,
+      useOrderedQuantity,
+    );
 
-        for (const balance of balances) {
-          openingBalanceMap.set(
-            `${balance.client_id}_${balance.tray_type_id}`,
-            Number(balance.closing_balance ?? 0),
-          );
-        }
-      }
+    const returnedByKey = new Map<string, number | null>(
+      trayTransactions.map((row) => [
+        buildClientTrayKey({
+          clientId: row.client_id,
+          trayTypeId: row.tray_type_id,
+          category: row.category,
+        }),
+        row.trays_returned,
+      ]),
+    );
+
+    const ledgerLines = this.trayCalculationService.buildClientTrayLedger(
+      openingBalances,
+      takenByKey,
+      returnedByKey,
+      keepPositiveReturns,
+    );
+
+    // Names are needed for every client that can appear, whether or not they
+    // are still active or still in this group (decisions 8 and 14).
+    const clientIds = new Set<number>([
+      ...sheetItems.map((item) => item.client_id),
+      ...[...openingBalances.keys()].map(
+        (key) => parseClientTrayKey(key).clientId,
+      ),
+      ...trayTransactions.map((row) => row.client_id),
+    ]);
+
+    const clients = await this.clienttraysRepository.getClientsByIds(
+      [...clientIds],
+      t,
+    );
+
+    return {
+      sheet,
+      trayTypes,
+      clients,
+      openingBalances,
+      takenByKey,
+      returnedByKey,
+      ledgerLines,
+    };
+  }
+
+  async getTraySheetService(sheetId: number, tx?: TransactionClient) {
+    const run = async (t: TransactionClient) => {
+      const ledger = await this.loadSheetLedger(sheetId, t, true);
 
       const workflow = this.workflowBuilder.buildTraysWorkflow(
-        sheet.order_paper.status,
+        ledger.sheet.order_paper.status,
       );
 
-      const morningEntrySaved = sheet.order_morning_entry_saved_at !== null;
-
-      const trayBilling = this.clienttraysBuilder.buildTrayBilling(
-        {
-          milkClients,
-          nonMilkClients,
-          trayTypes,
-          sheetItems,
-          trayRules,
-          trayTransactions,
-          openingBalanceMap,
-        },
-        sheet.order_paper.status,
-        morningEntrySaved,
-      );
+      const trayBilling = this.clienttraysBuilder.buildTrayBilling({
+        clients: ledger.clients,
+        trayTypes: ledger.trayTypes,
+        ledgerLines: ledger.ledgerLines,
+      });
 
       return {
-        sheet,
+        sheet: ledger.sheet,
         workflow,
         ...trayBilling,
       };
@@ -129,12 +175,33 @@ export class ClientTraysService {
     return tx ? run(tx) : this.prisma.$transaction(run);
   }
 
+  private parseExpected(expected: string | null): Date | null {
+    if (expected === null) return null;
+
+    const date = new Date(expected);
+
+    if (Number.isNaN(date.getTime())) {
+      throw new BadRequestException(
+        CLIENT_TRAY_ERROR_MESSAGES.INVALID_EXPECTED_UPDATED_AT,
+      );
+    }
+
+    return date;
+  }
+
   async saveTrayEntriesService(
     sheetId: number,
     entries: SaveTrayReturnDto[],
-    expectedUpdatedAt?: string,
+    expectedUpdatedAt: string | null,
+    // CT-15.5: true only from the admin reconciliation route, where inactive
+    // tray types (and only those) can be changed.
+    options: { reconcileInactive?: boolean } = {},
   ) {
-    await withSerializableRetry(() =>
+    // Request-shape checks run before the transaction starts.
+    this.clienttraysValidationService.validateNoDuplicateEntries(entries);
+    const expected = this.parseExpected(expectedUpdatedAt);
+
+    const clientTraysUpdatedAt = await withSerializableRetry(() =>
       this.prisma.$transaction(
         async (tx) => {
           const sheet = await this.clienttraysRepository.findSheetById(
@@ -156,145 +223,84 @@ export class ClientTraysService {
             );
           }
 
-          if (expectedUpdatedAt) {
-            await assertNotStale(
-              () =>
-                this.clienttraysRepository.touchClientTraysIfUnchanged(
-                  sheetId,
-                  new Date(expectedUpdatedAt),
-                  tx,
-                ),
-              STALE_DATA_MESSAGE,
-            );
-          } else {
-            await this.clienttraysRepository.touchClientTraysIfUnchanged(
+          // Decisions 15-17: sheet-level token, always checked. A missing
+          // token never reaches here (DTO) and a stale one is a 409.
+          const touch =
+            await this.clienttraysRepository.touchClientTraysIfTokenMatches(
               sheetId,
-              null,
+              expected,
+              tx,
+            );
+
+          if (touch.count !== 1) {
+            throw new ConflictException(STALE_DATA_MESSAGE);
+          }
+
+          // Everything is validated against the server's own numbers.
+          const ledger = await this.loadSheetLedger(
+            sheetId,
+            tx,
+            options.reconcileInactive === true,
+          );
+
+          this.clienttraysValidationService.validateReturnEntries(
+            entries,
+            ledger.ledgerLines,
+            ledger.trayTypes,
+            ledger.clients,
+            options.reconcileInactive === true,
+          );
+
+          // Decision 3: a return that was not entered is zero. Rows already
+          // in the ledger get their stored value (or 0); submitted entries
+          // override.
+          const returnedByKey = new Map<string, number | null>();
+
+          for (const line of ledger.ledgerLines) {
+            returnedByKey.set(buildClientTrayKey(line), line.returned ?? 0);
+          }
+
+          for (const entry of entries) {
+            returnedByKey.set(buildClientTrayKey(entry), entry.returned);
+          }
+
+          const lines = this.trayCalculationService.buildClientTrayLedger(
+            ledger.openingBalances,
+            ledger.takenByKey,
+            returnedByKey,
+          );
+
+          await this.clienttraysRepository.replaceTrayTransactions(
+            sheetId,
+            lines.map((line) =>
+              this.trayCalculationService.toTransactionEntry(sheetId, line),
+            ),
+            tx,
+          );
+
+          // Decision 25: on a reopened paper, a changed closing balance must
+          // reach later sheets. Orders already does this for delivered-
+          // quantity corrections (DEP-002); this does the same for returns,
+          // through the same outbox and queue.
+          if (status === OrderPaperStatus.REOPENED) {
+            // CT-15.1: a higher return lowers every later opening balance.
+            // If a later sheet could no longer cover its own returns, this
+            // save is refused instead of failing later in the background.
+            await this.clientTraysPropagationService.assertNoForwardReturnConflicts(
+              sheetId,
+              tx,
+            );
+
+            await this.propagationOutboxRepository.enqueue(
+              PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET,
+              sheet.order_paper_id,
+              sheetId,
               tx,
             );
           }
 
-          const traySheet = await this.getTraySheetService(sheetId, tx);
-
-          const trayTypeIdFromField = (field: string): number | null => {
-            const match = /^tray_(\d+)_opening$/.exec(field);
-            return match ? Number(match[1]) : null;
-          };
-
-          const submittedByKey = new Map<string, SaveTrayReturnDto>();
-          for (const entry of entries) {
-            const returned = Number(entry.returned ?? 0);
-
-            if (returned < 0) {
-              throw new BadRequestException(
-                CLIENT_TRAY_ERROR_MESSAGES.NEGATIVE_RETURNED_TRAYS,
-              );
-            }
-
-            submittedByKey.set(`${entry.clientId}_${entry.trayTypeId}`, entry);
-          }
-
-          const trayRows = [
-            ...traySheet.milkTrayGrid.rows,
-            ...traySheet.nonMilkTrayGrid.rows,
-          ];
-
-          const trayTotals = new Map<
-            string,
-            {
-              clientId: number;
-              trayTypeId: number;
-              opening: number;
-              trays: number;
-              returnedFallback: number;
-            }
-          >();
-
-          for (const trayRow of trayRows) {
-            for (const field of Object.keys(trayRow)) {
-              const trayTypeId = trayTypeIdFromField(field);
-              if (trayTypeId === null) continue;
-
-              const key = `${trayRow.clientId}_${trayTypeId}`;
-              const opening = Number(
-                trayRow[`tray_${trayTypeId}_opening`] ?? 0,
-              );
-              const trays = Number(trayRow[`tray_${trayTypeId}`] ?? 0);
-              const returnedFallback = Number(
-                trayRow[`tray_${trayTypeId}_returned`] ?? 0,
-              );
-
-              const existing = trayTotals.get(key);
-              if (existing) {
-                // L6: a client can have this tray type on both a milk
-                // and a non-milk item. Sum trays taken from each grid
-                // instead of discarding the second one — opening/returned
-                // are the same either way (sourced from the one saved
-                // client_tray_transaction row, not per-category).
-                existing.trays += trays;
-              } else {
-                trayTotals.set(key, {
-                  clientId: trayRow.clientId,
-                  trayTypeId,
-                  opening,
-                  trays,
-                  returnedFallback,
-                });
-              }
-            }
-          }
-
-          const transactionEntries: TrayTransactionEntry[] = [];
-
-          for (const [, totals] of trayTotals) {
-            const key = `${totals.clientId}_${totals.trayTypeId}`;
-            const submitted = submittedByKey.get(key);
-            const returned =
-              submitted !== undefined
-                ? Number(submitted.returned ?? 0)
-                : totals.returnedFallback;
-
-            const transaction = this.trayCalculationService.buildTransaction(
-              totals.opening,
-              totals.trays,
-              returned,
-            );
-
-            transactionEntries.push({
-              order_sheet_id: sheetId,
-              client_id: totals.clientId,
-              tray_type_id: totals.trayTypeId,
-              ...transaction,
-            });
-          }
-
-          for (const [key, entry] of submittedByKey) {
-            if (!trayTotals.has(key)) {
-              throw new BadRequestException(
-                CLIENT_TRAY_ERROR_MESSAGES.TRAY_ROW_NOT_FOUND(entry.clientId),
-              );
-            }
-          }
-
-          await this.clienttraysRepository.replaceTrayTransactions(
-            transactionEntries,
-            tx,
-          );
-
-          await this.clientTraysPropagationService.recalculateFromSheet(
-            sheetId,
-            tx,
-          );
-
-          await this.clienttraysRepository.markClientTrayMorningEntrySaved(
-            sheetId,
-            tx,
-          );
-
-          return {
-            success: true,
-            message: CLIENT_TRAY_SUCCESS_MESSAGES.TRAY_RETURNS_SAVED,
-          };
+          // Decision 16: the caller needs the new token to save again.
+          return touch.touchedAt.toISOString();
         },
         {
           timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
@@ -302,5 +308,76 @@ export class ClientTraysService {
         },
       ),
     );
+
+    return {
+      success: true,
+      message: CLIENT_TRAY_SUCCESS_MESSAGES.TRAY_RETURNS_SAVED,
+      clientTraysUpdatedAt,
+    };
+  }
+
+  /**
+   * Decisions 26 and 27: administrative recalculation over a sale-date
+   * window. Each paper in the window gets the existing forward propagation
+   * job (full recalculation of its sheets, then opening/closing updates for
+   * every later sheet of the same group), so it runs in the background in
+   * resumable chunks. Progress and failures show up in the existing
+   * propagation status endpoints.
+   */
+  async requestRangeRecalculationService(fromDate: string, toDate: string) {
+    const from = parseStrictDate(fromDate);
+    const to = parseStrictDate(toDate);
+
+    if (!from || !to) {
+      throw new BadRequestException(
+        CLIENT_TRAY_ERROR_MESSAGES.INVALID_DATE_RANGE,
+      );
+    }
+
+    if (from.getTime() > to.getTime()) {
+      throw new BadRequestException(
+        CLIENT_TRAY_ERROR_MESSAGES.DATE_RANGE_ORDER,
+      );
+    }
+
+    const days = Math.round((to.getTime() - from.getTime()) / DAY_MS) + 1;
+
+    if (days > MAX_RECALCULATION_RANGE_DAYS) {
+      throw new BadRequestException(
+        CLIENT_TRAY_ERROR_MESSAGES.DATE_RANGE_TOO_LONG(
+          MAX_RECALCULATION_RANGE_DAYS,
+        ),
+      );
+    }
+
+    const papers = await this.clienttraysRepository.findPapersBySaleDateRange(
+      from,
+      to,
+    );
+
+    // CT-15.3: each queued job is one tracked operation. Its id is returned so
+    // the run can be followed through the existing propagation status
+    // (GET /papers/:id/propagation), including any failure and its reason.
+    const operations = await this.prisma.$transaction(async (tx) => {
+      const queued: { paperId: number; operationId: number }[] = [];
+
+      for (const paper of papers) {
+        const row = await this.propagationOutboxRepository.enqueue(
+          PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_FORWARD,
+          paper.id,
+          null,
+          tx,
+        );
+
+        queued.push({ paperId: paper.id, operationId: row.id });
+      }
+      return queued;
+    });
+
+    this.logger.log(
+      `Client trays recalculation queued for ${operations.length} paper(s), ${fromDate} to ${toDate}`,
+    );
+
+    return { papersQueued: operations.length, fromDate, toDate, operations };
   }
 }

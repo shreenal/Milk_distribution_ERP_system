@@ -203,24 +203,25 @@ export class DayReportService {
     data: Awaited<ReturnType<DayReportRepository['getCollectionsData']>>,
   ): DayReportCollections {
     let cash = 0;
-    let officeAmountGiven = 0;
+    let officeCashCollection = 0;
     let cheque = 0;
     let online = 0;
     let bankDeposit = 0;
 
     for (const collection of data) {
       cash += Number(collection.cash_collection);
-      officeAmountGiven += Number(collection.office_amount_given);
+      officeCashCollection += Number(collection.office_cash_collection);
       cheque += Number(collection.cheque_collection);
       online += Number(collection.online_collection);
       bankDeposit += Number(collection.bank_deposit);
     }
 
-    const grandTotal = cash + officeAmountGiven + cheque + online + bankDeposit;
+    const grandTotal =
+      cash + officeCashCollection + cheque + online + bankDeposit;
 
     return {
       cash: Number(cash.toFixed(2)),
-      officeAmountGiven: Number(officeAmountGiven.toFixed(2)),
+      officeCashCollection: Number(officeCashCollection.toFixed(2)),
       cheque: Number(cheque.toFixed(2)),
       online: Number(online.toFixed(2)),
       bankDeposit: Number(bankDeposit.toFixed(2)),
@@ -448,20 +449,18 @@ export class DayReportService {
 
         openingBalance: opening,
         traysTaken: taken,
-        traysReturned: returned,
+        traysReturned: returned!,
         closingBalance: closing,
-
-        remarks: transaction.remarks,
       });
 
       group.totals.openingBalance += opening;
       group.totals.traysTaken += taken;
-      group.totals.traysReturned += returned;
+      group.totals.traysReturned += returned!;
       group.totals.closingBalance += closing;
 
       totalOpeningBalance += opening;
       totalTaken += taken;
-      totalReturned += returned;
+      totalReturned += returned!;
       totalClosingBalance += closing;
     }
 
@@ -691,7 +690,6 @@ export class DayReportService {
           expenseTypeName: expense.expense_type.name,
 
           amount: Number(expense.amount),
-          remarks: expense.remarks,
         });
       }
 
@@ -732,8 +730,6 @@ export class DayReportService {
           this.cashSettlementCalculator.getDenominationAmountFromRow(
             collection,
           ),
-
-        remarks: collection.remarks,
       }),
     );
 
@@ -754,9 +750,6 @@ export class DayReportService {
 
       depositAmount:
         this.cashSettlementCalculator.getDenominationAmountFromRow(deposit),
-
-      depositReference: deposit.deposit_reference,
-      remarks: deposit.remarks,
     }));
 
     const totalRouteCash =

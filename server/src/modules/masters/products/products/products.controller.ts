@@ -4,19 +4,21 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 
 import { ProductsService } from './products.service.js';
 import { CreateProductDto } from './dto/create-product.dto.js';
 import { UpdateProductDto } from './dto/update-product.dto.js';
+import { ProductConfigurationQueryDto } from './dto/product-configuration-query.dto.js';
 
 @Controller('products')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -35,12 +37,15 @@ export class ProductsController {
   }
 
   @Get(':id/configuration')
-  findConfiguration(@Param('id', ParseIntPipe) id: number) {
-    return this.productsService.findConfigurationById(id);
+  findConfiguration(
+    @Param('id', ParseIdPipe) id: number,
+    @Query() query: ProductConfigurationQueryDto,
+  ) {
+    return this.productsService.findConfigurationById(id, query);
   }
 
   @Get(':id')
-  findById(@Param('id', ParseIntPipe) id: number) {
+  findById(@Param('id', ParseIdPipe) id: number) {
     return this.productsService.findById(id);
   }
 
@@ -50,12 +55,12 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateProductDto) {
+  update(@Param('id', ParseIdPipe) id: number, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, dto);
   }
 
   @Delete(':id')
-  delete(@Param('id', ParseIntPipe) id: number) {
+  delete(@Param('id', ParseIdPipe) id: number) {
     return this.productsService.delete(id);
   }
 }

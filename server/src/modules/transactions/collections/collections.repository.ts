@@ -2,13 +2,31 @@ import { Injectable } from '@nestjs/common';
 
 import { PrismaService } from '../../../prisma/prisma.service.js';
 
-import { NightCollectionEntryDto } from './dto/save-night-collection.dto.js';
-import { MorningCollectionEntryDto } from './dto/save-morning-collection.dto.js';
-import { AdminCollectionEntryDto } from './dto/save-admin-collection.dto.js';
-
 import { Prisma, SupplyCategory } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
-import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
+
+// CD-3.6: clients are ordered by code, then by name. A client without a code
+// sorts after every client that has one (ties broken by name).
+function compareClients(
+  a: { code: string | null; name: string },
+  b: { code: string | null; name: string },
+): number {
+  if (a.code !== b.code) {
+    if (a.code === null) return 1;
+    if (b.code === null) return -1;
+    const byCode = a.code.localeCompare(b.code);
+    if (byCode !== 0) return byCode;
+  }
+  return a.name.localeCompare(b.name);
+}
+
+export type AmountColumn =
+  | 'office_cash_collection'
+  | 'cash_collection'
+  | 'cheque_collection'
+  | 'online_collection'
+  | 'bank_deposit';
 
 @Injectable()
 export class CollectionsRepository {
@@ -46,9 +64,7 @@ export class CollectionsRepository {
         },
       },
 
-      orderBy: {
-        code: 'asc',
-      },
+      orderBy: [{ code: 'asc' }, { name: 'asc' }],
     });
   }
 
@@ -62,7 +78,7 @@ export class CollectionsRepository {
       },
 
       select: {
-        office_amount_given: true,
+        office_cash_collection: true,
         cash_collection: true,
         cheque_collection: true,
         online_collection: true,
@@ -82,83 +98,63 @@ export class CollectionsRepository {
     });
   }
 
-  async replaceNightCollections(
+  /** Rows that already exist for these clients on this sheet + category. */
+  async getCollectionsForClients(
     sheetId: number,
     category: SupplyCategory,
-    entries: NightCollectionEntryDto[],
+    clientIds: number[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    if (entries.length === 0) return;
-
-    const values = Prisma.join(
-      entries.map(
-        (e) =>
-          Prisma.sql`(${sheetId}, ${e.clientId}, ${category}::"SupplyCategory", ${e.officeAmountGiven}, now(), now())`,
-      ),
-    );
-
-    await db.$executeRaw(Prisma.sql`
-    INSERT INTO client_collection
-      (order_sheet_id, client_id, category, office_amount_given, created_at, updated_at)
-    VALUES ${values}
-    ON CONFLICT (order_sheet_id, client_id, category)
-    DO UPDATE SET office_amount_given = EXCLUDED.office_amount_given,
-                  updated_at = EXCLUDED.updated_at
-  `);
+    return db.client_collection.findMany({
+      where: {
+        order_sheet_id: sheetId,
+        category,
+        client_id: { in: clientIds },
+      },
+    });
   }
 
-  async replaceMorningCollections(
+  /**
+   * Bulk upsert on the unique key (sheet, client, category): the same
+   * INSERT ... ON CONFLICT pattern Orders and Client Trays use. Only the
+   * columns of one phase are written (`columns` is a closed union supplied by
+   * the service, never user input), so a phase can never overwrite another
+   * phase's amounts. Rows not in `rows` are not touched and nothing is deleted.
+   */
+  async upsertCollections(
     sheetId: number,
     category: SupplyCategory,
-    entries: MorningCollectionEntryDto[],
+    columns: AmountColumn[],
+    rows: { clientId: number; values: Partial<Record<AmountColumn, number>> }[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    if (entries.length === 0) return;
+    if (rows.length === 0) return;
+
+    const identifier = (c: AmountColumn) => Prisma.raw(`"${c}"`);
+    const columnList = Prisma.join(columns.map(identifier));
 
     const values = Prisma.join(
-      entries.map(
-        (e) =>
-          Prisma.sql`(${sheetId}, ${e.clientId}, ${category}::"SupplyCategory", ${e.cashCollection}, ${e.chequeCollection}, ${e.employeeRemarks ?? null}, now(), now())`,
+      rows.map(
+        (r) =>
+          Prisma.sql`(${sheetId}, ${r.clientId}, ${category}::"SupplyCategory", ${Prisma.join(
+            columns.map((c) => r.values[c] ?? 0),
+          )}, (now() AT TIME ZONE 'UTC'), (now() AT TIME ZONE 'UTC'))`,
+      ),
+    );
+
+    const updates = Prisma.join(
+      columns.map(
+        (c) => Prisma.sql`${identifier(c)} = EXCLUDED.${identifier(c)}`,
       ),
     );
 
     await db.$executeRaw(Prisma.sql`
-    INSERT INTO client_collection
-      (order_sheet_id, client_id, category, cash_collection, cheque_collection, employee_remarks, created_at, updated_at)
-    VALUES ${values}
-    ON CONFLICT (order_sheet_id, client_id, category)
-    DO UPDATE SET cash_collection = EXCLUDED.cash_collection,
-                  cheque_collection = EXCLUDED.cheque_collection,
-                  employee_remarks = EXCLUDED.employee_remarks,
-                  updated_at = EXCLUDED.updated_at
-  `);
-  }
-
-  async replaceAdminCollections(
-    sheetId: number,
-    category: SupplyCategory,
-    entries: AdminCollectionEntryDto[],
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    if (entries.length === 0) return;
-
-    const values = Prisma.join(
-      entries.map(
-        (e) =>
-          Prisma.sql`(${sheetId}, ${e.clientId}, ${category}::"SupplyCategory", ${e.onlineCollection}, ${e.bankDeposit}, ${e.adminRemarks ?? null}, now(), now())`,
-      ),
-    );
-
-    await db.$executeRaw(Prisma.sql`
-    INSERT INTO client_collection
-      (order_sheet_id, client_id, category, online_collection, bank_deposit, admin_remarks, created_at, updated_at)
-    VALUES ${values}
-    ON CONFLICT (order_sheet_id, client_id, category)
-    DO UPDATE SET online_collection = EXCLUDED.online_collection,
-                  bank_deposit = EXCLUDED.bank_deposit,
-                  admin_remarks = EXCLUDED.admin_remarks,
-                  updated_at = EXCLUDED.updated_at
-  `);
+      INSERT INTO client_collection
+        (order_sheet_id, client_id, category, ${columnList}, created_at, updated_at)
+      VALUES ${values}
+      ON CONFLICT (order_sheet_id, client_id, category)
+      DO UPDATE SET ${updates}, updated_at = EXCLUDED.updated_at
+    `);
   }
 
   async getClientsForCollectionDisplay(
@@ -180,17 +176,17 @@ export class CollectionsRepository {
 
     const byId = new Map(eligible.map((c) => [c.id, c]));
     for (const c of historicallyReferenced) byId.set(c.id, c);
-    return Array.from(byId.values()).sort(
-      (a, b) => a.code?.localeCompare(b.code ?? '') ?? 0,
-    );
+    return Array.from(byId.values()).sort(compareClients);
   }
 
-  async touchCollectionsIfUnchanged(
+  // CD-9: compare-and-advance on the sheet's concurrency token. A null
+  // `expected` matches only a sheet whose token has never been set.
+  async touchCollectionsIfTokenMatches(
     sheetId: number,
     expectedUpdatedAt: Date | null,
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return touchIfUnchanged(
+    return touchIfTokenMatches(
       db.order_sheet,
       { id: sheetId },
       'collections_updated_at',

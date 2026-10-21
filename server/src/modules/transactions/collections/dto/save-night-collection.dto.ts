@@ -1,24 +1,23 @@
 import {
-  IsArray,
-  ValidateNested,
-  IsInt,
-  Min,
-  IsNumber,
-  IsISO8601,
-  IsOptional,
   ArrayMaxSize,
+  IsArray,
+  IsInt,
+  Max,
+  Min,
+  ValidateNested,
 } from 'class-validator';
-
 import { Type } from 'class-transformer';
+import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.decorator.js';
+import { CollectionAmount } from '../collection-amount.decorator.js';
 
 export class NightCollectionEntryDto {
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   clientId!: number;
 
-  @IsNumber()
-  @Min(0)
-  officeAmountGiven!: number;
+  @CollectionAmount()
+  officeCashCollection?: number | null;
 }
 
 export class SaveNightCollectionsDto {
@@ -28,7 +27,7 @@ export class SaveNightCollectionsDto {
   @Type(() => NightCollectionEntryDto)
   entries!: NightCollectionEntryDto[];
 
-  @IsOptional()
-  @IsISO8601()
-  expectedUpdatedAt?: string;
+  // CD-9.1: required. Only an explicit null skips validation (no @IsOptional()).
+  @ExpectedUpdatedAt()
+  expectedUpdatedAt!: string | null;
 }

@@ -1,6 +1,6 @@
 import { Type } from 'class-transformer';
 
-import { IsEnum, IsInt, IsNumber, Min } from 'class-validator';
+import { IsEnum, IsInt, IsNumber, Max, Min } from 'class-validator';
 
 import { PricingUnit } from '../../../../../generated/prisma/client.js';
 
@@ -18,6 +18,7 @@ export class CreateProductOrderUnitDto {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 3 })
   @Min(0.001)
+  @Max(9999999.999)
   pricing_quantity!: number;
 
   @IsEnum(PricingUnit)

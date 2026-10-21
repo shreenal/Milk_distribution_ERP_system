@@ -54,26 +54,28 @@ export class ProductTypesService {
   }
 
   async update(id: number, dto: UpdateProductTypeDto) {
-    await this.findById(id);
+    const existing = await this.findById(id);
 
-    if (dto.brand_id) {
+    if (dto.brand_id !== undefined && dto.brand_id !== existing.brand_id) {
       const brand = await this.brandsRepository.findById(dto.brand_id);
-
       if (!brand) {
         throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
       }
+      if ((await this.productTypesRepository.countUsage(id)) > 0) {
+        throw new ConflictException(
+          'Brand cannot change while products or tray rules use this product type. Create a new product type instead.',
+        );
+      }
     }
 
-    if (dto.brand_id && dto.name) {
-      const existingProductType =
-        await this.productTypesRepository.findByBrandAndName(
-          dto.brand_id,
-          dto.name,
-        );
-
-      if (existingProductType && existingProductType.id !== id) {
+    if (dto.brand_id !== undefined || dto.name !== undefined) {
+      const duplicate = await this.productTypesRepository.findByBrandAndName(
+        dto.brand_id ?? existing.brand_id,
+        dto.name ?? existing.name,
+      );
+      if (duplicate && duplicate.id !== id) {
         throw new ConflictException(
-          `Product Type '${dto.name}' already exists for this brand.`,
+          `Product Type '${dto.name ?? existing.name}' already exists for this brand.`,
         );
       }
     }
@@ -83,7 +85,11 @@ export class ProductTypesService {
 
   async delete(id: number) {
     await this.findById(id);
-
+    if ((await this.productTypesRepository.countUsage(id)) > 0) {
+      throw new ConflictException(
+        'Product type is in use by products or tray rules.',
+      );
+    }
     return this.productTypesRepository.delete(id);
   }
 }

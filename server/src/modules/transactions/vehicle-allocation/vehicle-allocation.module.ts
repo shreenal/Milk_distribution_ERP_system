@@ -6,6 +6,7 @@ import { VehicleAllocationService } from './vehicle-allocation.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { ProductColumnsBuilder } from '../../../common/builders/product-columns.builder.js';
 import { VehicleAllocationValidationService } from './services/vehicle-allocation-validation.service.js';
+import { VehicleAllocationReconciliationService } from './services/vehicle-allocation-reconciliation.service.js';
 import { OrderItemsRepository } from '../../../common/repositories/order-items.repository.js';
 import { AllocationSummaryBuilder } from '../../../common/builders/allocation-summary.builder.js';
 import { GroupSummaryBuilder } from '../../../common/builders/group-summary.builder.js';
@@ -21,6 +22,7 @@ import { GroupSummaryBuilder } from '../../../common/builders/group-summary.buil
     VehicleAllocationService,
     ProductColumnsBuilder,
     VehicleAllocationValidationService,
+    VehicleAllocationReconciliationService,
     OrderItemsRepository,
     AllocationSummaryBuilder,
     GroupSummaryBuilder,

@@ -60,7 +60,7 @@ export class TrayTypesRepository {
     return this.prisma.master_tray_type.findFirst({
       where: {
         brand_id: brandId,
-        color,
+        color: { equals: color, mode: 'insensitive' },
       },
     });
   }
@@ -82,5 +82,17 @@ export class TrayTypesRepository {
     return this.prisma.master_tray_type.delete({
       where: { id },
     });
+  }
+
+  async countUsage(id: number) {
+    const [items, purchases] = await Promise.all([
+      this.prisma.order_sheet_items.count({ where: { tray_type_id: id } }),
+      this.prisma.purchase_entry.count({ where: { tray_type_id: id } }),
+    ]);
+    return items + purchases;
+  }
+
+  countRules(id: number) {
+    return this.prisma.product_tray_rule.count({ where: { tray_type_id: id } });
   }
 }

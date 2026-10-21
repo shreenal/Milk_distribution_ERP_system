@@ -8,6 +8,7 @@ import { UpdateUserDto } from './dto/update-user.dto.js';
 
 const userSelect = {
   id: true,
+  role_id: true,
   username: true,
   email: true,
   first_name: true,
@@ -36,24 +37,7 @@ export class UsersRepository {
   }
 
   findById(id: number) {
-    return this.prisma.users.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        first_name: true,
-        last_name: true,
-        created_at: true,
-        updated_at: true,
-        is_active: true,
-        role: {
-          select: {
-            name: true,
-          },
-        },
-      },
-    });
+    return this.prisma.users.findUnique({ where: { id }, select: userSelect });
   }
 
   findByIdWithPassword(id: number) {
@@ -95,11 +79,30 @@ export class UsersRepository {
     });
   }
 
-  update(id: number, dto: UpdateUserDto) {
-    return this.prisma.users.update({
-      where: { id },
-      data: dto,
-      select: userSelect,
+  update(
+    id: number,
+    dto: UpdateUserDto,
+    options: { revokeSessions?: boolean } = {},
+  ) {
+    if (!options.revokeSessions) {
+      return this.prisma.users.update({
+        where: { id },
+        data: dto,
+        select: userSelect,
+      });
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.users.update({
+        where: { id },
+        data: dto,
+        select: userSelect,
+      });
+      await tx.refresh_token.updateMany({
+        where: { user_id: id, revoked_at: null },
+        data: { revoked_at: new Date() },
+      });
+      return user;
     });
   }
 

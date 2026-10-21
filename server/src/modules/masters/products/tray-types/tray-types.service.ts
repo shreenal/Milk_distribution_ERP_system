@@ -57,26 +57,32 @@ export class TrayTypesService {
   }
 
   async update(id: number, dto: UpdateTrayTypeDto) {
-    await this.findById(id);
+    const existing = await this.findById(id);
 
-    if (dto.brand_id) {
+    if (dto.brand_id !== undefined && dto.brand_id !== existing.brand_id) {
       const brand = await this.brandsRepository.findById(dto.brand_id);
-
-      if (!brand) {
+      if (!brand)
         throw new NotFoundException(`Brand with ID ${dto.brand_id} not found.`);
+
+      const [rules, usage] = await Promise.all([
+        this.trayTypesRepository.countRules(id),
+        this.trayTypesRepository.countUsage(id),
+      ]);
+      if (rules + usage > 0) {
+        throw new ConflictException(
+          'Brand cannot change while tray rules or historical orders/purchases reference this tray type.',
+        );
       }
     }
 
-    if (dto.brand_id && dto.color) {
-      const existingTrayType =
-        await this.trayTypesRepository.findByBrandAndColor(
-          dto.brand_id,
-          dto.color,
-        );
-
-      if (existingTrayType && existingTrayType.id !== id) {
+    if (dto.brand_id !== undefined || dto.color !== undefined) {
+      const duplicate = await this.trayTypesRepository.findByBrandAndColor(
+        dto.brand_id ?? existing.brand_id,
+        dto.color ?? existing.color,
+      );
+      if (duplicate && duplicate.id !== id) {
         throw new ConflictException(
-          `Tray Type with color '${dto.color}' already exists for this brand.`,
+          `Tray Type with color '${dto.color ?? existing.color}' already exists for this brand.`,
         );
       }
     }
@@ -86,7 +92,11 @@ export class TrayTypesService {
 
   async delete(id: number) {
     await this.findById(id);
-
+    if ((await this.trayTypesRepository.countUsage(id)) > 0) {
+      throw new ConflictException(
+        'Tray type is referenced by historical orders or purchases',
+      );
+    }
     return this.trayTypesRepository.delete(id);
   }
 }

@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -15,6 +14,7 @@ import { BanksService } from './banks.service.js';
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 
 import { CreateBankDto } from './dto/create-bank.dto.js';
 import { UpdateBankDto } from './dto/update-bank.dto.js';
@@ -36,7 +36,7 @@ export class BanksController {
   }
 
   @Get(':id')
-  async findById(@Param('id', ParseIntPipe) id: number) {
+  async findById(@Param('id', ParseIdPipe) id: number) {
     return this.banksService.findById(id);
   }
 
@@ -47,14 +47,14 @@ export class BanksController {
 
   @Patch(':id')
   async update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIdPipe) id: number,
     @Body() dto: UpdateBankDto,
   ) {
     return this.banksService.update(id, dto);
   }
 
   @Delete(':id')
-  async delete(@Param('id', ParseIntPipe) id: number) {
+  async delete(@Param('id', ParseIdPipe) id: number) {
     return this.banksService.delete(id);
   }
 }

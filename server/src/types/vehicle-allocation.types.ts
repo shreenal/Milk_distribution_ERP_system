@@ -5,7 +5,11 @@ export type {
   OrderItemWithSupplyContext,
   Product,
 } from './order-item.types.js';
-import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
+import {
+  Prisma,
+  SupplyCategory,
+  VehicleAllocationAnomalyReason,
+} from '../generated/prisma/client.js';
 
 export type Vehicle = {
   id: number;
@@ -152,3 +156,87 @@ export interface VehicleAllocationResponse {
 
   sections: VehicleAllocationSection[];
 }
+
+// ---------------------------------------------------------------------------
+// Added for the stale / anomaly lifecycle (VA-6, VA-7, VA-8)
+// ---------------------------------------------------------------------------
+
+const labelledProductInclude = {
+  master_brand: true,
+  master_product_group: true,
+  master_product_type: true,
+  master_packaging_type: true,
+} as const;
+
+export type StoredAllocation = Prisma.vehicle_allocationGetPayload<{
+  include: {
+    master_vehicle: true;
+    distributor: true;
+    master_product: { include: typeof labelledProductInclude };
+  };
+}>;
+
+export type StoredAnomaly = Prisma.vehicle_allocation_anomalyGetPayload<{
+  include: {
+    master_vehicle: true;
+    distributor: true;
+    master_product: { include: typeof labelledProductInclude };
+  };
+}>;
+
+export type InvalidAllocation = {
+  row: StoredAllocation;
+  reason: VehicleAllocationAnomalyReason;
+};
+
+export type StaleAllocation = {
+  row: StoredAllocation;
+  requiredAtSave: number;
+  currentRequired: number;
+};
+
+export type AllocationDetection = {
+  invalid: InvalidAllocation[];
+  stale: StaleAllocation[];
+};
+
+export type AllocationCoverageLine = {
+  distributorId: number;
+  distributorName: string;
+  category: SupplyCategory;
+  productId: number;
+  productName: string;
+  field: string;
+  requiredQty: number;
+  allocatedQty: number;
+  isComplete: boolean;
+};
+
+export type StaleAllocationView = {
+  kind: 'INVALID' | 'REQUIREMENT_CHANGED';
+  reason: VehicleAllocationAnomalyReason | 'REQUIREMENT_CHANGED';
+  message: string;
+  vehicleId: number;
+  vehicleName: string;
+  distributorId: number;
+  distributorName: string;
+  category: SupplyCategory;
+  productId: number;
+  productName: string;
+  allocatedQty: number;
+};
+
+export type AllocationAnomalyView = {
+  id: number;
+  reason: VehicleAllocationAnomalyReason;
+  message: string;
+  vehicleId: number;
+  vehicleName: string;
+  distributorId: number;
+  distributorName: string;
+  category: SupplyCategory;
+  productId: number;
+  productName: string;
+  removedQty: number;
+  flaggedAt: Date;
+};

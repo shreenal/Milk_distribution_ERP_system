@@ -8,6 +8,7 @@ import { ClientTraysValidationService } from './services/client-trays-validation
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
 import { ClientTraysPropagationService } from './services/client-trays-propagation.service.js';
+import { PropagationOutboxRepository } from '../propagation-queue/propagation-outbox.repository.js';
 
 @Module({
   imports: [WorkflowModule],
@@ -21,6 +22,10 @@ import { ClientTraysPropagationService } from './services/client-trays-propagati
     ClientTraysValidationService,
     TrayCalculationService,
     ClientTraysPropagationService,
+    // Provided here directly instead of importing PropagationQueueModule,
+    // which already imports this module. The repository is stateless and
+    // only needs the global PrismaService.
+    PropagationOutboxRepository,
   ],
 
   exports: [

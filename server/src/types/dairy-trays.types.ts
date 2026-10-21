@@ -1,18 +1,38 @@
 import { DeliverySession, Prisma } from '../generated/prisma/client.js';
-import type { ProductTrayRule, TrayType } from './tray.types.js';
+import type { TrayType } from './tray.types.js';
+
+// DT-6.1: a dairy tray ledger line is identified by vehicle + session + tray type.
+export type DairyTrayKey = {
+  vehicleId: number;
+  deliverySession: DeliverySession;
+  trayTypeId: number;
+};
+
+export interface DairyTrayLedgerLine extends DairyTrayKey {
+  opening: number;
+  taken: number;
+  // DT-4.6: a return that was never entered is 0, never null.
+  returned: number;
+  closing: number;
+}
+
+/** A row whose stored return is higher than opening + taken (DT-6.5). */
+export interface DairyReturnConflict extends DairyTrayKey {
+  returned: number;
+  available: number;
+}
 
 export type Vehicle = {
   id: number;
   vehicle_name: string | null;
+  vehicle_number: string;
+  is_active: boolean;
 };
 
 export type BuildDairyTrayGridParams = {
   vehicles: Vehicle[];
   trayTypes: TrayType[];
-  purchaseEntries: PurchaseEntry[];
-  trayRules: ProductTrayRule[];
-  previousTransactions: DairyTrayTransaction[];
-  currentTransactions: DairyTrayTransaction[];
+  ledgerLines: DairyTrayLedgerLine[];
 };
 
 export type Product = Prisma.master_productGetPayload<{
@@ -41,7 +61,8 @@ export type PurchaseEntry = Prisma.purchase_entryGetPayload<{
 export type DairyTrayGrid = {
   columns: DairyTrayColumnNode[];
   rows: DairyTrayRow[];
-  totals: DairyTrayTotals;
+  // DT-3.7: each session is its own ledger, so totals exist per session only.
+  sessionTotals: Record<DeliverySession, DairyTrayTotals>;
 };
 
 export type DairyTrayTransaction = Prisma.dairy_tray_transactionGetPayload<{
@@ -59,7 +80,9 @@ export type DairyTrayRow = {
   vehicleId: number;
   vehicleName: string | null;
   deliverySession: DeliverySession;
-  [key: string]: string | number | null;
+  // DT-8.2: true for an inactive vehicle (read-only for ordinary employees).
+  readOnly: boolean;
+  [key: string]: string | number | boolean | null;
 };
 
 export type DairyTrayTotal = {

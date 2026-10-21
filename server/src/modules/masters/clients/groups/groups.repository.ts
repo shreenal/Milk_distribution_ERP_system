@@ -42,9 +42,10 @@ export class GroupsRepository {
     });
   }
 
+  /** Case-insensitive: 'Route 1' and 'route 1' are the same group. */
   findByName(name: string) {
-    return this.prisma.master_group.findUnique({
-      where: { name },
+    return this.prisma.master_group.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

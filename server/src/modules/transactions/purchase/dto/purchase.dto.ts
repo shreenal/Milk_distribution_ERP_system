@@ -4,70 +4,121 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
-  IsISO8601,
+  IsIn,
   IsOptional,
+  IsString,
+  MaxLength,
   Min,
   Max,
   ValidateNested,
   ArrayMaxSize,
+  ArrayUnique,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   SupplyCategory,
   DeliverySession,
 } from '../../../../generated/prisma/client.js';
+import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.decorator.js';
+import { PURCHASE_LIMITS } from '../purchase.constants.js';
 
-class PurchaseEntryDto {
+const trim = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim() : value;
+
+export class PurchaseEntryDto {
+  // PD-2 / PD-60: bounded ids, so an oversized id is a 400, not a database overflow.
   @IsInt()
+  @Min(1)
+  @Max(PURCHASE_LIMITS.MAX_ID)
   vehicleId!: number;
 
   @IsEnum(DeliverySession)
   deliverySession!: DeliverySession;
 
   @IsInt()
+  @Min(1)
+  @Max(PURCHASE_LIMITS.MAX_ID)
   distributorId!: number;
 
   @IsEnum(SupplyCategory)
   category!: SupplyCategory;
 
   @IsInt()
+  @Min(1)
+  @Max(PURCHASE_LIMITS.MAX_ID)
   productId!: number;
 
-  @IsNumber()
+  // PD-39: null / blank / omitted = untracked (no entry). Explicit 0 = a
+  // confirmed zero purchase. The 2-decimal rule is applied in the service so a
+  // legacy value echoed back unchanged is tolerated (PD-27).
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)
-  // FIX F11 (consistency review): matches the same bound now applied to
-  // Vehicle Allocation's allocatedQty and Orders' orderedQty/deliveredQty
-  // (see orders.constants.ts QUANTITY_PRECISION.MAX_ORDERED_QTY).
-  @Max(10000)
-  purchasedQty!: number;
+  @Max(PURCHASE_LIMITS.MAX_PURCHASED_QTY)
+  purchasedQty?: number | null;
+
+  // PD-4: the allocation the client saw. Required when the entry is already saved.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(PURCHASE_LIMITS.MAX_ID)
+  sourceAllocationId?: number;
+
+  @IsOptional()
+  @IsNumber({ allowNaN: false, allowInfinity: false })
+  @Min(0)
+  @Max(PURCHASE_LIMITS.MAX_PURCHASED_QTY)
+  sourceAllocatedQty?: number;
 }
 
 export class SavePurchaseDto {
+  // An empty array is valid only when nothing is saved yet (PD-9).
   @IsArray()
-  @ArrayMaxSize(5000)
+  @ArrayMaxSize(PURCHASE_LIMITS.MAX_ENTRIES)
   @ValidateNested({ each: true })
   @Type(() => PurchaseEntryDto)
   entries!: PurchaseEntryDto[];
-  /**
-   * FIX F6: the `purchase_paper.updated_at` the client last read. If the
-   * server's current value doesn't match, the save is rejected (409) rather
-   * than silently overwriting whatever changed underneath the client.
-   * Optional so this can be rolled out without breaking older clients
-   * immediately — but the service should log/warn when it's absent so you
-   * can track migration of every frontend call site.
-   */
-  @IsOptional()
-  @IsISO8601()
-  expectedUpdatedAt?: string;
 
-  /**
-   * FIX F5: if the save would delete existing purchase_entry rows that
-   * aren't present in `entries` (because they no longer map onto a valid
-   * grid row), the service rejects the save with a list of what would be
-   * deleted UNLESS this flag is explicitly set to true. This turns a
-   * silent, filter-driven deletion into an explicit, confirmed one.
-   */
+  // PD-12: required. Explicit null only before the first save.
+  @ExpectedUpdatedAt()
+  expectedUpdatedAt!: string | null;
+
+  // PD-5: ordinary deletion is explicit, by saved entry id.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(PURCHASE_LIMITS.MAX_ENTRIES)
+  @ArrayUnique()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  @Max(PURCHASE_LIMITS.MAX_ID, { each: true })
+  deletedEntryIds?: number[];
+
+  // PD-10: bulk purge. ADMIN only, scope must be named.
   @IsOptional()
   @IsBoolean()
-  confirmDeletions?: boolean;
+  purgeAll?: boolean;
+
+  @IsOptional()
+  @IsIn(['PAPER'])
+  purgeScope?: 'PAPER';
+
+  // PD-34: ADMIN only.
+  @IsOptional()
+  @IsBoolean()
+  reevaluateTrays?: boolean;
+
+  // PD-41: optional note explaining a critical shortfall (logged, not stored).
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  shortfallComment?: string;
+
+  // Optional reason for purge / tray re-evaluation (logged).
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  reason?: string;
 }

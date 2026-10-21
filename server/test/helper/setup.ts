@@ -3,11 +3,6 @@ import type { ModuleMetadata } from '@nestjs/common';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 import { vi } from 'vitest';
 
-/**
- * Test Setup and Mock Factories
- * Provides reusable mock data and Prisma service for all integration tests
- */
-
 export class MockPrismaService {
   order_paper = {
     findUnique: vi.fn(),

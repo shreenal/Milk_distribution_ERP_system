@@ -1,7 +1,8 @@
-import { IsOptional, IsISO8601 } from 'class-validator';
+import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.decorator.js';
 
+// Required on every manual generation. Explicit null is accepted by the DTO
+// and is always a 409 in the service (a paper always has a token).
 export class GenerateTransferDto {
-  @IsOptional()
-  @IsISO8601()
-  expectedUpdatedAt?: string;
+  @ExpectedUpdatedAt()
+  expectedUpdatedAt!: string | null;
 }

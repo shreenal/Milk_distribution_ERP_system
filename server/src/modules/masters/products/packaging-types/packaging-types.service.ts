@@ -49,7 +49,7 @@ export class PackagingTypesService {
       const existingPackagingType =
         await this.packagingTypesRepository.findByName(dto.name);
 
-      if (existingPackagingType) {
+      if (existingPackagingType && existingPackagingType.id !== id) {
         throw new ConflictException(
           `Packaging Type '${dto.name}' already exists.`,
         );
@@ -61,7 +61,11 @@ export class PackagingTypesService {
 
   async delete(id: number) {
     await this.findById(id);
-
+    if ((await this.packagingTypesRepository.countUsage(id)) > 0) {
+      throw new ConflictException(
+        'Packaging type is in use by products or tray rules.',
+      );
+    }
     return this.packagingTypesRepository.delete(id);
   }
 }

@@ -7,6 +7,8 @@ import { DairyTraysService } from './dairy-trays.service.js';
 import { WorkflowModule } from '../workflow/workflow.module.js';
 import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
 import { DairyTraysPropagationService } from './services/dairy-trays-propagation.service.js';
+import { DairyTraysLedgerService } from './services/dairy-trays-ledger.service.js';
+import { PropagationOutboxRepository } from '../propagation-queue/propagation-outbox.repository.js';
 
 @Module({
   imports: [WorkflowModule],
@@ -16,8 +18,13 @@ import { DairyTraysPropagationService } from './services/dairy-trays-propagation
     DairyTraysRepository,
     DairyTraysBuilder,
     DairyTraysValidationService,
+    DairyTraysLedgerService,
     TrayCalculationService,
     DairyTraysPropagationService,
+    // Provided here directly instead of importing PropagationQueueModule,
+    // which already imports this module (same approach as ClientTraysModule).
+    // The repository is stateless and only needs the global PrismaService.
+    PropagationOutboxRepository,
   ],
   exports: [
     DairyTraysService,

@@ -1,4 +1,15 @@
-import { SupplyCategory } from '../../../generated/prisma/client.js';
+import {
+  OrderPaperStatus,
+  SupplyCategory,
+} from '../../../generated/prisma/client.js';
+
+// CD-5.2 / CD-5.3: per-field cap and precision for every money amount.
+// MAX is a business limit, not a database limit (the column holds far more).
+// OPEN ITEM CD-14.1: confirm this number with the business owner.
+export const COLLECTION_AMOUNT = {
+  MAX: 10000000,
+  MAX_DECIMAL_PLACES: 2,
+} as const;
 
 export const COLLECTION_ERROR_MESSAGES = {
   SHEET_NOT_FOUND: 'Order sheet not found',
@@ -9,13 +20,14 @@ export const COLLECTION_ERROR_MESSAGES = {
   NIGHT_EDIT_NOT_ALLOWED:
     'Night collections cannot be edited in the current workflow state',
 
-  MORNING_EDIT_NOT_ALLOWED:
-    'Morning collections can only be edited after night submission',
+  // CD-2.3: says when editing is closed instead of blaming "after night submission".
+  MORNING_EDIT_NOT_ALLOWED: (status: OrderPaperStatus) =>
+    `Cannot edit morning collections when paper is ${status}. Allowed statuses: NIGHT_SUBMITTED, REOPENED`,
 
   ADMIN_EDIT_NOT_ALLOWED:
     'Admin collections cannot be edited in current workflow state',
 
-  NEGATIVE_OFFICE_AMOUNT: 'Office amount given cannot be negative',
+  NEGATIVE_OFFICE_CASH_COLLECTION: 'Office cash collection cannot be negative',
 
   NEGATIVE_CASH_COLLECTION: 'Cash collection cannot be negative',
 

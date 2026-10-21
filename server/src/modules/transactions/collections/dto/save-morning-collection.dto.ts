@@ -1,33 +1,26 @@
 import {
-  IsArray,
-  ValidateNested,
-  IsInt,
-  Min,
-  IsNumber,
-  IsOptional,
-  IsString,
-  IsISO8601,
   ArrayMaxSize,
+  IsArray,
+  IsInt,
+  Max,
+  Min,
+  ValidateNested,
 } from 'class-validator';
-
 import { Type } from 'class-transformer';
+import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.decorator.js';
+import { CollectionAmount } from '../collection-amount.decorator.js';
 
 export class MorningCollectionEntryDto {
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   clientId!: number;
 
-  @IsNumber()
-  @Min(0)
-  cashCollection!: number;
+  @CollectionAmount()
+  cashCollection?: number | null;
 
-  @IsNumber()
-  @Min(0)
-  chequeCollection!: number;
-
-  @IsOptional()
-  @IsString()
-  employeeRemarks?: string;
+  @CollectionAmount()
+  chequeCollection?: number | null;
 }
 
 export class SaveMorningCollectionsDto {
@@ -37,7 +30,6 @@ export class SaveMorningCollectionsDto {
   @Type(() => MorningCollectionEntryDto)
   entries!: MorningCollectionEntryDto[];
 
-  @IsOptional()
-  @IsISO8601()
-  expectedUpdatedAt?: string;
+  @ExpectedUpdatedAt()
+  expectedUpdatedAt!: string | null;
 }

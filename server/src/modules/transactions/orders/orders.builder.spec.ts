@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OrdersBuilder } from './order.builder.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
-import { BillingRow, OrderBillingInput } from '../../../types/order.types.js';
+import { OrderBillingInput } from '../../../types/order.types.js';
 
 describe('OrdersBuilder', () => {
   const productColumnsBuilder = {

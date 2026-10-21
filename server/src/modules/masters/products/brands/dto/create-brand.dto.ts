@@ -1,17 +1,10 @@
-import {
-  IsBoolean,
-  IsEnum,
-  IsInt,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsOptional } from 'class-validator';
 import { Type } from 'class-transformer';
 import { GatepassDatePolicy } from '../../../../../generated/prisma/client.js';
+import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 
 export class CreateBrandDto {
-  @IsString()
-  @MaxLength(100)
+  @TrimmedName(100)
   name!: string;
 
   @Type(() => Number)

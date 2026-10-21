@@ -1,10 +1,24 @@
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
-import { buildPurchaseKey } from '../../../common/utils/allocation-key.util.js';
-import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
-import { touchIfUnchanged } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { STALE_DATA_MESSAGE } from './purchase.constants.js';
+
+const isUniqueViolation = (e: any): boolean =>
+  e?.code === '23505' ||
+  e?.code === 'P2002' ||
+  e?.meta?.code === '23505' ||
+  e?.cause?.originalCode === '23505' ||
+  e?.meta?.driverAdapterError?.cause?.originalCode === '23505';
+
+const labelledProductInclude = {
+  master_brand: true,
+  master_product_group: true,
+  master_product_type: true,
+  master_packaging_type: true,
+} as const;
+import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { resolveRateForDate, rateKey } from './purchase.util.js';
 
 @Injectable()
 export class PurchaseRepository {
@@ -32,19 +46,26 @@ export class PurchaseRepository {
     });
   }
 
-  async getOrCreatePurchasePaper(
+  // PD-12 / VA-9.2: a plain INSERT, never an upsert, so two concurrent first
+  // saves cannot both succeed.
+  async createPurchasePaper(
     orderPaperId: number,
+    signOff?: { at: Date; by: number },
     db: PrismaOrTransaction = this.prisma,
   ) {
-    return db.purchase_paper.upsert({
-      where: {
-        order_paper_id: orderPaperId,
-      },
-      update: {},
-      create: {
-        order_paper_id: orderPaperId,
-      },
-    });
+    try {
+      return await db.purchase_paper.create({
+        data: {
+          order_paper_id: orderPaperId,
+          ...(signOff
+            ? { signed_off_at: signOff.at, signed_off_by: signOff.by }
+            : {}),
+        },
+      });
+    } catch (e) {
+      if (isUniqueViolation(e)) throw new ConflictException(STALE_DATA_MESSAGE);
+      throw e;
+    }
   }
 
   async findPurchaseEntries(
@@ -57,7 +78,9 @@ export class PurchaseRepository {
       },
       include: {
         product_link: true,
-        master_product: true,
+        master_product: { include: labelledProductInclude },
+        master_vehicle: true,
+        distributor: true,
       },
       orderBy: [
         { distributor_id: 'asc' },
@@ -69,84 +92,97 @@ export class PurchaseRepository {
     });
   }
 
-  async replacePurchaseEntries(
-    purchasePaperId: number,
+  // PD-5 / PD-11: writes are explicit. Nothing here deletes by omission.
+  async createPurchaseEntries(
     data: Prisma.purchase_entryCreateManyInput[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    const existing = await db.purchase_entry.findMany({
-      where: { purchase_paper_id: purchasePaperId },
+    if (data.length === 0) return;
+    try {
+      await db.purchase_entry.createMany({ data });
+    } catch (e) {
+      if (isUniqueViolation(e)) throw new ConflictException(STALE_DATA_MESSAGE);
+      throw e;
+    }
+  }
+
+  async updatePurchaseEntry(
+    id: number,
+    data: Prisma.purchase_entryUncheckedUpdateInput,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    await db.purchase_entry.update({ where: { id }, data });
+  }
+
+  async deletePurchaseEntriesByIds(
+    purchasePaperId: number,
+    ids: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    if (ids.length === 0) return;
+    await db.purchase_entry.deleteMany({
+      where: { purchase_paper_id: purchasePaperId, id: { in: ids } },
     });
+  }
 
-    // FIX F1/F9 (consistency review): key composition and diffing now come
-    // from shared utilities (see vehicle-allocation.repository.ts for the
-    // equivalent vehicle_allocation version of this same pattern).
-    const { toDelete, toInsert, toUpdate } = diffByKey(
-      existing,
-      data,
-      buildPurchaseKey,
-      buildPurchaseKey,
-      (match, r) =>
-        Number(match.purchased_qty) !== Number(r.purchased_qty) ||
-        Number(match.purchase_rate) !== Number(r.purchase_rate) ||
-        Number(match.purchase_amount) !== Number(r.purchase_amount) ||
-        match.source_allocation_id !== r.source_allocation_id ||
-        Number(match.source_allocated_qty ?? NaN) !==
-          Number(r.source_allocated_qty ?? NaN) ||
-        (match.tray_type_id ?? null) !== (r.tray_type_id ?? null) ||
-        match.product_link_id !== r.product_link_id ||
-        match.gatepass_date.getTime() !== new Date(r.gatepass_date).getTime(),
-    );
-
-    if (toDelete.length > 0) {
-      await db.purchase_entry.deleteMany({
-        where: { id: { in: toDelete.map((r) => r.id) } },
-      });
-    }
-
-    for (const { existingRow, incomingRow } of toUpdate) {
-      await db.purchase_entry.update({
-        where: { id: existingRow.id },
-        data: {
-          purchased_qty: incomingRow.purchased_qty,
-          purchase_rate: incomingRow.purchase_rate,
-          purchase_amount: incomingRow.purchase_amount,
-          source_allocation_id: incomingRow.source_allocation_id,
-          source_allocated_qty: incomingRow.source_allocated_qty,
-          tray_type_id: incomingRow.tray_type_id,
-          gatepass_date: incomingRow.gatepass_date,
-          product_link_id: incomingRow.product_link_id,
+  // Entries with everything the rate recalculation needs (PD-23).
+  async findEntriesForRecalculation(
+    purchasePaperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return db.purchase_entry.findMany({
+      where: { purchase_paper_id: purchasePaperId },
+      include: {
+        distributor: true,
+        master_vehicle: true,
+        master_product: {
+          include: {
+            ...labelledProductInclude,
+            product_order_unit: {
+              select: {
+                units_per_order_unit: true,
+                pricing_quantity: true,
+                pricing_unit: true,
+              },
+            },
+          },
         },
-      });
-    }
+      },
+      orderBy: { id: 'asc' },
+    });
+  }
 
-    if (toInsert.length > 0) {
-      await db.purchase_entry.createMany({ data: toInsert });
-    }
+  async findVehiclesByIds(
+    ids: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    if (ids.length === 0) return [];
+    return db.master_vehicle.findMany({ where: { id: { in: ids } } });
+  }
+
+  async findDistributorsByIds(
+    ids: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    if (ids.length === 0) return [];
+    return db.master_distributor.findMany({ where: { id: { in: ids } } });
+  }
+
+  async findProductsByIds(
+    ids: number[],
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    if (ids.length === 0) return [];
+    return db.master_product.findMany({
+      where: { id: { in: ids } },
+      include: labelledProductInclude,
+    });
   }
 
   async findVehicles(db: PrismaOrTransaction = this.prisma) {
     return db.master_vehicle.findMany({
       where: {
         is_active: true,
-      },
-
-      orderBy: {
-        id: 'asc',
-      },
-    });
-  }
-
-  async findProducts(db: PrismaOrTransaction = this.prisma) {
-    return db.master_product.findMany({
-      include: {
-        master_brand: true,
-
-        master_product_group: true,
-
-        master_product_type: true,
-
-        master_packaging_type: true,
       },
 
       orderBy: {
@@ -346,44 +382,63 @@ export class PurchaseRepository {
     db: PrismaOrTransaction = this.prisma,
   ) {
     const linkIds = [...new Set(requests.map((r) => r.productLinkId))];
+    const resolved = new Map<
+      string,
+      Awaited<ReturnType<typeof this.fetchRates>>[number] | null
+    >();
+    if (linkIds.length === 0) return resolved;
 
-    // Fetch all active rates for these links; resolve per-request effective
-    // date in memory (dates can differ per request due to gatepass policy).
-    const rates = await db.distributor_product_rate.findMany({
-      where: {
-        product_link_id: { in: linkIds },
-        is_active: true,
-      },
-      orderBy: { effective_from: 'desc' },
-    });
+    const rates = await this.fetchRates(linkIds, db);
 
-    const resolved = new Map<string, (typeof rates)[number] | null>();
-
+    // PD-26: each request's gatepass date is an IST calendar day; validity is
+    // decided on IST days (see resolveRateForDate), not on UTC midnight.
     for (const { productLinkId, effectiveDate } of requests) {
-      const key = `${productLinkId}_${effectiveDate.toISOString()}`;
-      const match = rates.find(
-        (r) =>
-          r.product_link_id === productLinkId &&
-          r.effective_from <= effectiveDate &&
-          (r.effective_to === null || r.effective_to >= effectiveDate),
+      resolved.set(
+        rateKey(productLinkId, effectiveDate),
+        resolveRateForDate(
+          rates.filter((r) => r.product_link_id === productLinkId),
+          effectiveDate,
+        ),
       );
-      resolved.set(key, match ?? null);
     }
 
     return resolved;
   }
 
-  async touchPurchasePaperIfUnchanged(
+  private async fetchRates(linkIds: number[], db: PrismaOrTransaction) {
+    return db.distributor_product_rate.findMany({
+      where: { product_link_id: { in: linkIds }, is_active: true },
+      orderBy: { effective_from: 'desc' },
+    });
+  }
+
+  // PD-12 / PD-13: compare-and-advance, returning the new token (the same
+  // clock-safe helper Orders, Client Trays, Collections and Vehicle Allocation use).
+  async touchPurchasePaperIfTokenMatches(
     purchasePaperId: number,
     expectedUpdatedAt: Date,
     db: PrismaOrTransaction = this.prisma,
-  ): Promise<boolean> {
-    const result = await touchIfUnchanged(
+  ) {
+    return touchIfTokenMatches(
       db.purchase_paper,
       { id: purchasePaperId },
       'updated_at',
       expectedUpdatedAt,
     );
-    return result.count === 1;
+  }
+
+  // PD-38: records the sign-off without moving the token again (the explicit
+  // updated_at wins over @updatedAt).
+  async recordSignOff(
+    purchasePaperId: number,
+    userId: number,
+    at: Date,
+    token: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    await db.purchase_paper.update({
+      where: { id: purchasePaperId },
+      data: { signed_off_at: at, signed_off_by: userId, updated_at: token },
+    });
   }
 }

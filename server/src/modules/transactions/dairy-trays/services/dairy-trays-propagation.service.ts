@@ -1,76 +1,36 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 
 import { DairyTraysRepository } from '../dairy-trays.repository.js';
-import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
+import { DairyTraysLedgerService } from './dairy-trays-ledger.service.js';
+import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 import {
-  DeliverySession,
+  OrderPaperStatus,
   Prisma,
 } from '../../../../generated/prisma/client.js';
+import { DAIRY_TRAYS_ERROR_MESSAGES as MSG } from '../dairy-trays.constants.js';
+import { buildDairyTrayKey } from '../dairy-trays.util.js';
+
+type PaperRef = { id: number; sale_date: Date };
 
 @Injectable()
 export class DairyTraysPropagationService {
   constructor(
     private readonly dairyTraysRepository: DairyTraysRepository,
-    private readonly trayCalculationService: TrayCalculationService,
+    private readonly ledgerService: DairyTraysLedgerService,
+    private readonly workflowState: WorkflowStateService,
   ) {}
 
+  /**
+   * DT-10.1: called inside the Purchase save transaction. Gated by paper
+   * status (DT-2.4). A return conflict throws 409 and rolls the purchase save
+   * back (DT-6.5). On a REOPENED paper the check also covers every later
+   * paper (DT-10.2).
+   */
   async recalculateCurrentPaper(
-    paperId: number,
-    tx: Prisma.TransactionClient,
-  ): Promise<void> {
-    await this.recalculatePaper(paperId, tx);
-  }
-
-  // async propagateFromPaper(
-  //   startPaperId: number,
-  //   tx: Prisma.TransactionClient,
-  // ): Promise<void> {
-  //   const startPaper = await this.dairyTraysRepository.findPaperById(
-  //     startPaperId,
-  //     tx,
-  //   );
-
-  //   if (!startPaper) {
-  //     throw new NotFoundException(`Order paper ${startPaperId} not found`);
-  //   }
-
-  //   // Only the paper whose own purchase entries actually changed gets a
-  //   // full recompute of trays_taken.
-  //   await this.recalculatePaper(startPaperId, tx);
-
-  //   // Every paper after it only inherits the shifted opening balance —
-  //   // their own trays_taken/trays_returned must never be touched by
-  //   // someone else's correction or by tray-rule drift since they were
-  //   // last finalized.
-  //   let currentPaperId: number | null =
-  //     (
-  //       await this.dairyTraysRepository.getNextPaper(
-  //         startPaper.id,
-  //         startPaper.sale_date,
-  //         tx,
-  //       )
-  //     )?.id ?? null;
-
-  //   while (currentPaperId !== null) {
-  //     await this.cascadeOpeningBalance(currentPaperId, tx);
-
-  //     const paper = await this.dairyTraysRepository.findPaperById(
-  //       currentPaperId,
-  //       tx,
-  //     );
-
-  //     currentPaperId =
-  //       (
-  //         await this.dairyTraysRepository.getNextPaper(
-  //           paper!.id,
-  //           paper!.sale_date,
-  //           tx,
-  //         )
-  //       )?.id ?? null;
-  //   }
-  // }
-
-  private async recalculatePaper(
     paperId: number,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
@@ -80,328 +40,238 @@ export class DairyTraysPropagationService {
       throw new NotFoundException(`Order paper ${paperId} not found`);
     }
 
-    const dairyTrayPaper =
-      await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paperId, tx);
+    if (!this.workflowState.canEditDairyTrays(paper.status)) {
+      throw new BadRequestException(MSG.EDIT_NOT_ALLOWED);
+    }
 
-    /*
-     * Purchase entries are the source of trays_taken.
-     */
-    const purchaseEntries = await this.dairyTraysRepository.getPurchaseEntries(
-      paperId,
+    await this.recalculatePaper(paper, tx);
+
+    if (paper.status === OrderPaperStatus.REOPENED) {
+      await this.assertNoForwardReturnConflicts(paper.id, tx);
+    }
+  }
+
+  /**
+   * Full recalculation of one paper: opening from the latest earlier closing
+   * (DT-6.3), taken from purchases (DT-6.4), returns preserved exactly as
+   * stored (DT-4.6). Zero-activity rows are removed, never one holding a
+   * positive return (DT-7.2).
+   */
+  private async recalculatePaper(
+    paper: PaperRef,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const dairyTrayPaper =
+      await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paper.id, tx);
+
+    const inputs = await this.ledgerService.loadInputs(
+      paper,
+      dairyTrayPaper.id,
       tx,
     );
 
-    const trayRules = await this.dairyTraysRepository.getProductTrayRules(tx);
-
-    /*
-     * Existing transactions contain the manually entered
-     * trays_returned values.
-     *
-     * Propagation must preserve those values.
-     */
-    const existingTransactions =
-      await this.dairyTraysRepository.getCurrentTrayTransactions(
-        dairyTrayPaper.id,
-        tx,
-      );
-
-    const existingTransactionMap = new Map<
-      string,
-      (typeof existingTransactions)[number]
-    >();
-
-    for (const transaction of existingTransactions) {
-      existingTransactionMap.set(
-        `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`,
-        transaction,
-      );
-    }
-
-    /*
-     * Opening balance comes from the previous paper's
-     * closing balance.
-     */
-    const previousPaper = await this.dairyTraysRepository.getPreviousPaper(
-      paper.id,
+    await this.ledgerService.assertNoReturnConflicts(
+      inputs.openingBalances,
+      inputs.takenByKey,
+      inputs.returnedByKey,
       paper.sale_date,
       tx,
     );
 
-    const previousClosingMap = new Map<string, number>();
-    /*
-     * Previous paper's NIGHT closing becomes the opening
-     * balance for the current paper's NIGHT session.
-     *
-     * Key:
-     *   vehicleId_trayTypeId
-     */
-    if (previousPaper) {
-      const previousDairyTrayPaper =
-        await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
-          previousPaper.id,
-          tx,
-        );
+    const lines = this.ledgerService.buildLedger(
+      inputs.openingBalances,
+      inputs.takenByKey,
+      inputs.returnedByKey,
+    );
 
-      if (previousDairyTrayPaper) {
-        const previousTransactions =
-          await this.dairyTraysRepository.getPreviousTrayBalances(
-            previousDairyTrayPaper.id,
-            tx,
-          );
-
-        for (const transaction of previousTransactions) {
-          const key = `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`;
-
-          previousClosingMap.set(key, Number(transaction.closing_balance ?? 0));
-        }
-      }
-    }
-
-    /*
-     * Calculate trays_taken from CURRENT purchase entries.
-     *
-     * Key:
-     *   vehicleId_deliverySession_trayTypeId
-     */
-    const traysTakenMap = new Map<string, number>();
-
-    for (const entry of purchaseEntries) {
-      const trayTypeId = this.trayCalculationService.resolveFrozenTrayTypeId(
-        entry,
-        trayRules,
-      );
-
-      if (trayTypeId === null) {
-        continue;
-      }
-
-      const key = `${entry.vehicle_id}_${entry.delivery_session}_${trayTypeId}`;
-
-      const currentTaken = traysTakenMap.get(key) ?? 0;
-
-      traysTakenMap.set(key, currentTaken + Number(entry.purchased_qty ?? 0));
-    }
-
-    /*
-     * Existing transactions contain manually entered
-     * trays_returned values.
-     *
-     * Key:
-     *   vehicleId_deliverySession_trayTypeId
-     */
-
-    /*
-     * Process all combinations that currently exist either
-     * because of purchase data or because a transaction already
-     * exists.
-     */
-    const keys = new Set<string>();
-
-    for (const key of traysTakenMap.keys()) {
-      keys.add(key);
-    }
-
-    for (const key of existingTransactionMap.keys()) {
-      keys.add(key);
-    }
-
-    const transactions: Prisma.dairy_tray_transactionCreateManyInput[] = [];
-
-    /*
-     * ---------------------------------------------------------
-     * 1. NIGHT
-     * ---------------------------------------------------------
-     */
-    for (const key of keys) {
-      const [vehicleIdString, deliverySessionString, trayTypeIdString] =
-        key.split('_');
-
-      if (deliverySessionString !== DeliverySession.NIGHT) {
-        continue;
-      }
-
-      const vehicleId = Number(vehicleIdString);
-      const trayTypeId = Number(trayTypeIdString);
-
-      /*
-       * Previous paper's NIGHT closing becomes current
-       * paper's NIGHT opening.
-       */
-      const openingBalance = previousClosingMap.get(key) ?? 0;
-      const traysTaken = traysTakenMap.get(key) ?? 0;
-
-      const existingTransaction = existingTransactionMap.get(key);
-
-      const traysReturned = Number(existingTransaction?.trays_returned ?? 0);
-
-      const transaction = this.trayCalculationService.buildTransaction(
-        openingBalance,
-        traysTaken,
-        traysReturned,
-      );
-
-      transactions.push({
-        dairy_tray_paper_id: dairyTrayPaper.id,
-        vehicle_id: vehicleId,
-        tray_type_id: trayTypeId,
-        delivery_session: DeliverySession.NIGHT,
-        ...transaction,
-      });
-    }
-
-    /*
-     * ---------------------------------------------------------
-     * 2. MORNING
-     * ---------------------------------------------------------
-     */
-    for (const key of keys) {
-      const [vehicleIdString, deliverySessionString, trayTypeIdString] =
-        key.split('_');
-
-      if (deliverySessionString !== DeliverySession.MORNING) {
-        continue;
-      }
-
-      const vehicleId = Number(vehicleIdString);
-      const trayTypeId = Number(trayTypeIdString);
-
-      const openingBalance = previousClosingMap.get(key) ?? 0;
-      const traysTaken = traysTakenMap.get(key) ?? 0;
-
-      const existingTransaction = existingTransactionMap.get(key);
-
-      const traysReturned = Number(existingTransaction?.trays_returned ?? 0);
-
-      const transaction = this.trayCalculationService.buildTransaction(
-        openingBalance,
-        traysTaken,
-        traysReturned,
-      );
-
-      transactions.push({
-        dairy_tray_paper_id: dairyTrayPaper.id,
-        vehicle_id: vehicleId,
-        tray_type_id: trayTypeId,
-        delivery_session: DeliverySession.MORNING,
-        ...transaction,
-      });
-    }
-
-    /*
-     * Nothing to persist.
-     */
-    if (transactions.length === 0) {
+    // DT-9.6: the token moves only when stored dairy tray data changes. A
+    // Purchase save that changes Taken therefore advances it, which is correct
+    // because the calculated balances changed under anyone with the grid open.
+    if (!this.ledgerService.hasLedgerChanged(inputs.stored, lines)) {
       return;
     }
 
-    /*
-     * Replace the current paper's calculated transactions.
-     *
-     * trays_returned has already been copied from the existing
-     * transactions, so manual return values are preserved.
-     */
     await this.dairyTraysRepository.replaceTrayTransactions(
       dairyTrayPaper.id,
-      transactions,
+      lines.map((line) =>
+        this.ledgerService.toTransactionInput(dairyTrayPaper.id, line),
+      ),
+      tx,
+    );
+
+    await this.dairyTraysRepository.advanceDairyTrayPaperToken(
+      dairyTrayPaper.id,
       tx,
     );
   }
 
+  /**
+   * DT-10.3 / DT-10.4: refreshes ONE later paper. Only opening and closing
+   * move; its taken and returned are kept exactly as stored. A non-zero
+   * carried balance with no row gets a carry-forward row (returned = 0).
+   * The paper's status is deliberately not checked (DT-11.5).
+   */
   private async cascadeOpeningBalance(
     paperId: number,
     tx: Prisma.TransactionClient,
   ): Promise<void> {
     const paper = await this.dairyTraysRepository.findPaperById(paperId, tx);
+
     if (!paper) {
       throw new NotFoundException(`Order paper ${paperId} not found`);
     }
 
-    const dairyTrayPaper =
+    const header =
       await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
         paperId,
         tx,
       );
 
-    if (!dairyTrayPaper) {
-      return; // nothing recorded for this paper yet — nothing to cascade
-    }
+    const existing = header
+      ? await this.dairyTraysRepository.getCurrentTrayTransactions(
+          header.id,
+          tx,
+        )
+      : [];
 
-    const existingTransactions =
-      await this.dairyTraysRepository.getCurrentTrayTransactions(
-        dairyTrayPaper.id,
-        tx,
-      );
-
-    if (existingTransactions.length === 0) {
-      return;
-    }
-
-    const previousPaper = await this.dairyTraysRepository.getPreviousPaper(
-      paper.id,
+    const openingBalances = await this.dairyTraysRepository.getOpeningBalances(
       paper.sale_date,
       tx,
     );
 
-    const previousClosingMap = new Map<string, number>();
-
-    if (previousPaper) {
-      const previousDairyTrayPaper =
-        await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
-          previousPaper.id,
-          tx,
-        );
-
-      if (previousDairyTrayPaper) {
-        const previousTransactions =
-          await this.dairyTraysRepository.getPreviousTrayBalances(
-            previousDairyTrayPaper.id,
-            tx,
-          );
-
-        for (const transaction of previousTransactions) {
-          const key = `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`;
-          previousClosingMap.set(key, Number(transaction.closing_balance ?? 0));
-        }
-      }
+    if (existing.length === 0 && openingBalances.size === 0) {
+      return;
     }
 
-    // trays_taken and trays_returned are NOT recomputed here — this paper's
-    // own purchase entries haven't changed. Only the opening balance
-    // inherited from the previous paper has, so only opening/closing shift.
-    const transactions: Prisma.dairy_tray_transactionCreateManyInput[] =
-      existingTransactions.map((transaction) => {
-        const key = `${transaction.vehicle_id}_${transaction.delivery_session}_${transaction.tray_type_id}`;
-        const openingBalance = previousClosingMap.get(key) ?? 0;
-        const traysTaken = Number(transaction.trays_taken ?? 0);
-        const traysReturned = Number(transaction.trays_returned ?? 0);
+    const dairyTrayPaperId =
+      header?.id ??
+      (await this.dairyTraysRepository.getOrCreateDairyTrayPaper(paperId, tx))
+        .id;
 
-        return {
-          dairy_tray_paper_id: dairyTrayPaper.id,
-          vehicle_id: transaction.vehicle_id,
-          tray_type_id: transaction.tray_type_id,
-          delivery_session: transaction.delivery_session,
-          opening_balance: openingBalance,
-          trays_taken: traysTaken,
-          trays_returned: traysReturned,
-          closing_balance: this.trayCalculationService.calculateClosingBalance(
-            openingBalance,
-            traysTaken,
-            traysReturned,
-          ),
-        };
-      });
+    const { takenByKey, returnedByKey } = this.mapStoredRows(existing);
 
-    if (transactions.length === 0) {
+    await this.ledgerService.assertNoReturnConflicts(
+      openingBalances,
+      takenByKey,
+      returnedByKey,
+      paper.sale_date,
+      tx,
+    );
+
+    const lines = this.ledgerService.buildLedger(
+      openingBalances,
+      takenByKey,
+      returnedByKey,
+    );
+
+    // DT-9.6: an unchanged later paper is left alone and its token is not moved.
+    if (!this.ledgerService.hasLedgerChanged(existing, lines)) {
       return;
     }
 
     await this.dairyTraysRepository.replaceTrayTransactions(
-      dairyTrayPaper.id,
-      transactions,
+      dairyTrayPaperId,
+      lines.map((line) =>
+        this.ledgerService.toTransactionInput(dairyTrayPaperId, line),
+      ),
+      tx,
+    );
+
+    await this.dairyTraysRepository.advanceDairyTrayPaperToken(
+      dairyTrayPaperId,
       tx,
     );
   }
 
+  /**
+   * DT-10.2 / DT-6.5: dry run of the forward cascade. Walks the later papers
+   * in memory with the same rules as cascadeOpeningBalance and throws 409 if
+   * any of them would be left with returns above its balance. The start paper
+   * must already hold its new stored values. Callers run it inside the same
+   * transaction as the change, so a conflicting change is rolled back instead
+   * of failing later in the background.
+   */
+  async assertNoForwardReturnConflicts(
+    startPaperId: number,
+    tx: Prisma.TransactionClient,
+  ): Promise<void> {
+    const startPaper = await this.dairyTraysRepository.findPaperById(
+      startPaperId,
+      tx,
+    );
+
+    if (!startPaper) {
+      throw new NotFoundException(`Order paper ${startPaperId} not found`);
+    }
+
+    let next = await this.dairyTraysRepository.getNextPaper(
+      startPaper.id,
+      startPaper.sale_date,
+      tx,
+    );
+
+    if (!next) {
+      return;
+    }
+
+    // Balances carried into the first later paper. Updated as the walk goes.
+    const carried = await this.dairyTraysRepository.getOpeningBalances(
+      next.sale_date,
+      tx,
+    );
+
+    while (next) {
+      const header =
+        await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
+          next.id,
+          tx,
+        );
+      const stored = header
+        ? await this.dairyTraysRepository.getCurrentTrayTransactions(
+            header.id,
+            tx,
+          )
+        : [];
+
+      const { takenByKey, returnedByKey } = this.mapStoredRows(stored);
+
+      await this.ledgerService.assertNoReturnConflicts(
+        carried,
+        takenByKey,
+        returnedByKey,
+        next.sale_date,
+        tx,
+      );
+
+      const lines = this.ledgerService.buildLedger(
+        carried,
+        takenByKey,
+        returnedByKey,
+      );
+
+      for (const line of lines) {
+        const key = buildDairyTrayKey(line);
+
+        if (line.closing !== 0) {
+          carried.set(key, line.closing);
+        } else {
+          carried.delete(key);
+        }
+      }
+
+      next = await this.dairyTraysRepository.getNextPaper(
+        next.id,
+        next.sale_date,
+        tx,
+      );
+    }
+  }
+
+  /**
+   * DT-10.5: the forward job. The start paper gets a full recalculation, then
+   * every later paper (next by sale date) gets cascadeOpeningBalance. Work is
+   * chunked; a full chunk returns the paper to resume from.
+   */
   async propagateFromPaperChunk(
     startPaperId: number,
     resumeFromPaperId: number | null,
@@ -416,11 +286,12 @@ export class DairyTraysPropagationService {
         startPaperId,
         tx,
       );
+
       if (!startPaper) {
         throw new NotFoundException(`Order paper ${startPaperId} not found`);
       }
 
-      await this.recalculatePaper(startPaperId, tx);
+      await this.recalculatePaper(startPaper, tx);
       steps++;
 
       const next = await this.dairyTraysRepository.getNextPaper(
@@ -458,5 +329,31 @@ export class DairyTraysPropagationService {
     }
 
     return { done: true };
+  }
+
+  // A later paper's own taken / returned are read back exactly as stored.
+  private mapStoredRows(
+    rows: {
+      vehicle_id: number;
+      delivery_session: import('../../../../generated/prisma/client.js').DeliverySession;
+      tray_type_id: number;
+      trays_taken: number | null;
+      trays_returned: number | null;
+    }[],
+  ) {
+    const takenByKey = new Map<string, number>();
+    const returnedByKey = new Map<string, number>();
+
+    for (const row of rows) {
+      const key = buildDairyTrayKey({
+        vehicleId: row.vehicle_id,
+        deliverySession: row.delivery_session,
+        trayTypeId: row.tray_type_id,
+      });
+      takenByKey.set(key, Number(row.trays_taken ?? 0));
+      returnedByKey.set(key, row.trays_returned ?? 0);
+    }
+
+    return { takenByKey, returnedByKey };
   }
 }

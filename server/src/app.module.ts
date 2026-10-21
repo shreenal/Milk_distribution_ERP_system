@@ -3,7 +3,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { envValidationSchema } from './config/env.validation.js';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
 import { HealthModule } from './health/health.module.js';
 import { OrdersModule } from './modules/transactions/orders/orders.module.js';
@@ -25,7 +25,7 @@ import { DairiesModule } from './modules/masters/products/dairies/dairies.module
 import { ProductTypesModule } from './modules/masters/products/product-types/product-types.module.js';
 import { TrayTypesModule } from './modules/masters/products/tray-types/tray-types.module.js';
 import { ProductGroupModule } from './modules/masters/products/product-groups/product-group.module.js';
-import { PackagingTypeModule } from './modules/masters/products/packaging-types/packaging-type.module.js';
+import { PackagingTypeModule } from './modules/masters/products/packaging-types/packaging-types.module.js';
 import { ProductsModule } from './modules/masters/products/products/products.module.js';
 import { DistributorModule } from './modules/masters/distribution/distributors/distributor.module.js';
 import { EmployeesModule } from './modules/masters/fleet/employees/employees.module.js';
@@ -49,6 +49,7 @@ import { DependencyModule } from './modules/transactions/dependencies/dependency
 import { OrderUnitTypesModule } from './modules/masters/products/order-unit-types/order-unit-types.module.js';
 import { ProductOrderUnitsModule } from './modules/masters/products/product-order-unit/product-order-units.module.js';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
+import { UserThrottlerGuard } from './common/guards/user-throttler.guard.js';
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -58,7 +59,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware.j
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
-        limit: 20,
+        limit: 300,
       },
     ]),
     PrismaModule,
@@ -106,7 +107,7 @@ import { RequestIdMiddleware } from './common/middleware/request-id.middleware.j
     DependencyModule,
   ],
   controllers: [AppController],
-  providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [AppService, { provide: APP_GUARD, useClass: UserThrottlerGuard }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

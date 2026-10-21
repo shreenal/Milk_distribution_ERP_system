@@ -1,32 +1,26 @@
-import { Type } from 'class-transformer';
 import {
-  IsInt,
-  Min,
-  IsNumber,
-  IsOptional,
-  IsString,
-  IsArray,
-  ValidateNested,
-  IsISO8601,
   ArrayMaxSize,
+  IsArray,
+  IsInt,
+  Max,
+  Min,
+  ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.decorator.js';
+import { CollectionAmount } from '../collection-amount.decorator.js';
 
 export class AdminCollectionEntryDto {
   @IsInt()
   @Min(1)
+  @Max(2147483647)
   clientId!: number;
 
-  @IsNumber()
-  @Min(0)
-  onlineCollection!: number;
+  @CollectionAmount()
+  onlineCollection?: number | null;
 
-  @IsNumber()
-  @Min(0)
-  bankDeposit!: number;
-
-  @IsOptional()
-  @IsString()
-  adminRemarks?: string;
+  @CollectionAmount()
+  bankDeposit?: number | null;
 }
 
 export class SaveAdminCollectionsDto {
@@ -36,7 +30,6 @@ export class SaveAdminCollectionsDto {
   @Type(() => AdminCollectionEntryDto)
   entries!: AdminCollectionEntryDto[];
 
-  @IsOptional()
-  @IsISO8601()
-  expectedUpdatedAt?: string;
+  @ExpectedUpdatedAt()
+  expectedUpdatedAt!: string | null;
 }

@@ -6,7 +6,7 @@ export interface ClientStatementRow {
   bill: number;
 
   cash: number;
-  officeAmountGiven: number;
+  officeCashCollection: number;
   cheque: number;
   online: number;
   bankDeposit: number;
@@ -27,7 +27,7 @@ export interface ClientStatementTotals {
   bill: number;
 
   cash: number;
-  officeAmountGiven: number;
+  officeCashCollection: number;
   cheque: number;
   online: number;
   bankDeposit: number;

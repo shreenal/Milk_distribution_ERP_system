@@ -26,3 +26,10 @@ export const PROPAGATION_OUTBOX_RELAY_BATCH_SIZE = 20;
 export const PROPAGATION_OUTBOX_MAX_ATTEMPTS = 5;
 
 export const PROPAGATION_OUTBOX_STUCK_AFTER_MS = 2 * 60 * 1000;
+
+// A PENDING/PROCESSING row untouched for this long is reported as a problem.
+export const PROPAGATION_OUTBOX_PROBLEM_AFTER_MS = 10 * 60 * 1000;
+
+// Redis being down makes queue.add hang rather than fail; bound it so the
+// relay records an attempt instead of stalling every later tick.
+export const PROPAGATION_OUTBOX_DISPATCH_TIMEOUT_MS = 10 * 1000;

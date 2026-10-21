@@ -24,8 +24,8 @@ export class OrderUnitTypesRepository {
   }
 
   async findByName(name: string) {
-    return this.prisma.master_order_unit_type.findUnique({
-      where: { name },
+    return this.prisma.master_order_unit_type.findFirst({
+      where: { name: { equals: name, mode: 'insensitive' } },
     });
   }
 

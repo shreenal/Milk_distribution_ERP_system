@@ -1,43 +1,33 @@
-// FULL FILE REPLACEMENT for orders/services/billing.service.ts
-//
-// FIX H1: saveNightEntriesBatch previously called
-// orderCommercialService.resolve(...) awaited inside a `for` loop, once
-// per new (client, product) pair — each call doing several sequential DB
-// round-trips. It now collects every pair needing a new resolution first,
-// then resolves them all in a single call to
-// orderCommercialService.resolveBatch(...).
-//
-// FIX H2: previously every existing (non-new) item — including one being
-// corrected down to orderedQty 0 — still required a resolvable current
-// selling rate, throwing NO_APPLICABLE_RATE otherwise. A zero-quantity
-// line's bill amount is always 0 regardless of rate, so that requirement
-// is now conditional on orderedQty !== 0 (matching how new zero-qty pairs
-// already skipped resolution entirely).
-//
-// saveMorningEntriesBatch and getTrayRulesOnce are unchanged from the
-// original file.
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { PricingUnit, Prisma } from '../../../../generated/prisma/client.js';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import {
+  OrderPaperStatus,
+  PricingUnit,
+  Prisma,
+} from '../../../../generated/prisma/client.js';
 
 import { OrdersRepository } from '../orders.repository.js';
-import { SaveMorningEntriesDto } from '../dto/save-morning-entries.dto.js';
-import { SaveNightEntriesDto } from '../dto/save-night-entries.dto.js';
+import { ExplicitMorningEntry } from '../dto/save-morning-entries.dto.js';
+import { ExplicitNightEntry } from '../dto/save-night-entries.dto.js';
 import { OrderCommercialService } from './order-commercial.service.js';
 import { NightBillingService } from './night-billing.service.js';
 import { FinalBillingService } from './final-billing.service.js';
 import { ERROR_MESSAGES } from '../orders.constants.js';
 import { TrayCalculationService } from '../../../../common/calculators/tray-calculation.service.js';
 import { ProductTrayRule } from '../../../../types/tray.types.js';
+import { formatIsoDate } from '../../paper/paper-date.util.js';
 
+export type ExistingItemMap = Awaited<
+  ReturnType<OrdersRepository['findSheetItemsByProductBatch']>
+>;
 type ExistingSheetItem =
-  Awaited<
-    ReturnType<OrdersRepository['findSheetItemsByProductBatch']>
-  > extends Map<string, infer T>
-    ? T
-    : never;
+  ExistingItemMap extends Map<string, infer T> ? T : never;
+type InsertRow = Parameters<
+  OrdersRepository['insertMorningCreatedLinesBatch']
+>[0][number];
 
 @Injectable()
 export class BillingService {
+  private readonly logger = new Logger(BillingService.name);
   constructor(
     private readonly ordersRepository: OrdersRepository,
     private readonly orderCommercialService: OrderCommercialService,
@@ -54,24 +44,20 @@ export class BillingService {
     tx: Prisma.TransactionClient,
     sheet: Awaited<ReturnType<OrdersRepository['findSheetById']>>,
     sheetId: number,
-    entries: SaveNightEntriesDto[],
+    entries: ExplicitNightEntry[],
     trayRules: ProductTrayRule[],
+    existingItemMap: ExistingItemMap,
   ): Promise<void> {
-    const existingItemMap =
-      await this.ordersRepository.findSheetItemsByProductBatch(
-        sheetId,
-        entries.map((e) => ({ clientId: e.clientId, productId: e.productId })),
-        tx,
-      );
-
     const resolutions = new Map<
       string,
-      { distributorId: number; productLinkId: number; isNew: boolean }
+      {
+        distributorId: number;
+        productLinkId: number;
+        isNew: boolean;
+        viaFallback: boolean;
+      }
     >();
 
-    // FIX H1: collect pairs needing a brand-new commercial resolution and
-    // resolve them all in one batched call after this loop, instead of
-    // one sequential resolution chain per pair inside it.
     const newPairsNeedingResolution: { clientId: number; productId: number }[] =
       [];
     const seenNewPairKeys = new Set<string>();
@@ -85,13 +71,13 @@ export class BillingService {
           distributorId: existingItem.product_link.distributor_id,
           productLinkId: existingItem.product_link_id,
           isNew: false,
+          viaFallback: false,
         });
         continue;
       }
 
-      if (Number(entry.orderedQty) === 0) {
-        continue;
-      }
+      // Explicit 0 on a line that does not exist: nothing to create.
+      if (Number(entry.orderedQty) === 0) continue;
 
       if (!seenNewPairKeys.has(pairKey)) {
         seenNewPairKeys.add(pairKey);
@@ -111,19 +97,16 @@ export class BillingService {
     for (const { clientId, productId } of newPairsNeedingResolution) {
       const pairKey = `${clientId}_${productId}`;
       const resolved = batchResolved.get(pairKey);
-
-      // Defensive only: resolveBatch throws per-pair on any resolution
-      // failure, so every requested pair should be present on success.
       if (!resolved) {
         throw new BadRequestException(
           `Failed to resolve commercial context for client ${clientId} product ${productId}`,
         );
       }
-
       resolutions.set(pairKey, {
         distributorId: resolved.distributorId,
         productLinkId: resolved.productLinkId,
         isNew: true,
+        viaFallback: resolved.resolvedViaFallback,
       });
     }
 
@@ -135,8 +118,6 @@ export class BillingService {
     const productMap =
       await this.ordersRepository.getProductsWithPackagingBatch(productIds, tx);
 
-    // FIX H2: only entries with a nonzero quantity need a resolvable
-    // current rate — kept as a single batched lookup either way.
     const entriesNeedingRate = activeEntries.filter(
       (e) => Number(e.orderedQty) !== 0,
     );
@@ -149,6 +130,11 @@ export class BillingService {
     const rateMap = await this.ordersRepository.getSellingRatesBatch(
       ratePairs,
       sheet!.order_paper.sale_date,
+      tx,
+    );
+
+    const ownerByClient = await this.ordersRepository.getClientOwnersBatch(
+      [...new Set(newPairsNeedingResolution.map((p) => p.clientId))],
       tx,
     );
 
@@ -181,7 +167,6 @@ export class BillingService {
             ?.tray_type_id ?? null;
 
         const orderUnit = product.product_order_unit;
-
         if (
           !orderUnit ||
           orderUnit.units_per_order_unit <= 0 ||
@@ -191,13 +176,11 @@ export class BillingService {
             `Order unit configuration missing for product ${entry.productId}`,
           );
         }
-
         unitsPerOrderUnit = orderUnit.units_per_order_unit;
         pricingQuantity = Number(orderUnit.pricing_quantity);
         pricingUnit = orderUnit.pricing_unit;
       } else {
         const existingItem = existingItemMap.get(pairKey)!;
-
         if (
           existingItem.units_per_order_unit <= 0 ||
           Number(existingItem.pricing_quantity) <= 0 ||
@@ -207,7 +190,6 @@ export class BillingService {
             `Order unit configuration missing for product ${entry.productId}`,
           );
         }
-
         unitsPerOrderUnit = existingItem.units_per_order_unit;
         pricingQuantity = Number(existingItem.pricing_quantity);
         pricingUnit = existingItem.pricing_unit;
@@ -218,31 +200,36 @@ export class BillingService {
       let nightBillAmount: number;
 
       if (orderedQty === 0) {
-        const maybeRate = rateMap.get(rateKey);
+        // OD-6.10: a cancellation keeps the line's stored night rate; it is never
+        // re-resolved. Explicit 0 only reaches here for existing lines (a zero for a
+        // non-existent line is skipped above). null => final rate 0, night rate untouched.
+        const storedNightRate =
+          existingItemMap.get(pairKey)?.night_selling_rate;
         sellingRate =
-          maybeRate !== null && maybeRate !== undefined
-            ? Number(maybeRate)
+          storedNightRate !== null && storedNightRate !== undefined
+            ? Number(storedNightRate)
             : null;
         nightBillAmount = 0;
       } else {
         const resolvedRate = rateMap.get(rateKey);
-
         if (resolvedRate === null || resolvedRate === undefined) {
           throw new BadRequestException(
             ERROR_MESSAGES.NO_APPLICABLE_RATE(
               entry.productId,
-              sheet!.order_paper.sale_date.toISOString(),
+              formatIsoDate(sheet!.order_paper.sale_date),
             ),
           );
         }
-
         sellingRate = Number(resolvedRate);
-        const billing = this.nightBillingService.calculate(
+
+        // Decision 6: GST is part of the night bill, using the same rule as final billing.
+        nightBillAmount = this.nightBillingService.calculate(
           orderedQty,
           sellingRate,
+          Number(product.gst_percentage ?? 0),
+          product.is_gst_inclusive,
           pricingQuantity,
-        );
-        nightBillAmount = billing.nightBillAmount;
+        ).nightBillAmount;
       }
 
       const isZeroed = orderedQty === 0;
@@ -252,7 +239,7 @@ export class BillingService {
         client_id: entry.clientId,
         product_id: entry.productId,
         product_link_id: resolution.productLinkId,
-        ordered_qty: entry.orderedQty,
+        ordered_qty: orderedQty,
         night_selling_rate: sellingRate,
         night_bill_amount: nightBillAmount,
         tray_type_id: trayTypeId,
@@ -267,6 +254,11 @@ export class BillingService {
         final_gst_amount: isZeroed ? 0 : null,
         final_taxable_amount: isZeroed ? 0 : null,
         final_bill_amount: isZeroed ? 0 : null,
+        owner_distributor_id: resolution.isNew
+          ? (ownerByClient.get(entry.clientId) ?? null)
+          : null,
+        final_gst_inclusive: isZeroed ? product.is_gst_inclusive : null,
+        resolved_via_fallback: resolution.isNew && resolution.viaFallback,
       });
     }
 
@@ -277,44 +269,87 @@ export class BillingService {
     tx: Prisma.TransactionClient,
     sheet: Awaited<ReturnType<OrdersRepository['findSheetById']>>,
     sheetId: number,
-    entries: SaveMorningEntriesDto[],
+    entries: ExplicitMorningEntry[],
+    existingItemMap: ExistingItemMap,
   ): Promise<void> {
-    const pairs = entries.map((e) => ({
-      clientId: e.clientId,
-      productId: e.productId,
-    }));
-    const existingItemMap =
-      await this.ordersRepository.findSheetItemsByProductBatch(
-        sheetId,
-        pairs,
-        tx,
-      );
-
-    const activeEntries: {
-      entry: SaveMorningEntriesDto;
+    const existingEntries: {
+      entry: ExplicitMorningEntry;
       existingItem: ExistingSheetItem;
     }[] = [];
+    const newLineEntries: ExplicitMorningEntry[] = [];
 
     for (const entry of entries) {
-      const key = `${entry.clientId}_${entry.productId}`;
-      const existingItem = existingItemMap.get(key);
-      const deliveredQty = Number(entry.deliveredQty);
-
-      if (!existingItem) {
-        if (deliveredQty === 0) continue;
-        throw new BadRequestException(
-          ERROR_MESSAGES.NO_ORDERED_QUANTITY(entry.clientId, entry.productId),
-        );
+      const existingItem = existingItemMap.get(
+        `${entry.clientId}_${entry.productId}`,
+      );
+      if (existingItem) {
+        existingEntries.push({ entry, existingItem });
+      } else if (Number(entry.deliveredQty) > 0) {
+        newLineEntries.push(entry);
       }
-      activeEntries.push({ entry, existingItem });
     }
 
-    if (activeEntries.length === 0) return;
+    if (existingEntries.length === 0 && newLineEntries.length === 0) return;
 
-    const ratePairs = activeEntries.map(({ entry, existingItem }) => ({
-      clientId: entry.clientId,
-      productLinkId: existingItem.product_link_id,
-    }));
+    // OD-7.5: warning only, logged when the delivered value changes.
+    const over = existingEntries.filter(({ entry, existingItem }) => {
+      const ordered = Number(existingItem.ordered_qty ?? 0);
+      const delivered = Number(entry.deliveredQty);
+      return (
+        ordered > 0 &&
+        delivered > ordered * 1.5 &&
+        Number(existingItem.delivered_qty ?? NaN) !== delivered
+      );
+    });
+    if (over.length > 0) {
+      this.logger.warn(
+        `Sheet ${sheetId}: over-delivery (>150% of ordered) on ${over.length} line(s): ` +
+          over
+            .map(
+              ({ entry }) =>
+                `client ${entry.clientId}/product ${entry.productId}`,
+            )
+            .join(', '),
+      );
+    }
+
+    const isReopened = sheet!.order_paper.status === OrderPaperStatus.REOPENED;
+    const hasFrozenCommercials = (item: ExistingSheetItem) =>
+      isReopened &&
+      item.final_selling_rate !== null &&
+      item.final_gst_percentage !== null &&
+      Number(item.delivered_qty ?? 0) > 0;
+
+    // OD-7.12: ordered 0 + stored night rate = cancelled via OD-6.10 (morning-created lines never have a night rate).
+    const isCancelledLine = (item: ExistingSheetItem) =>
+      Number(item.ordered_qty ?? 0) === 0 && item.night_selling_rate !== null;
+    const skipsLiveRate = (
+      entry: ExplicitMorningEntry,
+      item: ExistingSheetItem,
+    ) => isCancelledLine(item) && Number(entry.deliveredQty) === 0;
+
+    const created = await this.prepareMorningCreatedLines(
+      newLineEntries,
+      sheet,
+      tx,
+    );
+
+    const ratePairs = [
+      ...existingEntries
+        .filter(
+          ({ entry, existingItem }) =>
+            !hasFrozenCommercials(existingItem) &&
+            !skipsLiveRate(entry, existingItem),
+        )
+        .map(({ entry, existingItem }) => ({
+          clientId: entry.clientId,
+          productLinkId: existingItem.product_link_id,
+        })),
+      ...created.map((c) => ({
+        clientId: c.entry.clientId,
+        productLinkId: c.productLinkId,
+      })),
+    ];
 
     const rateMap = await this.ordersRepository.getSellingRatesBatch(
       ratePairs,
@@ -326,18 +361,47 @@ export class BillingService {
       OrdersRepository['updateDeliveredEntriesBatch']
     >[0] = [];
 
-    for (const { entry, existingItem } of activeEntries) {
-      const rateKey = `${entry.clientId}_${existingItem.product_link_id}`;
-      const sellingRate = rateMap.get(rateKey);
+    for (const { entry, existingItem } of existingEntries) {
+      let sellingRate: number;
+      let gstPercentage: number;
+      let gstInclusive: boolean;
 
-      if (sellingRate === null || sellingRate === undefined) {
-        throw new BadRequestException(
-          `No rate configured for client ${entry.clientId} product ${entry.productId}`,
+      if (hasFrozenCommercials(existingItem)) {
+        // Decision 18: keep the original final pricing/GST on a reopened, already-billed line.
+        sellingRate = Number(existingItem.final_selling_rate);
+        gstPercentage = Number(existingItem.final_gst_percentage);
+        gstInclusive =
+          existingItem.final_gst_inclusive ??
+          existingItem.master_product.is_gst_inclusive;
+      } else if (skipsLiveRate(entry, existingItem)) {
+        sellingRate = Number(
+          existingItem.final_selling_rate ??
+            existingItem.night_selling_rate ??
+            0,
         );
+        gstPercentage = Number(
+          existingItem.final_gst_percentage ??
+            existingItem.master_product.gst_percentage ??
+            0,
+        );
+        gstInclusive =
+          existingItem.final_gst_inclusive ??
+          existingItem.master_product.is_gst_inclusive;
+      } else {
+        const liveRate = rateMap.get(
+          `${entry.clientId}_${existingItem.product_link_id}`,
+        );
+        if (liveRate === null || liveRate === undefined) {
+          throw new BadRequestException(
+            `No rate configured for client ${entry.clientId} product ${entry.productId}`,
+          );
+        }
+        sellingRate = Number(liveRate);
+        gstPercentage = Number(existingItem.master_product.gst_percentage ?? 0);
+        gstInclusive = existingItem.master_product.is_gst_inclusive;
       }
 
       const pricingQuantity = existingItem.pricing_quantity;
-
       if (
         pricingQuantity === null ||
         pricingQuantity === undefined ||
@@ -350,9 +414,9 @@ export class BillingService {
 
       const billing = this.finalBillingService.calculate(
         Number(entry.deliveredQty),
-        Number(sellingRate),
-        Number(existingItem.master_product.gst_percentage ?? 0),
-        existingItem.master_product.is_gst_inclusive,
+        sellingRate,
+        gstPercentage,
+        gstInclusive,
         Number(pricingQuantity),
       );
 
@@ -361,16 +425,128 @@ export class BillingService {
         client_id: entry.clientId,
         product_link_id: existingItem.product_link_id,
         delivered_qty: Number(entry.deliveredQty),
-        final_selling_rate: Number(sellingRate),
-        final_gst_percentage: Number(
-          existingItem.master_product.gst_percentage ?? 0,
-        ),
+        final_selling_rate: sellingRate,
+        final_gst_percentage: gstPercentage,
+        final_gst_inclusive: gstInclusive,
         final_gst_amount: billing.gstAmount,
         final_taxable_amount: billing.taxableAmount,
         final_bill_amount: billing.finalBillAmount,
       });
     }
 
+    const rowsToInsert: InsertRow[] = [];
+
+    for (const c of created) {
+      const liveRate = rateMap.get(`${c.entry.clientId}_${c.productLinkId}`);
+      if (liveRate === null || liveRate === undefined) {
+        throw new BadRequestException(
+          `No rate configured for client ${c.entry.clientId} product ${c.entry.productId}`,
+        );
+      }
+      const sellingRate = Number(liveRate);
+      const gstPercentage = Number(c.product.gst_percentage ?? 0);
+      const gstInclusive = c.product.is_gst_inclusive;
+
+      const billing = this.finalBillingService.calculate(
+        Number(c.entry.deliveredQty),
+        sellingRate,
+        gstPercentage,
+        gstInclusive,
+        c.pricingQuantity,
+      );
+
+      rowsToInsert.push({
+        order_sheet_id: sheetId,
+        client_id: c.entry.clientId,
+        product_id: c.entry.productId,
+        product_link_id: c.productLinkId,
+        // No customer night order exists for a morning-created line.
+        ordered_qty: 0,
+        night_selling_rate: null,
+        night_bill_amount: 0,
+        tray_type_id: c.trayTypeId,
+        units_per_order_unit: c.unitsPerOrderUnit,
+        pricing_quantity: c.pricingQuantity,
+        pricing_unit: c.pricingUnit,
+        delivered_qty: Number(c.entry.deliveredQty),
+        final_selling_rate: sellingRate,
+        final_gst_percentage: gstPercentage,
+        final_gst_amount: billing.gstAmount,
+        final_taxable_amount: billing.taxableAmount,
+        final_bill_amount: billing.finalBillAmount,
+        owner_distributor_id: c.ownerDistributorId,
+        final_gst_inclusive: gstInclusive,
+        resolved_via_fallback: c.viaFallback,
+      });
+    }
+
     await this.ordersRepository.updateDeliveredEntriesBatch(rowsToUpdate, tx);
+    await this.ordersRepository.insertMorningCreatedLinesBatch(
+      rowsToInsert,
+      tx,
+    );
+  }
+
+  /** Same frozen-line resolution as a night-created line: supplier, tray type, order unit, owner. */
+  private async prepareMorningCreatedLines(
+    entries: ExplicitMorningEntry[],
+    sheet: Awaited<ReturnType<OrdersRepository['findSheetById']>>,
+    tx: Prisma.TransactionClient,
+  ) {
+    if (entries.length === 0) return [];
+
+    const resolved = await this.orderCommercialService.resolveBatch(
+      entries.map((e) => ({ clientId: e.clientId, productId: e.productId })),
+      sheet!.group_id,
+      tx,
+    );
+    const trayRules = await this.getTrayRulesOnce(tx);
+    const productMap =
+      await this.ordersRepository.getProductsWithPackagingBatch(
+        [...new Set(entries.map((e) => e.productId))],
+        tx,
+      );
+    const ownerByClient = await this.ordersRepository.getClientOwnersBatch(
+      [...new Set(entries.map((e) => e.clientId))],
+      tx,
+    );
+
+    return entries.map((entry) => {
+      const resolution = resolved.get(`${entry.clientId}_${entry.productId}`);
+      if (!resolution) {
+        throw new BadRequestException(
+          `Failed to resolve commercial context for client ${entry.clientId} product ${entry.productId}`,
+        );
+      }
+      const product = productMap.get(entry.productId);
+      if (!product) {
+        throw new BadRequestException(
+          ERROR_MESSAGES.PRODUCT_NOT_FOUND(entry.productId),
+        );
+      }
+      const orderUnit = product.product_order_unit;
+      if (
+        !orderUnit ||
+        orderUnit.units_per_order_unit <= 0 ||
+        Number(orderUnit.pricing_quantity) <= 0
+      ) {
+        throw new BadRequestException(
+          `Order unit configuration missing for product ${entry.productId}`,
+        );
+      }
+      return {
+        entry,
+        product,
+        productLinkId: resolution.productLinkId,
+        viaFallback: resolution.resolvedViaFallback,
+        trayTypeId:
+          this.trayCalculationService.resolveTrayRule(product, trayRules)
+            ?.tray_type_id ?? null,
+        unitsPerOrderUnit: orderUnit.units_per_order_unit,
+        pricingQuantity: Number(orderUnit.pricing_quantity),
+        pricingUnit: orderUnit.pricing_unit as PricingUnit,
+        ownerDistributorId: ownerByClient.get(entry.clientId) ?? null,
+      };
+    });
   }
 }

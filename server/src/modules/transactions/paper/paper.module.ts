@@ -14,6 +14,7 @@ import { CashSettlementModule } from '../cash-settlement/cash-settlement.module.
 import { DairyTraysModule } from '../dairy-trays/dairy-trays.module.js';
 import { DistributorTransferModule } from '../distributor-transfer/distributor-transfer.module.js';
 import { DependencyModule } from '../dependencies/dependency.module.js';
+import { PropagationQueueModule } from '../propagation-queue/propagation-queue.module.js';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { DependencyModule } from '../dependencies/dependency.module.js';
     DairyTraysModule,
     DistributorTransferModule,
     DependencyModule,
+    PropagationQueueModule,
   ],
 
   controllers: [PaperController],

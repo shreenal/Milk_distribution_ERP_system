@@ -4,7 +4,6 @@ import {
   Delete,
   Get,
   Param,
-  ParseIntPipe,
   Patch,
   Post,
   UseGuards,
@@ -15,6 +14,7 @@ import { ExpenseTypesService } from './expense-types.service.js';
 import { JwtAuthGuard } from '../../../transactions/auth/auth.guard.js';
 import { RolesGuard } from '../../../transactions/auth/roles.guard.js';
 import { Roles } from '../../../transactions/auth/roles.decorator.js';
+import { ParseIdPipe } from '../../../../common/pipes/parse-id.pipe.js';
 
 import { CreateExpenseTypeDto } from './dto/create-expense-type.dto.js';
 import { UpdateExpenseTypeDto } from './dto/update-expense-type.dto.js';
@@ -36,7 +36,7 @@ export class ExpenseTypesController {
   }
 
   @Get(':id')
-  async findById(@Param('id', ParseIntPipe) id: number) {
+  async findById(@Param('id', ParseIdPipe) id: number) {
     return this.expenseTypesService.findById(id);
   }
 
@@ -47,14 +47,14 @@ export class ExpenseTypesController {
 
   @Patch(':id')
   async update(
-    @Param('id', ParseIntPipe) id: number,
+    @Param('id', ParseIdPipe) id: number,
     @Body() dto: UpdateExpenseTypeDto,
   ) {
     return this.expenseTypesService.update(id, dto);
   }
 
   @Delete(':id')
-  async delete(@Param('id', ParseIntPipe) id: number) {
+  async delete(@Param('id', ParseIdPipe) id: number) {
     return this.expenseTypesService.delete(id);
   }
 }

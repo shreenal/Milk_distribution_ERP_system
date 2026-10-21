@@ -22,11 +22,6 @@ export function toFixedNumber(value: Decimal, decimalPlaces = 2): number {
   );
 }
 
-/** Tolerant equality for money comparisons. Defaults to exact (0
- * tolerance) since Decimal math no longer has float drift by construction;
- * pass a small tolerance (e.g. 0.005) only where you're comparing values
- * that were each independently rounded to 2dp upstream, to absorb
- * legitimate rounding-not-drift differences. */
 export function moneyEquals(a: Moneyish, b: Moneyish, tolerance = 0): boolean {
   return toDecimal(a).minus(toDecimal(b)).abs().lte(tolerance);
 }

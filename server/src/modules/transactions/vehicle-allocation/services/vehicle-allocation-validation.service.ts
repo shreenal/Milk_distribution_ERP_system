@@ -2,21 +2,49 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { SaveVehicleAllocationDto } from '../dto/save-vehicle-allocation.dto.js';
 import { VehicleAllocationRepository } from '../vehicle-allocation.repository.js';
 import { VehicleAllocationBuilder } from '../vehicle-allocation.builder.js';
+import { VehicleAllocationReconciliationService } from './vehicle-allocation-reconciliation.service.js';
 import { VEHICLE_ALLOCATION_ERROR_MESSAGES } from '../vehicle-allocation.constants.js';
 import { AllocationSummaryBuilder } from '../../../../common/builders/allocation-summary.builder.js';
-import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 import {
   DeliverySession,
-  SupplyCategory,
+  VehicleAllocationAnomalyStatus,
 } from '../../../../generated/prisma/client.js';
 import { OrderItemsRepository } from '../../../../common/repositories/order-items.repository.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
-import { AllocationGridResult } from '../../../../types/vehicle-allocation.types.js';
+import { AllocationSummary } from '../../../../common/builders/allocation-summary.builder.js';
 import {
-  moneyEquals,
-  toDecimal,
-  toMoney,
-} from '../../../../common/utils/money.util.js';
+  buildRequirementKey,
+  describeAllocationRow,
+  describeProduct,
+  describeVehicle,
+  findDistributorConflicts,
+} from '../vehicle-allocation.util.js';
+import { ANOMALY_REASON_MESSAGES } from '../vehicle-allocation.constants.js';
+
+type Allocations = SaveVehicleAllocationDto['allocations'];
+
+export type AllocationReferences = {
+  vehicles: Map<
+    number,
+    {
+      id: number;
+      vehicle_name: string | null;
+      vehicle_number: string;
+      is_active: boolean;
+    }
+  >;
+  productLabels: Map<number, string>;
+  distributorNames: Map<number, string>;
+};
+
+export type AllocationRequirements = {
+  orderItems: Awaited<
+    ReturnType<OrderItemsRepository['getOrderItemsWithSupplyContextByPaperId']>
+  >;
+  summaries: AllocationSummary[];
+  requiredTotals: Map<string, number>;
+  productLabels: Map<number, string>;
+};
 
 @Injectable()
 export class VehicleAllocationValidationService {
@@ -25,240 +53,120 @@ export class VehicleAllocationValidationService {
     private readonly vehicleAllocationBuilder: VehicleAllocationBuilder,
     private readonly allocationSummaryBuilder: AllocationSummaryBuilder,
     private readonly orderItemsRepository: OrderItemsRepository,
-    private readonly workflowState: WorkflowStateService,
+    private readonly reconciliationService: VehicleAllocationReconciliationService,
   ) {}
 
-  async validateVehicleAllocations(
-    paperId: number,
-    dto: SaveVehicleAllocationDto,
-    db: PrismaOrTransaction,
-  ) {
-    const paper = await this.vehicleAllocationRepository.findOrderPaperById(
-      paperId,
-      db,
-    );
+  // ---------------------------------------------------------------------
+  // Requirements (what the current orders ask for in a session)
+  // ---------------------------------------------------------------------
 
-    if (!paper) {
-      throw new BadRequestException(
-        VEHICLE_ALLOCATION_ERROR_MESSAGES.ORDER_PAPER_NOT_FOUND,
-      );
-    }
-
-    const session = this.workflowState.getActiveExecutionSession(paper.status);
-    const summaries = await this.getGroupSummary(paperId, session, db);
-
-    const requiredKeys = new Set<string>();
-    for (const summary of summaries) {
-      for (const product of summary.products) {
-        requiredKeys.add(
-          `${summary.distributorId}_${summary.category}_${product.id}`,
-        );
-      }
-    }
-
-    for (const allocation of dto.allocations) {
-      if (Number(allocation.allocatedQty) <= 0) continue;
-
-      const key = `${allocation.distributorId}_${allocation.category}_${allocation.productId}`;
-
-      if (!requiredKeys.has(key)) {
-        throw new BadRequestException(
-          `Product ${allocation.productId} is not required from distributor ${allocation.distributorId} for category ${allocation.category} in this order`,
-        );
-      }
-    }
-  }
-
-  validateSingleDistributorPerVehicleCategory(
-    dto: SaveVehicleAllocationDto,
-  ): void {
-    const groups = new Map<
-      string,
-      {
-        vehicleId: number;
-        category: SupplyCategory;
-        distributorIds: Set<number>;
-      }
-    >();
-
-    for (const allocation of dto.allocations) {
-      if (Number(allocation.allocatedQty) <= 0) continue;
-
-      const key = `${allocation.vehicleId}_${allocation.category}`;
-      const group = groups.get(key) ?? {
-        vehicleId: allocation.vehicleId,
-        category: allocation.category,
-        distributorIds: new Set<number>(),
-      };
-
-      group.distributorIds.add(allocation.distributorId);
-      groups.set(key, group);
-    }
-
-    for (const group of groups.values()) {
-      if (group.distributorIds.size > 1) {
-        throw new BadRequestException(
-          VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_MISMATCH_WITHIN_CATEGORY(
-            group.vehicleId,
-            group.category,
-            Array.from(group.distributorIds),
-          ),
-        );
-      }
-    }
-  }
-
-  async validateVehicleAllocationsForNightSubmit(
-    paperId: number,
-    db: PrismaOrTransaction,
-  ) {
-    const allocationGrid = await this.getAllocationGrid(
-      paperId,
-      DeliverySession.NIGHT,
-      db,
-    );
-
-    this.validateCoverage(allocationGrid);
-    this.validateSingleDistributorFromGrid(allocationGrid);
-  }
-
-  async validateVehicleAllocationsForMorningSubmit(
-    paperId: number,
-    db: PrismaOrTransaction,
-  ) {
-    const allocationGrid = await this.getAllocationGrid(
-      paperId,
-      DeliverySession.MORNING,
-      db,
-    );
-
-    this.validateCoverage(allocationGrid);
-    this.validateSingleDistributorFromGrid(allocationGrid);
-  }
-
-  private validateCoverage(allocationGrid: AllocationGridResult): void {
-    for (const allocation of allocationGrid.allocations) {
-      for (const [field, requiredQty] of Object.entries(allocation.totals)) {
-        const allocatedQty = allocation.rows.reduce(
-          (sum, row) => sum.plus(toDecimal(row[field] ?? 0)),
-          toDecimal(0),
-        );
-
-        // M1: was `allocatedQty !== Number(requiredQty)` on values summed
-        // as native floats — legitimate quantities like 0.1 + 0.2 could
-        // false-positive an "allocation mismatch" and block night/morning
-        // submit. 0.005 tolerance matches the reconciliation tolerance
-        // used elsewhere (cash-settlement-validation.service.ts).
-        if (!moneyEquals(allocatedQty, toDecimal(requiredQty), 0.005)) {
-          throw new BadRequestException(
-            `${allocation.brand.name} ${field} allocation mismatch. Required: ${requiredQty}, Allocated: ${toMoney(allocatedQty)}`,
-          );
-        }
-      }
-    }
-  }
-
-  private validateSingleDistributorFromGrid(
-    allocationGrid: AllocationGridResult,
-  ): void {
-    const groups = new Map<
-      string,
-      {
-        vehicleId: number;
-        category: SupplyCategory;
-        distributorIds: Set<number>;
-      }
-    >();
-
-    for (const grid of allocationGrid.allocations) {
-      for (const row of grid.rows) {
-        const hasPositiveQty = Object.entries(row).some(
-          ([field, value]) => field.startsWith('product_') && Number(value) > 0,
-        );
-
-        if (!hasPositiveQty) continue;
-
-        const key = `${row.vehicleId}_${grid.category}`;
-        const group = groups.get(key) ?? {
-          vehicleId: row.vehicleId,
-          category: grid.category,
-          distributorIds: new Set<number>(),
-        };
-
-        group.distributorIds.add(grid.distributor.id);
-        groups.set(key, group);
-      }
-    }
-
-    for (const group of groups.values()) {
-      if (group.distributorIds.size > 1) {
-        throw new BadRequestException(
-          VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_MISMATCH_WITHIN_CATEGORY(
-            group.vehicleId,
-            group.category,
-            Array.from(group.distributorIds),
-          ),
-        );
-      }
-    }
-  }
-
-  private async getGroupSummary(
+  async loadRequirements(
     paperId: number,
     session: DeliverySession,
     db: PrismaOrTransaction,
-  ) {
+  ): Promise<AllocationRequirements> {
     const orderItems =
       await this.orderItemsRepository.getOrderItemsWithSupplyContextByPaperId(
         paperId,
         db,
       );
 
-    return this.allocationSummaryBuilder.build(orderItems, session);
+    // VA-3.3: only products with positive demand take part.
+    const summaries = this.vehicleAllocationBuilder.filterPositiveDemand(
+      this.allocationSummaryBuilder.build(orderItems, session),
+    );
+
+    return {
+      orderItems,
+      summaries,
+      requiredTotals:
+        this.vehicleAllocationBuilder.buildRequiredTotals(summaries),
+      productLabels:
+        this.vehicleAllocationBuilder.buildProductLabelMap(summaries),
+    };
   }
 
-  private async getAllocationGrid(
-    paperId: number,
-    session: DeliverySession,
+  // ---------------------------------------------------------------------
+  // Save-time validation (all run before any write)
+  // ---------------------------------------------------------------------
+
+  async resolveReferences(
+    allocations: Allocations,
     db: PrismaOrTransaction,
-  ): Promise<AllocationGridResult> {
-    const summaries = await this.getGroupSummary(paperId, session, db);
-    const vehicles = await this.vehicleAllocationRepository.findVehicles(db);
+  ): Promise<AllocationReferences> {
+    const unique = (ids: number[]) => [...new Set(ids)];
 
-    const allocationGrids =
-      this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
-        summaries,
-        vehicles,
-      );
-
-    const vehicleAllocationPaper =
-      await this.vehicleAllocationRepository.findVehicleAllocationPaper(
-        paperId,
-        session,
+    const [vehicles, products, distributors] = await Promise.all([
+      this.vehicleAllocationRepository.findVehiclesByIds(
+        unique(allocations.map((a) => a.vehicleId)),
         db,
-      );
+      ),
+      this.vehicleAllocationRepository.findProductsForLabels(
+        unique(allocations.map((a) => a.productId)),
+        db,
+      ),
+      this.vehicleAllocationRepository.findDistributorsByIds(
+        unique(allocations.map((a) => a.distributorId)),
+        db,
+      ),
+    ]);
 
-    if (!vehicleAllocationPaper) {
-      return allocationGrids;
+    const productLabels = new Map<number, string>();
+    for (const product of products) {
+      productLabels.set(product.id, describeProduct(product));
     }
 
-    const savedAllocations =
-      await this.vehicleAllocationRepository.findVehicleAllocations(
-        vehicleAllocationPaper.id,
-        db,
-      );
-
-    return this.vehicleAllocationBuilder.applyVehicleAllocations(
-      allocationGrids,
-      savedAllocations,
-    );
+    return {
+      vehicles: new Map(vehicles.map((v) => [v.id, v])),
+      productLabels,
+      distributorNames: new Map(distributors.map((d) => [d.id, d.name])),
+    };
   }
 
+  /** VA-5.8: unknown vehicles are rejected for every entry; inactive ones when qty > 0. */
+  validateVehicleReferences(
+    dto: SaveVehicleAllocationDto,
+    refs: AllocationReferences,
+  ): void {
+    const problems = new Set<string>();
+
+    for (const allocation of dto.allocations) {
+      const vehicle = refs.vehicles.get(allocation.vehicleId);
+
+      if (!vehicle) {
+        problems.add(
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_NOT_FOUND(
+            allocation.vehicleId,
+          ),
+        );
+        continue;
+      }
+
+      if (!vehicle.is_active && allocation.allocatedQty > 0) {
+        problems.add(
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.VEHICLE_INACTIVE(
+            describeVehicle(vehicle),
+          ),
+        );
+      }
+    }
+
+    if (problems.size > 0) {
+      throw new BadRequestException({
+        message: 'Invalid vehicle references',
+        details: [...problems],
+      });
+    }
+  }
+
+  /** VA-5.7: links are checked only for rows with qty > 0. */
   async validateAllocationProductLinks(
     dto: SaveVehicleAllocationDto,
+    refs: AllocationReferences,
     db: PrismaOrTransaction,
   ): Promise<void> {
     const candidates = dto.allocations.filter((a) => a.allocatedQty > 0);
+    if (candidates.length === 0) return;
 
     const linkMap = await this.vehicleAllocationRepository.getProductLinksBatch(
       candidates.map((a) => ({
@@ -269,37 +177,255 @@ export class VehicleAllocationValidationService {
       true,
     );
 
-    const invalidAllocations = candidates
+    const invalid = candidates
       .filter((a) => !linkMap.has(`${a.distributorId}_${a.productId}`))
-      .map(
-        (a) =>
-          `Distributor ${a.distributorId} does not have an active link to Product ${a.productId}`,
+      .map((a) =>
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.LINK_MISSING(
+          distributorName(refs, a.distributorId),
+          productName(refs, a.productId),
+        ),
       );
 
-    if (invalidAllocations.length > 0) {
+    if (invalid.length > 0) {
       throw new BadRequestException({
         message: 'Invalid product allocations',
-        details: invalidAllocations,
+        details: [...new Set(invalid)],
       });
     }
   }
 
-  validateNoDuplicateAllocations(dto: SaveVehicleAllocationDto): void {
+  validateRequiredAllocations(
+    dto: SaveVehicleAllocationDto,
+    requiredTotals: Map<string, number>,
+    refs: AllocationReferences,
+  ): void {
+    const invalid = dto.allocations
+      .filter(
+        (a) =>
+          a.allocatedQty > 0 &&
+          !requiredTotals.has(
+            buildRequirementKey(a.distributorId, a.category, a.productId),
+          ),
+      )
+      .map((a) =>
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.NOT_REQUIRED(
+          distributorName(refs, a.distributorId),
+          a.category,
+          productName(refs, a.productId),
+        ),
+      );
+
+    if (invalid.length > 0) {
+      throw new BadRequestException({
+        message: 'Invalid product allocations',
+        details: [...new Set(invalid)],
+      });
+    }
+  }
+
+  validateNoDuplicateAllocations(
+    dto: SaveVehicleAllocationDto,
+    refs: AllocationReferences,
+  ): void {
     const seen = new Set<string>();
     const duplicates: string[] = [];
 
-    for (const allocation of dto.allocations) {
-      const key = `${allocation.vehicleId}_${allocation.distributorId}_${allocation.category}_${allocation.productId}`;
+    for (const a of dto.allocations) {
+      const key = `${a.vehicleId}_${a.distributorId}_${a.category}_${a.productId}`;
       if (seen.has(key)) {
-        duplicates.push(key);
+        duplicates.push(
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.DUPLICATE_ENTRY(
+            vehicleName(refs, a.vehicleId),
+            distributorName(refs, a.distributorId),
+            a.category,
+            productName(refs, a.productId),
+          ),
+        );
       }
       seen.add(key);
     }
 
     if (duplicates.length > 0) {
-      throw new BadRequestException(
-        `Duplicate allocation entries found: ${duplicates.join(', ')}. Each vehicle-distributor-category-product combination can only appear once.`,
-      );
+      throw new BadRequestException({
+        message:
+          'Duplicate allocation entries. Each vehicle, distributor, category and product combination can only appear once.',
+        details: [...new Set(duplicates)],
+      });
     }
   }
+
+  validateSingleDistributorPerVehicleCategory(
+    dto: SaveVehicleAllocationDto,
+    refs: AllocationReferences,
+  ): void {
+    const conflicts = findDistributorConflicts(
+      dto.allocations
+        .filter((a) => a.allocatedQty > 0)
+        .map((a) => ({
+          vehicleId: a.vehicleId,
+          distributorId: a.distributorId,
+          category: a.category,
+        })),
+    );
+
+    if (conflicts.length > 0) {
+      throw new BadRequestException({
+        message:
+          'A vehicle cannot take a category from more than one distributor',
+        details: conflicts.map((c) =>
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_MISMATCH_WITHIN_CATEGORY(
+            vehicleName(refs, c.vehicleId),
+            c.category,
+            c.distributorIds.map((id) => distributorName(refs, id)),
+          ),
+        ),
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Submission gates (called from the paper's night / morning submit)
+  // ---------------------------------------------------------------------
+
+  async validateVehicleAllocationsForNightSubmit(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ) {
+    await this.validateSessionForSubmit(paperId, DeliverySession.NIGHT, db);
+  }
+
+  async validateVehicleAllocationsForMorningSubmit(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ) {
+    await this.validateSessionForSubmit(paperId, DeliverySession.MORNING, db);
+  }
+
+  /**
+   * VA-8: two independent layers, both always evaluated and reported together.
+   *   Layer 1 - quantity coverage of every product with positive demand.
+   *   Layer 2 - data integrity: invalid / stale / unresolved allocation records.
+   */
+  private async validateSessionForSubmit(
+    paperId: number,
+    session: DeliverySession,
+    db: PrismaOrTransaction,
+  ): Promise<void> {
+    const requirements = await this.loadRequirements(paperId, session, db);
+    const vehicles = await this.vehicleAllocationRepository.findVehicles(db);
+    const allocationPaper =
+      await this.vehicleAllocationRepository.findVehicleAllocationPaper(
+        paperId,
+        session,
+        db,
+      );
+
+    const stored = allocationPaper
+      ? await this.vehicleAllocationRepository.findVehicleAllocations(
+          allocationPaper.id,
+          db,
+        )
+      : [];
+
+    // Layer 1
+    const grids = this.vehicleAllocationBuilder.applyVehicleAllocations(
+      this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
+        requirements.summaries,
+        vehicles,
+      ),
+      stored,
+    );
+
+    const coverageProblems = this.vehicleAllocationBuilder
+      .calculateCoverage(grids, requirements.productLabels)
+      .filter((line) => !line.isComplete)
+      .map(
+        (line) =>
+          `${line.distributorName} (${line.category}) / ${line.productName}: required ${line.requiredQty}, allocated ${line.allocatedQty}`,
+      );
+
+    // Layer 2
+    const detection = await this.reconciliationService.detect(
+      stored,
+      requirements.requiredTotals,
+      db,
+    );
+    const integrityProblems: string[] = [];
+
+    for (const { row, reason } of detection.invalid) {
+      integrityProblems.push(
+        `${describeAllocationRow(row)}: ${ANOMALY_REASON_MESSAGES[reason]}`,
+      );
+    }
+
+    for (const stale of detection.stale) {
+      integrityProblems.push(
+        `${describeAllocationRow(stale.row)}: required quantity changed from ${stale.requiredAtSave} to ${stale.currentRequired} since it was saved`,
+      );
+    }
+
+    if (allocationPaper) {
+      const flagged = await this.vehicleAllocationRepository.findAnomalies(
+        allocationPaper.id,
+        VehicleAllocationAnomalyStatus.FLAGGED,
+        db,
+      );
+      for (const anomaly of flagged) {
+        integrityProblems.push(
+          `${this.reconciliationService.toAnomalyView(anomaly).message} It is still unresolved`,
+        );
+      }
+    }
+
+    const invalidIds = new Set(detection.invalid.map((i) => i.row.id));
+    const names = new Map(stored.map((r) => [r.vehicle_id, r.master_vehicle]));
+    const distributors = new Map(
+      stored.map((r) => [r.distributor_id, r.distributor.name]),
+    );
+    for (const conflict of findDistributorConflicts(
+      stored
+        .filter((r) => !invalidIds.has(r.id))
+        .map((r) => ({
+          vehicleId: r.vehicle_id,
+          distributorId: r.distributor_id,
+          category: r.category,
+        })),
+    )) {
+      const vehicle = names.get(conflict.vehicleId);
+      integrityProblems.push(
+        VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_MISMATCH_WITHIN_CATEGORY(
+          vehicle ? describeVehicle(vehicle) : `#${conflict.vehicleId}`,
+          conflict.category,
+          conflict.distributorIds.map((id) => distributors.get(id) ?? `#${id}`),
+        ),
+      );
+    }
+
+    if (coverageProblems.length > 0 || integrityProblems.length > 0) {
+      throw new BadRequestException({
+        message:
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.NOT_READY_FOR_SUBMISSION(session),
+        coverage: coverageProblems,
+        integrity: integrityProblems,
+        details: [...coverageProblems, ...integrityProblems],
+      });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Label helpers (names for error messages, never raw ids unless unknown)
+// ---------------------------------------------------------------------------
+
+function productName(refs: AllocationReferences, id: number): string {
+  return refs.productLabels.get(id) ?? `product #${id}`;
+}
+
+function distributorName(refs: AllocationReferences, id: number): string {
+  return refs.distributorNames.get(id) ?? `distributor #${id}`;
+}
+
+function vehicleName(refs: AllocationReferences, id: number): string {
+  const vehicle = refs.vehicles.get(id);
+  return vehicle ? describeVehicle(vehicle) : `vehicle #${id}`;
 }

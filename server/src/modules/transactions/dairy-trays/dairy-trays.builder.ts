@@ -1,118 +1,95 @@
 import { Injectable } from '@nestjs/common';
-import { DeliverySession, Prisma } from '../../../generated/prisma/client.js';
-import { SaveDairyTrayEntryDto } from './dto/save-dairy-tray-entry.dto.js';
+import { DeliverySession } from '../../../generated/prisma/client.js';
 import {
-  Vehicle,
   BuildDairyTrayGridParams,
-  DairyTrayTransaction,
+  DairyTrayColumnNode,
   DairyTrayGrid,
+  DairyTrayLedgerLine,
   DairyTrayRow,
   DairyTrayTotals,
-  DairyTrayColumnNode,
-  PurchaseEntry,
+  Vehicle,
 } from '../../../types/dairy-trays.types.js';
-import { ProductTrayRule, TrayType } from '../../../types/tray.types.js';
-import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
+import { TrayType } from '../../../types/tray.types.js';
+import { buildDairyTrayKey, describeVehicle } from './dairy-trays.util.js';
 
+/**
+ * Display only. The ledger lines (opening, taken, returned, closing) are
+ * calculated by DairyTraysLedgerService; this turns them into the grid.
+ */
 @Injectable()
 export class DairyTraysBuilder {
-  constructor(
-    private readonly trayCalculationService: TrayCalculationService,
-  ) {}
-
   buildDairyTrayGrid({
     vehicles,
     trayTypes,
-    purchaseEntries,
-    trayRules,
-    previousTransactions,
-    currentTransactions,
+    ledgerLines,
   }: BuildDairyTrayGridParams): DairyTrayGrid {
-    const columns = this.buildTrayColumns(trayTypes);
-
-    const takenMap =
-      this.trayCalculationService.buildTakenMapFromPurchaseEntries(
-        purchaseEntries,
-        trayRules,
-      );
-
-    const rows = this.buildRows(
-      vehicles,
-      trayTypes,
-      purchaseEntries,
-      takenMap,
-      previousTransactions,
-      currentTransactions,
+    // DT-8.3: every active tray type is a column; an inactive one only while
+    // it has a ledger line (an open balance), and then read-only.
+    const lineTrayTypeIds = new Set(ledgerLines.map((l) => l.trayTypeId));
+    const shownTrayTypes = trayTypes.filter(
+      (t) => t.is_active || lineTrayTypeIds.has(t.id),
     );
 
-    const totals = this.buildTotals(rows, trayTypes);
+    const columns = this.buildTrayColumns(shownTrayTypes);
+    const rows = this.buildRows(vehicles, shownTrayTypes, ledgerLines);
 
     return {
       columns,
       rows,
-      totals,
+      // DT-3.7: NIGHT and MORNING are independent ledgers, so totals exist
+      // per session only. There is no combined total.
+      sessionTotals: {
+        [DeliverySession.NIGHT]: this.buildTotals(
+          rows.filter((r) => r.deliverySession === DeliverySession.NIGHT),
+          shownTrayTypes,
+        ),
+        [DeliverySession.MORNING]: this.buildTotals(
+          rows.filter((r) => r.deliverySession === DeliverySession.MORNING),
+          shownTrayTypes,
+        ),
+      },
     };
   }
 
   private buildTrayColumns(trayTypes: TrayType[]): DairyTrayColumnNode[] {
     const brandMap = new Map<
       string,
-      {
-        headerName: string;
-        children: DairyTrayColumnNode[];
-      }
+      { headerName: string; children: DairyTrayColumnNode[] }
     >();
 
     for (const trayType of trayTypes) {
       const brandName = trayType.master_brand.name;
 
       if (!brandMap.has(brandName)) {
-        brandMap.set(
-          brandName,
-
-          {
-            headerName: `${brandName} Tray`,
-
-            children: [],
-          },
-        );
+        brandMap.set(brandName, {
+          headerName: `${brandName} Tray`,
+          children: [],
+        });
       }
 
-      const brandGroup = brandMap.get(brandName)!;
-
-      brandGroup.children.push({
+      brandMap.get(brandName)!.children.push({
         headerName: `${trayType.color} Tray`,
 
         children: [
           {
             headerName: 'Opening',
-
             field: `tray_${trayType.id}_opening`,
-
             editable: false,
           },
-
           {
             headerName: 'Trays',
-
             field: `tray_${trayType.id}`,
-
             editable: false,
           },
-
           {
             headerName: 'Returned',
-
             field: `tray_${trayType.id}_returned`,
-
-            editable: true,
+            // DT-8.3: inactive tray types are shown read-only.
+            editable: trayType.is_active,
           },
-
           {
             headerName: 'Closing',
-
             field: `tray_${trayType.id}_closing`,
-
             editable: false,
           },
         ],
@@ -122,9 +99,7 @@ export class DairyTraysBuilder {
     return [
       {
         headerName: 'Vehicle',
-
         field: 'vehicleName',
-
         pinned: 'left',
       },
 
@@ -135,79 +110,51 @@ export class DairyTraysBuilder {
   private buildRows(
     vehicles: Vehicle[],
     trayTypes: TrayType[],
-    purchaseEntries: PurchaseEntry[],
-    takenMap: Map<number, Map<DeliverySession, Map<number, number>>>,
-    previousTransactions: DairyTrayTransaction[],
-    currentTransactions: DairyTrayTransaction[],
+    ledgerLines: DairyTrayLedgerLine[],
   ): DairyTrayRow[] {
-    const rows: DairyTrayRow[] = [];
-
-    const trayFields = this.initializeTrayFields(trayTypes);
-
-    const sessions = [DeliverySession.NIGHT, DeliverySession.MORNING];
-
-    const vehicleSessions = new Set(
-      purchaseEntries.map(
-        (entry) => `${entry.vehicle_id}_${entry.delivery_session}`,
-      ),
+    const lineByKey = new Map(
+      ledgerLines.map((line) => [buildDairyTrayKey(line), line]),
+    );
+    const rowKeys = new Set(
+      ledgerLines.map((line) => `${line.vehicleId}_${line.deliverySession}`),
     );
 
-    // FIX M1 (production review): current/previous transactions were each
-    // re-scanned with `.find()` inside a vehicle x session x trayType
-    // triple loop (O(vehicles * sessions * trayTypes * transactions)).
-    // Both are indexed by key once up front instead.
-    const currentByKey = new Map<string, DairyTrayTransaction>();
-    for (const transaction of currentTransactions) {
-      currentByKey.set(
-        `${transaction.vehicle_id}_${transaction.tray_type_id}_${transaction.delivery_session}`,
-        transaction,
-      );
-    }
+    const sortedVehicles = [...vehicles].sort(
+      (a, b) =>
+        describeVehicle(a).localeCompare(describeVehicle(b)) || a.id - b.id,
+    );
 
-    const previousByKey = new Map<string, DairyTrayTransaction>();
-    for (const transaction of previousTransactions) {
-      previousByKey.set(
-        `${transaction.vehicle_id}_${transaction.tray_type_id}_${transaction.delivery_session}`,
-        transaction,
-      );
-    }
+    const rows: DairyTrayRow[] = [];
 
-    for (const vehicle of vehicles) {
-      for (const session of sessions) {
-        if (!vehicleSessions.has(`${vehicle.id}_${session}`)) {
-          continue;
-        }
+    // DT-3.5: a row exists for every vehicle + session that has a ledger line,
+    // whether it comes from today's purchases or from a carried balance.
+    for (const vehicle of sortedVehicles) {
+      for (const session of [DeliverySession.NIGHT, DeliverySession.MORNING]) {
+        if (!rowKeys.has(`${vehicle.id}_${session}`)) continue;
+
         const row: DairyTrayRow = {
           vehicleId: vehicle.id,
-          vehicleName: vehicle.vehicle_name,
+          vehicleName: describeVehicle(vehicle),
           deliverySession: session,
-          ...structuredClone(trayFields),
+          readOnly: !vehicle.is_active,
         };
 
-        const sessionTaken = takenMap.get(vehicle.id)?.get(session);
-
         for (const trayType of trayTypes) {
-          const key = `${vehicle.id}_${trayType.id}_${session}`;
-          const current = currentByKey.get(key);
-          const previous = previousByKey.get(key);
-
-          const opening = Number(previous?.closing_balance ?? 0);
-
-          const trays = sessionTaken?.get(trayType.id) ?? 0;
-
-          const returned = current?.trays_returned ?? 0;
-
-          const closing = this.trayCalculationService.calculateClosingBalance(
-            opening,
-            trays,
-            returned,
+          const line = lineByKey.get(
+            buildDairyTrayKey({
+              vehicleId: vehicle.id,
+              deliverySession: session,
+              trayTypeId: trayType.id,
+            }),
           );
 
-          row[`tray_${trayType.id}_opening`] = opening;
-          row[`tray_${trayType.id}`] = trays;
-          row[`tray_${trayType.id}_returned`] = returned;
-          row[`tray_${trayType.id}_closing`] = closing;
+          row[`tray_${trayType.id}_opening`] = line?.opening ?? 0;
+          row[`tray_${trayType.id}`] = line?.taken ?? 0;
+          // DT-4.6: a return that was never entered is shown as 0.
+          row[`tray_${trayType.id}_returned`] = line?.returned ?? 0;
+          row[`tray_${trayType.id}_closing`] = line?.closing ?? 0;
         }
+
         rows.push(row);
       }
     }
@@ -236,27 +183,9 @@ export class DairyTraysBuilder {
         closing += Number(row[`tray_${trayType.id}_closing`] ?? 0);
       }
 
-      totals[`tray_${trayType.id}`] = {
-        opening,
-        trays,
-        returned,
-        closing,
-      };
+      totals[`tray_${trayType.id}`] = { opening, trays, returned, closing };
     }
 
     return totals;
-  }
-
-  private initializeTrayFields(trayTypes: TrayType[]): Record<string, number> {
-    const row: Record<string, number> = {};
-
-    for (const trayType of trayTypes) {
-      row[`tray_${trayType.id}_opening`] = 0;
-      row[`tray_${trayType.id}`] = 0;
-      row[`tray_${trayType.id}_returned`] = 0;
-      row[`tray_${trayType.id}_closing`] = 0;
-    }
-
-    return row;
   }
 }
