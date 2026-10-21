@@ -44,8 +44,11 @@ export class AuthService {
       throw new ForbiddenException('This account has been deactivated');
     }
 
-    const { accessToken, refreshToken, user: sessionUser } =
-      await this.issueTokenPair(user.id, user.username, user.role.name);
+    const {
+      accessToken,
+      refreshToken,
+      user: sessionUser,
+    } = await this.issueTokenPair(user.id, user.username, user.role.name);
 
     // refreshTokenId is an internal DB id; clients do not need it.
     return { accessToken, refreshToken, user: sessionUser };

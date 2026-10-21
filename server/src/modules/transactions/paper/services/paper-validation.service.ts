@@ -19,7 +19,9 @@ import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { DistributorTransferValidationService } from '../../distributor-transfer/services/distributor-transfer-validation.service.js';
 import { formatIsoDate } from '../paper-date.util.js';
 
-type PaperSheet = Awaited<ReturnType<PaperRepository['getPaperSheets']>>[number];
+type PaperSheet = Awaited<
+  ReturnType<PaperRepository['getPaperSheets']>
+>[number];
 
 @Injectable()
 export class PaperValidationService {

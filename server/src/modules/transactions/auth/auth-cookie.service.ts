@@ -54,7 +54,10 @@ export class AuthCookieService {
     for (const part of header.split(';')) {
       const separator = part.indexOf('=');
 
-      if (separator !== -1 && part.slice(0, separator).trim() === REFRESH_COOKIE_NAME) {
+      if (
+        separator !== -1 &&
+        part.slice(0, separator).trim() === REFRESH_COOKIE_NAME
+      ) {
         return part.slice(separator + 1).trim() || undefined;
       }
     }
@@ -75,7 +78,10 @@ export class AuthCookieService {
   }
 
   private baseOptions(): CookieOptions {
-    const sameSite = this.config.get<SameSite>('REFRESH_COOKIE_SAMESITE', 'lax');
+    const sameSite = this.config.get<SameSite>(
+      'REFRESH_COOKIE_SAMESITE',
+      'lax',
+    );
 
     return {
       httpOnly: true,

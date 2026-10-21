@@ -45,10 +45,7 @@ export class EmployeesController {
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIdPipe) id: number,
-    @Body() dto: UpdateEmployeeDto,
-  ) {
+  update(@Param('id', ParseIdPipe) id: number, @Body() dto: UpdateEmployeeDto) {
     return this.employeesService.update(id, dto);
   }
 

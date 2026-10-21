@@ -45,10 +45,7 @@ export class TrayRulesController {
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIdPipe) id: number,
-    @Body() dto: UpdateTrayRuleDto,
-  ) {
+  update(@Param('id', ParseIdPipe) id: number, @Body() dto: UpdateTrayRuleDto) {
     return this.trayRulesService.update(id, dto);
   }
 

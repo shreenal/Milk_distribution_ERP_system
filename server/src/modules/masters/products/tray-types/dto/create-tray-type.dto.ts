@@ -1,4 +1,10 @@
-import { IsBoolean, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsInt,
+  IsOptional,
+  IsString,
+  MaxLength,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { TrimmedName } from '../../../../../common/dto/trimmed-name.decorator.js';
 

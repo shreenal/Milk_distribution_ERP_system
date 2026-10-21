@@ -44,10 +44,7 @@ export class TrayTypesController {
   }
 
   @Patch(':id')
-  update(
-    @Param('id', ParseIdPipe) id: number,
-    @Body() dto: UpdateTrayTypeDto,
-  ) {
+  update(@Param('id', ParseIdPipe) id: number, @Body() dto: UpdateTrayTypeDto) {
     return this.trayTypesService.update(id, dto);
   }
 

@@ -21,7 +21,9 @@ export const envValidationSchema = Joi.object({
 
   // Refresh-token cookie. Same-site setups (e.g. localhost:5173 -> localhost:3000, or
   // app.example.com -> api.example.com) use lax. Unrelated domains need none (forces Secure).
-  REFRESH_COOKIE_SAMESITE: Joi.string().valid('lax', 'strict', 'none').default('lax'),
+  REFRESH_COOKIE_SAMESITE: Joi.string()
+    .valid('lax', 'strict', 'none')
+    .default('lax'),
   REFRESH_COOKIE_SECURE: Joi.boolean().default(
     Joi.ref('NODE_ENV', { adjust: (v: string) => v === 'production' }),
   ),
