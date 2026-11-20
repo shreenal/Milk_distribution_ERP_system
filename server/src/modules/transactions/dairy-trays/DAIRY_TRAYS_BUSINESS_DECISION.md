@@ -43,6 +43,8 @@ Decision IDs (`DT-n`) are stable. Cite them in code comments, PRs and reviews. S
 
 **DT-1.3** Save is throttled to 10 requests per minute per user. Range recalculation and reconciliation are each throttled to 5 requests per minute per user. The grid view uses the global limit. Exceeding a limit returns 429.
 
+**DT-1.4 No per-paper scoping (binding, as implemented).** Any employee (and any admin) may read and edit the dairy trays of any paper. There is no per-group or per-paper authorization (same as OD-1.3, CT-1.4, VA-1.4, PD-72).
+
 ---
 
 ## 2. Workflow: what can be done at each paper status
@@ -71,13 +73,13 @@ Decision IDs (`DT-n`) are stable. Cite them in code comments, PRs and reviews. S
 
 **DT-3.1** The response contains `paper`, `workflow`, `dairyTraysUpdatedAt` (the concurrency token, `null` when the paper has no dairy tray header), `columns`, `rows` and `sessionTotals`. There is no combined `totals` (DT-3.7).
 
-**DT-3.2** A missing paper is 404 `Paper not found`. A paper id must be digits only, 1 to 2147483647, otherwise 400 `Invalid id`.
+**DT-3.2** A missing paper is 404 `Order paper not found` (same text as the other modules). A paper id must be digits only, 1 to 2147483647, otherwise 400 `Invalid id`.
 
-**DT-3.3 The grid view is strictly read-only (binding).** It never creates the dairy tray header, never writes anything and never advances the token. With no header, the grid is still calculated live and `dairyTraysUpdatedAt` is `null`.The header is created only by write paths, all through getOrCreateDairyTrayPaper: (a) paper generation, (b) a zero-allocation sign-off (PD-64), including the idempotent repeat call, (c) a Purchase recalculation (DT-10.1), (d) the finalization forward job and the admin range recalculation (DT-10.4, DT-11.1) when the start paper has no header, and (e) a cascade step (DT-10.3) onto a later paper that has a carried balance but no header. No read path and no return save creates it.
+**DT-3.3 The grid view is strictly read-only (binding).** It never creates the dairy tray header, never writes anything and never advances the token. With no header, the grid is still calculated live and `dairyTraysUpdatedAt` is `null`.The header is created only by write paths, all through getOrCreateDairyTrayPaper: (a) paper generation, (b) a zero-allocation sign-off (PD-64), including the idempotent repeat call, (c) a Purchase recalculation (DT-10.1), (d) the finalization forward job and the admin range recalculation (DT-10.4, DT-11.1) when the start paper has no header, and (e) a cascade step (DT-10.3) onto a later paper that has a carried balance but no header. No read path and no return save creates it. A paper that has ledger lines but no header is shown with `dairyTraysUpdatedAt: null`; that tells the client no save is possible (DT-5.3), so the frontend does not offer editing and explains why (DT-14.5).
 
 **DT-3.4 Columns.** A pinned "Vehicle" column, then one group per brand ("X Tray"), then one group per colour ("Blue Tray"), each with four sub-columns: Opening, Trays, Returned, Closing. Only Returned is editable, and only for an active tray type (DT-8.3). Field names are `tray_<id>_opening`, `tray_<id>`, `tray_<id>_returned`, `tray_<id>_closing`. Every active tray type is a column. An inactive tray type is a column only while it has a ledger line.Tray type columns are ordered by brand name, then colour (ascending), and grouped by brand, in the same order on every response.
 
-**DT-3.5 Rows.** One row per vehicle + session that has a ledger line (DT-6.1, DT-7.1). That includes vehicles with purchases on this paper and vehicles that only carry an outstanding balance. Each row carries `vehicleId`, `vehicleName`, `deliverySession` and `readOnly` (true for an inactive vehicle, DT-8.2). The frontend shows the session itself and sends it back on save. Rows are sorted by vehicle name, then NIGHT before MORNING.vehicleName is the vehicle's name, or its vehicle number when the vehicle has no name. It is never null in the response. Sorting and messages already use the same fallback.
+**DT-3.5 Rows.** One row per vehicle + session that has a ledger line (DT-6.1, DT-7.1). That includes vehicles with purchases on this paper and vehicles that only carry an outstanding balance. Each row carries `vehicleId`, `vehicleName`, `deliverySession` and `readOnly` (true for an inactive vehicle, DT-8.2). The frontend shows the session itself and sends it back on save. Rows are sorted as in Vehicle Allocation (VA-3.6): by vehicle name ascending, vehicles without a name last, then by id; within a vehicle NIGHT before MORNING. `vehicleName` is the vehicle's name, or its vehicle number when the vehicle has no name; it is never null in the response. Messages use the same fallback; the sort order does not (a nameless vehicle sorts last, not by its number).
 
 **DT-3.6 Values** are calculated live from stored earlier balances, the paper's purchases and the stored returns. They are not read back from stored opening, taken or closing. Returned shows the stored value; an untouched return is 0 (DT-4.6).
 
@@ -111,27 +113,27 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 
 **DT-5.2 Atomic.** The whole request is one serializable transaction. If anything fails, nothing is saved and the concurrency token is rolled back too. On a database serialization conflict the system makes at most 3 total attempts, then returns 409 `Your request conflicted with another update and could not be completed. Please retry.`
 
-**DT-5.3 Order of checks inside the transaction:** paper exists (404) -> status allows editing (400, DT-2.2) -> dairy tray header exists (400 `Dairy tray tracking has not been generated for this paper`) -> token (409, DT-9) -> every entry validated against the server's own calculated ledger (400) -> no stored return anywhere above its balance (409, DT-6.5) -> write -> on a REOPENED paper, forward conflict check (409) and cascade queued (DT-5.10).
+**DT-5.3 Order of checks inside the transaction:** paper exists (404) -> status allows editing (400, DT-2.2) -> dairy tray header exists (400 `Dairy tray tracking has not been generated for this paper`) -> token (409, DT-9) -> every entry validated against the server's own calculated ledger (400) -> no stored return anywhere above its balance (409, DT-6.5) -> nothing would change in the stored ledger: success with the current token, nothing written (DT-5.13) -> advance token -> write -> on a REOPENED paper, forward conflict check (409) and cascade queued (DT-5.10).
 
 **DT-5.4 The server's numbers are authoritative.** Opening, taken and balances are always recalculated on the server. The client sends only returns. Nothing the client sends can change opening or taken.
 
 **DT-5.5 Balance rule (binding).** An entry's `returned` must not exceed that ledger line's available balance (opening + taken). A vehicle may return more than today's purchase, because trays accumulate from earlier days. It may not return more than the total outstanding, so closing can never become negative through a save. A violation is rejected with 400 and the message lists every offending vehicle, session, tray type and the available balance: `Vehicle "Tempo-1" (NIGHT): 26 Brand Blue tray returned exceeds the outstanding balance of 25`. All balance problems in one request are reported together in `details`.
 
-**DT-5.6 Cell must exist.** An entry for a vehicle + session with no row in the grid, or for a tray type that is not a column, is rejected with 400 `Dairy tray row not found for vehicle X (SESSION)`. A cell inside an existing row and a visible column, but with no ledger line, is accepted only with `returned = 0` (otherwise DT-5.5 rejects it because the available balance is 0). A zero for such a cell stores nothing.
+**DT-5.6 Cell must exist.** An entry for a vehicle + session with no row in the grid, or for a tray type that is not a column, is rejected with 400 `One or more returns were rejected`, whose `details[]` contains `Dairy tray row not found for vehicle X (SESSION)`. It is reported together with every other problem of the request; it does not stop the check at the first unknown cell. A cell inside an existing row and a visible column, but with no ledger line, is accepted only with `returned = 0` (otherwise DT-5.5 rejects it because the available balance is 0). A zero for such a cell stores nothing.
 
 **DT-5.7 Inactive vehicles and tray types are read-only for ordinary users (binding).** On the normal save, an entry whose vehicle or tray type is inactive is accepted only if `returned` equals the stored value (the frontend echoing back what it received). A different value is rejected with 400 `Vehicle "X" (SESSION): <tray> is inactive (the vehicle or the tray type) and read-only`. Changing them is the job of the admin reconciliation route (DT-5.11).
 
 **DT-5.8 What is written.** The complete calculated ledger for the paper: each line gets its opening, taken, the returned value (DT-4.6) and closing. Lines that no longer qualify are removed (DT-7.2, DT-7.3). The write is restricted to this paper.
 
-**DT-5.9 Response** `{ success: true, message: "Dairy tray returns saved successfully", dairyTraysUpdatedAt }`, where `dairyTraysUpdatedAt` is the NEW token (DT-9.4).
+**DT-5.9 Response** `{ success: true, changed, message: "Dairy tray returns saved successfully", dairyTraysUpdatedAt }`. `changed` is false when nothing in the stored ledger changed (DT-5.13); `dairyTraysUpdatedAt` is then the unchanged current token, otherwise the NEW token (DT-9.4). The HTTP status is 200 in both cases (Section 13).
 
 **DT-5.10 Save on a REOPENED paper checks later papers, then queues a cascade (binding).** Because a changed closing balance must reach later papers, a save on a REOPENED paper first checks every later paper in memory. If any of them would be left with returns above its balance, the whole save is refused with 409 (DT-6.5). Otherwise the save succeeds and a forward propagation for this paper is queued through the existing outbox (DT-10.2). A save on NIGHT_SUBMITTED does neither.
 
 **DT-5.11 Reconciling inactive vehicles and tray types: `POST /dairy-trays/:paperId/reconcile-inactive` (ADMIN only, binding).** Same body and every rule as the normal save (token, status, balance rule, limit, cascade on a reopened paper), with one difference: only entries whose vehicle or tray type is inactive can be changed. An entry where both are active is rejected with 400 `Vehicle "X" (SESSION): <tray> is active. Use the normal save instead of reconciliation`.
 
-**DT-5.12 The 2,000 limit is on the row's total (binding).** A save sets the row's total return, it does not add to it, so the limit holds across saves. It is checked in the request (DT-4.1) and again in the service, so the admin route is covered too. Over the limit: 400 `Vehicle "X" (SESSION): 2001 <tray> returned exceeds the limit of 2000 per row`. The 2,000 cap is the approved upper bound for dairy volumes, the same as Client Trays.
+**DT-5.12 The 2,000 limit is on the row's total (binding).** A save sets the row's total return, it does not add to it, so the limit holds across saves. It is checked in the request (DT-4.1) on the normal and the admin route, and the service repeats the check as a safeguard. Through the API an over-limit value is rejected by the request validation: only the 400 status is binding, not the wording (as OD-5.3). The text `Vehicle "X" (SESSION): 2001 <tray> returned exceeds the limit of 2000 per row` is the service safeguard. A line with an outstanding balance above 2,000 is therefore cleared over several papers (decided: keep the cap). The 2,000 cap is the approved upper bound for dairy volumes, the same as Client Trays.
 
-**DT-5.13** Every successful save advances the token once, even if the submitted values equal the stored ones (same as CT-9.5).
+**DT-5.13 A save that changes nothing leaves the token unchanged (binding, amended).** The token is compared first: a stale or null token is 409 even when the save would change nothing. If, after validation (DT-5.5, DT-6.5), the calculated ledger equals the stored ledger (no row added or removed, no opening, taken, returned or closing differs; a null stored return counts as 0), the save succeeds with `changed: false`, returns the current token, writes nothing and does not move the token. On a REOPENED paper it also runs no forward check and queues no cascade. Any other save advances the token once (same as Orders OD-12.8, Vehicle Allocation VA-5.15, Purchase PD-57). A stored ledger whose opening or taken is out of date counts as a change, so that save also refreshes it.
 
 ---
 
@@ -148,10 +150,10 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 **DT-6.5 A correction that would leave returns above the balance is blocked (binding).** Closing can never go negative, and a stored return is never capped or reduced to make it fit. If a purchase correction, a return save or a cascade would leave any stored return higher than that line's available balance, on this paper or on any later paper, the change is refused until the returns are corrected first.
 - A Purchase save: refused with 409, the purchase save is rolled back too (same transaction), and the response lists each vehicle, session, tray and the sale date: `2026-01-05, vehicle "Tempo-1" (NIGHT): 5 Brand Blue tray returned but only 3 outstanding`. On a REOPENED paper the check also covers every later paper.
 - A return save on a REOPENED paper: refused with 409 in the same way (DT-5.10).
-- A background job that meets a conflict: the job fails and shows as FAILED, with the same list in `last_error`, in the paper propagation status. Nothing is capped. After the returns are fixed the admin retries the failed job.
+- A background job that meets a conflict: the job fails and shows as FAILED, with the same list in `last_error` (capped as in DT-10.5), in the paper propagation status. Nothing is capped. After the returns are fixed the admin retries the failed job.
 - This applies to every Purchase write that changes entries, not only to saves: deletion through deletedEntryIds, purgeAll and admin reevaluateTrays are covered (DT-10.1).
 
-**DT-6.6 Tray rules (as implemented, kept).** A rule matches when each of its brand, product group and product type is either empty (wildcard) or equal to the product's; if it applies to packaging, the packaging type must match too. Most specific wins, lowest id breaks ties. Only active rules take part in new resolutions. A rule change never alters a frozen purchase assignment.
+**DT-6.6 Tray rules (as implemented, kept).** A rule matches when each of its brand, product group and product type is either empty (wildcard) or equal to the product's; if it applies to packaging, the packaging type must match too. Most specific wins, lowest id breaks ties. Only active rules take part in new resolutions. A rule change never alters a frozen purchase assignment. This resolution is shared with Orders, Client Trays and Purchase; its specificity count (every filled field, including the packaging type even when the rule does not apply to packaging) is kept unchanged here and can be changed only by a decision that covers all of them.
 
 ---
 
@@ -199,7 +201,9 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 
 **DT-9.5 Rollback.** The token is advanced inside the same transaction as the data. If the save fails for any reason, the token is rolled back with it.
 
-**DT-9.6 When the token moves (binding).** The token moves only when dairy tray data actually changes: a return save (DT-5.13), or a recalculation or cascade that changes at least one stored row (a Purchase save, finalization, admin recalculation). A recalculation that leaves every stored row identical does not move it. Purchase-driven recalculation does not need the token to be sent, but it advances it, which is correct because the calculated Taken and balances changed under anyone who has the grid open. Creating the header (paper generation, sign-off) sets its initial token and is not meant to move it afterwards; any natural `updated_at` update by the database on a write to the header is accepted. The server-side balance checks (DT-5.5, DT-6.5) protect the data in every case.
+**DT-9.6 When the token moves (binding).** The token moves only when dairy tray data actually changes: a return save that changes the stored ledger (DT-5.13), or a recalculation or cascade that changes at least one stored row (a Purchase save, finalization, admin recalculation). A recalculation that leaves every stored row identical does not move it. Purchase-driven recalculation does not need the token to be sent, but it advances it, which is correct because the calculated Taken and balances changed under anyone who has the grid open. Creating the header (paper generation, sign-off) sets its initial token and is not meant to move it afterwards; any natural `updated_at` update by the database on a write to the header is accepted. The server-side balance checks (DT-5.5, DT-6.5) protect the data in every case.
+
+**DT-9.7 Token format, lost response, timeout (binding, as the sibling modules).** A token value must be ISO-8601; any parseable value is accepted, a well-formed value that differs from the current token is 409, an unparseable one is 400 `Invalid expectedUpdatedAt`. If a save succeeded but its response never reached the client, a retry with the old token returns 409 (no idempotency key); the same payload sent with the NEW token is a safe no-op (DT-5.13). A transaction that exceeds its time limit (10 s) saves nothing and returns 409 `The request took too long and nothing was saved. Please retry.` (same as OD-6.2, VA-5.2, PD-72).
 
 ---
 
@@ -213,7 +217,7 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 
 **DT-10.4 Finalizing a paper queues a forward propagation** (PAPER_TO_DAIRY_TRAYS_PROPAGATION): the paper is fully recalculated, then every later paper is cascaded.
 
-**DT-10.5 Reliability of queued jobs.** The request is stored in an outbox row in the same transaction as the change. A relay dispatches pending rows every 5 seconds and merges duplicates. Each job runs in a serializable transaction in chunks of 20 papers and resumes where it stopped. It is retried up to 5 times with exponential backoff, then marked FAILED. A row stuck in PROCESSING for 2 minutes is re-queued. Progress, failures and retry are visible through the existing paper propagation endpoints.Transient failures (serialization conflict, connection errors, timeouts) are retried up to 5 times with exponential backoff, then marked FAILED. Business-rule failures, meaning any HTTP error raised by the job (a 409 return conflict per DT-6.5, a 404 for a missing paper), are not retried: the job is marked FAILED on the first attempt, with the full detail list in last_error. After the cause is fixed, an admin retries through POST /papers/:id/propagation/retry, which resets the attempts. The merging of duplicate requests applies only to a PENDING row with the same type, paper and resume point; a request made while a matching row is PROCESSING creates a second, independent row.
+**DT-10.5 Reliability of queued jobs.** The request is stored in an outbox row in the same transaction as the change. A relay dispatches pending rows every 5 seconds and merges duplicates. Each job runs in a serializable transaction in chunks of 20 papers and resumes where it stopped. It is retried up to 5 times with exponential backoff, then marked FAILED. A row stuck in PROCESSING for 2 minutes is re-queued. Progress, failures and retry are visible through the existing paper propagation endpoints.Transient failures (serialization conflict, connection errors, timeouts) are retried up to 5 times with exponential backoff, then marked FAILED. Business-rule failures, meaning any HTTP error raised by the job (a 409 return conflict per DT-6.5, a 404 for a missing paper), are not retried: the job is marked FAILED on the first attempt, with the detail list in last_error (up to 25 details, then `...and N more`; the stored text is cut at 2,000 characters). After the cause is fixed, an admin retries through POST /papers/:id/propagation/retry, which resets the attempts. The merging of duplicate requests applies only to a PENDING row with the same type, paper and resume point; a request made while a matching row is PROCESSING creates a second, independent row. A request that is merged into an existing PENDING row is answered with that row's id (DT-11.1).
 
 **DT-10.6 Eventual consistency.** Later papers are refreshed in the background. Until the job completes, a later paper's stored opening may be stale; the grid view calculates opening live, so what a user sees stays self-consistent.
 
@@ -223,11 +227,13 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 
 **DT-10.9 Post-deployment step (mandatory, operational).** Immediately after this version is deployed, an admin runs `POST /dairy-trays/recalculate` over the papers affected by the old rules (31 days per call), to rebuild openings across gaps and create carry-forward rows. Legacy rows with a negative closing or returns above the balance stay visible in the grid. Any save is refused with 409 until every offending return is corrected, all in the same request, and a recalculation job that meets one fails with the list in `last_error` (DT-6.5). A finalized paper needs an admin reopen first (DT-11.4).
 
+**DT-10.10 Cost of loading (binding, operational).** The opening-balance read loads every earlier ledger row of the dairy, a REOPENED return save or Purchase write walks every later paper inside its 10 s transaction (DT-5.10, DT-10.2), and a range recalculation queues one job per paper, each cascading through all later papers. Nothing changes now. Before go-live these are measured on the largest real history; if they approach the transaction limit, the remedy (an index or a bounded read for the opening balances, one job per range) is decided then as a new decision (as VA-13.2, PD-75).
+
 ---
 
 ## 11. Administrative Recalculation and Correction
 
-**DT-11.1 `POST /dairy-trays/recalculate` (ADMIN only).** Body `{ fromDate, toDate }`, both `YYYY-MM-DD` sale dates, inclusive. Queues a forward propagation for every paper in the range. Response `{ papersQueued, fromDate, toDate, operations }`, where `operations` lists `{ paperId, operationId }`; `operationId` is the outbox row, followed through `GET /papers/:id/propagation`. It returns immediately.
+**DT-11.1 `POST /dairy-trays/recalculate` (ADMIN only).** Body `{ fromDate, toDate }`, both `YYYY-MM-DD` sale dates, inclusive. Queues a forward propagation for every paper in the range. Response `{ papersQueued, fromDate, toDate, operations }`, where `operations` lists `{ paperId, operationId }`; `operationId` is the outbox row, followed through `GET /papers/:id/propagation`; when the request merged into an existing PENDING row (DT-10.5) it is that row's id. It returns immediately.
 
 **DT-11.2 Date rules.** Both must be real calendar dates (else 400). `fromDate` must not be after `toDate` (400). The range cannot exceed 31 days (400). A range with no papers is valid and queues nothing.
 
@@ -259,9 +265,10 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 
 | Situation | Status |
 |---|---|
+| Successful save, reconciliation or range recalculation, including a save that changed nothing | 200 |
 | Format/validation errors, wrong paper status, missing header, over-return, return over the 2,000 limit, inactive entry changed on the normal save, active entry on reconciliation, duplicate entry, unknown row, empty entries, invalid date range, gate not ready | 400 |
-| Paper not found | 404 |
-| Stale or missing-match token, serialization retry exhausted, return discrepancy (DT-6.5) | 409 |
+| Order paper not found | 404 |
+| Stale or missing-match token, serialization retry exhausted, transaction timeout (DT-9.7), return discrepancy (DT-6.5) | 409 |
 | Not authenticated / lacks role | 401 / 403 |
 | Throttled | 429 |
 
@@ -269,13 +276,15 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 
 ## 14. Data Model and Audit
 
-**DT-14.1 No per-entry audit trail.** Who changed which return, and when, is not recorded. Accountability relies on table timestamps and propagation job records.
+**DT-14.1 No per-entry audit trail.** Who changed which return, and when, is not recorded. Accountability relies on table timestamps and propagation job records. This includes the admin reconciliation (DT-5.11) and the range recalculation (DT-11.1): no reason is asked and the acting user is not recorded (decided: no audits). The range recalculation logs only the number of papers.
 
 **DT-14.2 No schema change.** The token is the existing `dairy_tray_paper.updated_at`. The unused `dairy_tray_transaction.remarks` column stays as is.
 
 **DT-14.3 Frozen tray type (as implemented).** A purchase entry's tray type is captured when the purchase is saved and never changed by later tray-rule changes (PD-33).
 
 **DT-14.4 Unused legacy code is kept for now (operational).** The repository methods `getTrayTypes`, `getVehicles`, `getPreviousPaper`, `getPreviousTrayBalances`, and `TrayCalculationService.buildTakenMapFromPurchaseEntries`, are no longer used by this module. They stay through the initial deployment in case reports or other modules reference them, and are removed after a full codebase audit.
+
+**DT-14.5 Frontend reload rules after a failed save (binding, UI).** (a) 409 stale token or exhausted serialization retries: the data changed, so the draft is discarded and the grid reloaded. (b) 409 `took too long and nothing was saved` and 409 return discrepancy (DT-6.5): nothing changed on the server, so the typed values are kept and nothing is reloaded. (c) 400: the edits are kept and the message with its details is shown. The query is not refetched on window focus or on reconnect, so the token cannot change under unsaved edits; it refetches on mount and after a successful save. After a successful save the saved values stay on screen and editing is disabled until the refetch has replaced them. A typed value that is not a whole number from 0 to 2,000 is rejected with a message and the old value is kept. Editing is not offered while the grid has no token (`dairyTraysUpdatedAt` null, DT-3.3); a message explains that the header is created by a saved purchase, a paper generation or the admin recalculation. A save that changed nothing is reported as such (`changed: false`).
 
 ---
 
@@ -304,6 +313,20 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 | P-4 Retry of business failures | Not retried; transient errors are. Duplicate merging only while PENDING. |DT-10.5 |
 | P-5 Night submit | No Dairy Trays gate at night submit. |DT-12.5 |
 | P-6 Column order and null vehicle name | Brand then colour; name falls back to vehicle number in the response. |DT-3.4, DT-3.5 |
+| Q-1 Success status | 200 for save, reconciliation and range recalculation, as the sibling modules. | DT-5.9, Section 13 |
+| Q-2 Sibling rules | Recorded: token format, lost response, timeout 409, any employee any paper. | DT-1.4, DT-9.7 |
+| Q-3 Frontend reload and refetch | Keep edits on the timeout and return-discrepancy 409; reload on stale or exhausted-retry 409; no refetch on focus or reconnect. | DT-14.5 |
+| Q-4 Audit of admin overrides | None; recorded explicitly for reconcile and range recalculation. | DT-14.1 |
+| Q-5 Limit message | Only the 400 status is binding; the service text is a safeguard. | DT-5.12 |
+| Q-6 Save with no header | Refused as before; the frontend does not offer editing and explains why. | DT-3.3, DT-14.5 |
+| Q-7 No-op save | Leaves the token unchanged and reports `changed: false`. | DT-5.13, DT-5.9 |
+| Q-8 Unknown cell | Collected with the other problems in `details[]`. | DT-5.6 |
+| Q-9 Scale | Keep; measure on the largest real history before go-live. | DT-10.10 |
+| Q-10 2,000 cap | Kept. | DT-5.12 |
+| Q-11 Tray-rule specificity | Unchanged: the resolution is shared with Orders, Client Trays and Purchase. | DT-6.6 |
+| Q-12 Align with siblings | Not-found text `Order paper not found`; vehicle order as VA-3.6. | DT-3.2, DT-3.5 |
+| Q-13 Frontend messages | Rejected typed values get a message; saved values stay until the refetch ends. | DT-14.5 |
+| Q-14 Evidence | Orchestrator, outbox, relay and processor verified: finalize queues the forward job; business failures are not retried; `last_error` carries at most 25 details and 2,000 characters; merged requests return the existing row id. | DT-10.5, DT-11.1 |
 
 ## 16. Traceability: approved decisions to DT IDs
 
@@ -403,3 +426,13 @@ Body: `{ entries: [{ vehicleId, trayTypeId, deliverySession, returned }], expect
 | DT-10.5 | Clarified | Business failures skip retries; duplicate merging only while PENDING |
 | DT-12.5	| New | Gate runs only on morning submit and re-finalize of a REOPENED paper |
 | Section 15 | Changed | All open items resolved |
+| DT-5.9 / Section 13 | Changed | Save, reconcile and range recalculation answer 200; save response carries `changed` |
+| DT-5.13 / 9.6 | Changed | A save that changes nothing leaves the token unchanged, no forward check, no cascade |
+| DT-5.6 | Changed | An unknown cell is reported together with the other problems |
+| DT-5.12 | Clarified | Only the 400 status is binding for an over-limit value; cap kept |
+| DT-3.2 / 3.5 | Changed | Not-found text and vehicle order aligned with the sibling modules |
+| DT-3.3 / 14.5 | Clarified / New | No header means no editing in the UI; frontend reload and refetch rules |
+| DT-1.4 / 9.7 | New | Scoping, token format, lost response and timeout recorded as in the siblings |
+| DT-10.5 / 11.1 / 6.5 | Clarified | `last_error` is capped (25 details, 2,000 characters); merged requests return the existing outbox id |
+| DT-10.10 | New | Cost of loading to be measured before go-live |
+| DT-6.6 / 14.1 | Clarified | Shared tray-rule specificity unchanged; admin overrides are not audited |

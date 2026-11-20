@@ -3,6 +3,7 @@ import { AppModule } from './app.module.js';
 import 'dotenv/config';
 import { ValidationPipe } from '@nestjs/common';
 import helmet from 'helmet';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter.js';
 import { NestExpressApplication } from '@nestjs/platform-express/interfaces/index.js';
 import { performance } from 'node:perf_hooks';
@@ -50,6 +51,25 @@ async function bootstrap() {
   app.enableCors({
     origin: allowedOrigins,
     credentials: true,
+  });
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Milk Distribution API')
+    .setDescription('API documentation for the Milk Distribution server')
+    .setVersion('1.0')
+    .addBearerAuth()
+    .build();
+
+  const metadataModule = await import('./metadata.js');
+  const evaluatedMetadata = await metadataModule.default();
+  await SwaggerModule.loadPluginMetadata(() =>
+    Promise.resolve(evaluatedMetadata),
+  );
+
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig);
+
+  SwaggerModule.setup('docs', app, swaggerDocument, {
+    useGlobalPrefix: true,
   });
 
   app.enableShutdownHooks();

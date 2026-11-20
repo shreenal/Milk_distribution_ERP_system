@@ -16,7 +16,11 @@ export class WorkflowStateService {
 
       [OrderPaperStatus.NIGHT_SUBMITTED]: [OrderPaperStatus.MORNING_SUBMITTED],
 
-      [OrderPaperStatus.MORNING_SUBMITTED]: [OrderPaperStatus.FINALIZED],
+      // PA-18: an admin can step a morning-submitted paper back to night-submitted.
+      [OrderPaperStatus.MORNING_SUBMITTED]: [
+        OrderPaperStatus.FINALIZED,
+        OrderPaperStatus.NIGHT_SUBMITTED,
+      ],
 
       [OrderPaperStatus.FINALIZED]: [OrderPaperStatus.REOPENED],
 

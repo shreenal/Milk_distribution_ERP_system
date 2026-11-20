@@ -2,8 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
-  ParseIntPipe,
   Post,
   Req,
   UseGuards,
@@ -40,7 +40,9 @@ export class PurchaseController {
     return this.purchaseService.getPurchases(paperId);
   }
 
+  // PD-71: success is 200, including a save that changed nothing.
   @Post(':paperId')
+  @HttpCode(200)
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   savePurchases(
@@ -53,6 +55,7 @@ export class PurchaseController {
 
   // PD-23: ADMIN-only, REOPENED papers only.
   @Post(':paperId/recalculate-rates')
+  @HttpCode(200)
   @Roles('ADMIN')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   recalculateRates(
@@ -65,6 +68,7 @@ export class PurchaseController {
 
   // PD-38
   @Post(':paperId/sign-off-zero-allocation')
+  @HttpCode(200)
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   signOffZeroAllocation(

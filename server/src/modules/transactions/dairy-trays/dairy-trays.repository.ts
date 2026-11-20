@@ -3,6 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { obsoleteDerivedRows } from '../../../common/transactions/strategies/derived-ledger.strategy.js';
 import { buildDairyTrayKey } from './dairy-trays.util.js';
 
 @Injectable()
@@ -292,12 +293,6 @@ export class DairyTraysRepository {
     data: Prisma.dairy_tray_transactionCreateManyInput[],
     db: PrismaOrTransaction = this.prisma,
   ) {
-    const incomingKeys = new Set(
-      data.map(
-        (d) => `${d.vehicle_id}_${d.delivery_session}_${d.tray_type_id}`,
-      ),
-    );
-
     const existing = await db.dairy_tray_transaction.findMany({
       where: { dairy_tray_paper_id: dairyTrayPaperId },
       select: {
@@ -308,14 +303,16 @@ export class DairyTraysRepository {
       },
     });
 
-    const toDeleteIds = existing
-      .filter(
-        (e) =>
-          !incomingKeys.has(
-            `${e.vehicle_id}_${e.delivery_session}_${e.tray_type_id}`,
-          ),
-      )
-      .map((e) => e.id);
+    const keyOfExisting = (e: (typeof existing)[number]) =>
+      `${e.vehicle_id}_${e.delivery_session}_${e.tray_type_id}`;
+    const keyOfIncoming = (d: (typeof data)[number]) =>
+      `${d.vehicle_id}_${d.delivery_session}_${d.tray_type_id}`;
+    const toDeleteIds = obsoleteDerivedRows(
+      existing,
+      data,
+      keyOfExisting,
+      keyOfIncoming,
+    ).map((e) => e.id);
 
     if (toDeleteIds.length > 0) {
       await db.dairy_tray_transaction.deleteMany({

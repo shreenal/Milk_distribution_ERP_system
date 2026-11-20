@@ -10,8 +10,7 @@ export function accumulateProductField(
   quantity: number,
 ): void {
   const field = `product_${productId}`;
-  const currentValue =
-    typeof row[field] === 'number' ? (row[field] as number) : 0;
+  const currentValue = typeof row[field] === 'number' ? row[field] : 0;
   row[field] = currentValue + quantity;
 }
 

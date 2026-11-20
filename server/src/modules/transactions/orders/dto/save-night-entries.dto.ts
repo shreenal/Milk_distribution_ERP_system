@@ -10,7 +10,7 @@ import {
   ArrayMinSize,
 } from 'class-validator';
 import { QUANTITY_PRECISION } from '../orders.constants.js';
-import { Transform, Type } from 'class-transformer';
+import { Transform, Type, type TransformFnParams } from 'class-transformer';
 import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.decorator.js';
 
 export class SaveNightEntriesDto {
@@ -25,7 +25,10 @@ export class SaveNightEntriesDto {
   productId!: number;
 
   // null / blank / omitted = "no entry" (cell untouched). Explicit 0 is a real value.
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(({ value }: TransformFnParams) => {
+    if (value === '') return null;
+    return value as number | null | undefined;
+  })
   @IsOptional()
   @IsNumber()
   @Min(0)

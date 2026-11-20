@@ -1,7 +1,6 @@
 import {
   Injectable,
   BadRequestException,
-  ConflictException,
   NotFoundException,
 } from '@nestjs/common';
 
@@ -19,6 +18,7 @@ import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import {
   COLLECTION_ERROR_MESSAGES,
   COLLECTION_SUCCESS_MESSAGES,
+  STALE_DATA_MESSAGE,
 } from './collections.constants.js';
 
 import {
@@ -27,12 +27,11 @@ import {
 } from '../../../generated/prisma/client.js';
 import { CollectionsValidationService } from './services/collections-validation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
-import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
-import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
-
-const STALE_DATA_MESSAGE =
-  'Collections data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+import { runTransactionSave } from '../../../common/transactions/transaction-save-pipeline.js';
+import { staleDataConflict } from '../../../common/transactions/errors/stale-data.error.js';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
+import { runReadSnapshot } from '../../../common/transactions/read-snapshot.js';
+import { diffByKey } from '../../../common/transactions/change-planning/diff-by-key.js';
 
 const ADMIN_ROLE = 'ADMIN';
 
@@ -66,7 +65,7 @@ export class CollectionsService {
   async getCollectionGrid(sheetId: number, role: string) {
     const includeAdminColumns = role === ADMIN_ROLE;
 
-    return this.prisma.$transaction(async (tx) => {
+    return runReadSnapshot(this.prisma, async (tx) => {
       const sheet = await this.collectionsRepository.getOrderSheetById(
         sheetId,
         tx,
@@ -188,92 +187,108 @@ export class CollectionsService {
 
     const includeAdminColumns = p.role === ADMIN_ROLE;
 
-    const { token, totals } = await withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const sheet = await this.collectionsRepository.getOrderSheetById(
+    // Set by `plan`, read by `advanceToken` (CD-7.2).
+    let routeCashChanged = false;
+
+    const { token, totals, changed } = await runTransactionSave(this.prisma, {
+      loadContext: async (tx) => {
+        const sheet = await this.collectionsRepository.getOrderSheetById(
+          p.sheetId,
+          tx,
+        );
+        if (!sheet) {
+          throw new NotFoundException(
+            COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
+          );
+        }
+
+        const status = sheet.order_paper.status;
+        if (!p.canEdit(status)) {
+          throw new BadRequestException(p.notAllowedMessage(status));
+        }
+
+        // CD-9.3: compared first, so a stale token is 409 even for a no-op.
+        const expected = optimisticConcurrency.parseExpectedUpdatedAt(
+          p.expectedUpdatedAt,
+        ); // 400 on a malformed value (CD-9.1)
+        if (
+          !optimisticConcurrency.tokenMatches(
+            sheet.collections_updated_at,
+            expected,
+          )
+        ) {
+          throw staleDataConflict(STALE_DATA_MESSAGE);
+        }
+
+        return { sheet, expected };
+      },
+      plan: async ({ sheet }, tx) => {
+        const existing =
+          await this.collectionsRepository.getCollectionsForClients(
             p.sheetId,
+            p.category,
+            p.rows.map((r) => r.clientId),
             tx,
           );
-          if (!sheet) {
-            throw new NotFoundException(
-              COLLECTION_ERROR_MESSAGES.SHEET_NOT_FOUND,
-            );
-          }
 
-          const status = sheet.order_paper.status;
-          if (!p.canEdit(status)) {
-            throw new BadRequestException(p.notAllowedMessage(status));
-          }
-
-          // CD-9.3: compared first, so a stale token is 409 even for a no-op.
-          const expected =
-            p.expectedUpdatedAt === null ? null : new Date(p.expectedUpdatedAt);
-          this.assertTokenMatches(sheet.collections_updated_at, expected);
-
-          const existing =
-            await this.collectionsRepository.getCollectionsForClients(
-              p.sheetId,
+        // CD-6.2: a client who already has a row stays updatable even if
+        // since deactivated or moved. Live rules apply only to new rows.
+        // CD-2.2: an all-zero row for a client with no stored row creates
+        // nothing, so it is ignored before any client rule is applied.
+        const existingClientIds = new Set(existing.map((e) => e.client_id));
+        const newClientRows = p.rows.filter(
+          (r) =>
+            !existingClientIds.has(r.clientId) &&
+            Object.values(r.values).some((v) => v !== 0),
+        );
+        if (newClientRows.length > 0) {
+          const validClients =
+            await this.collectionsRepository.getClientsByGroupAndCategory(
+              sheet.group_id,
               p.category,
-              p.rows.map((r) => r.clientId),
               tx,
             );
-
-          // CD-6.2: a client who already has a row stays updatable even if
-          // since deactivated or moved. Live rules apply only to new rows.
-          const existingClientIds = new Set(existing.map((e) => e.client_id));
-          const newClientRows = p.rows.filter(
-            (r) => !existingClientIds.has(r.clientId),
+          this.collectionsValidationService.validateClientsForCategory(
+            newClientRows,
+            validClients,
+            p.category,
           );
-          if (newClientRows.length > 0) {
-            const validClients =
-              await this.collectionsRepository.getClientsByGroupAndCategory(
-                sheet.group_id,
-                p.category,
-                tx,
-              );
-            this.collectionsValidationService.validateClientsForCategory(
-              newClientRows,
-              validClients,
-              p.category,
-            );
-          }
+        }
 
-          // Only rows that would actually change anything are written
-          // (CD-9.4). Clients not in the request are never touched.
-          const { toInsert, toUpdate } = diffByKey(
-            existing,
-            p.rows,
-            (e) => String(e.client_id),
-            (r) => String(r.clientId),
-            (e, r) =>
-              (Object.entries(r.values) as [AmountColumn, number][]).some(
-                ([column, value]) => Number(e[column]) !== value,
-              ),
-          );
-
-          // CD-2.2: an all-zero row for a client with no stored row creates nothing.
-          const changedRows = [
-            ...toInsert.filter((r) =>
-              Object.values(r.values).some((v) => v !== 0),
+        // Only rows that would actually change anything are written
+        // (CD-9.4). Clients not in the request are never touched.
+        const { toInsert, toUpdate } = diffByKey(
+          existing,
+          p.rows,
+          (e) => String(e.client_id),
+          (r) => String(r.clientId),
+          (e, r) =>
+            (Object.entries(r.values) as [AmountColumn, number][]).some(
+              ([column, value]) => Number(e[column]) !== value,
             ),
-            ...toUpdate.map((u) => u.incomingRow),
-          ];
+        );
 
-          let token = sheet.collections_updated_at;
+        // CD-2.2: an all-zero row for a client with no stored row creates nothing.
+        const changedRows = [
+          ...toInsert.filter((r) =>
+            Object.values(r.values).some((v) => v !== 0),
+          ),
+          ...toUpdate.map((u) => u.incomingRow),
+        ];
 
-          if (changedRows.length > 0) {
-            const touched =
-              await this.collectionsRepository.touchCollectionsIfTokenMatches(
-                p.sheetId,
-                expected,
-                tx,
-              );
-            if (touched.count !== 1) {
-              throw new ConflictException(STALE_DATA_MESSAGE);
-            }
-            token = touched.touchedAt;
+        // CD-7.2: did a cash amount (a Cash Settlement input) change?
+        const storedByClient = new Map(existing.map((e) => [e.client_id, e]));
+        routeCashChanged =
+          p.columns.includes('cash_collection') &&
+          changedRows.some(
+            (r) =>
+              Number(storedByClient.get(r.clientId)?.cash_collection ?? 0) !==
+              (r.values.cash_collection ?? 0),
+          );
 
+        return {
+          changed: changedRows.length > 0,
+          write: async () => {
             await this.collectionsRepository.upsertCollections(
               p.sheetId,
               p.category,
@@ -281,48 +296,70 @@ export class CollectionsService {
               changedRows,
               tx,
             );
-          }
+          },
+        };
+      },
+      currentToken: ({ sheet }) => sheet.collections_updated_at,
+      advanceToken: async ({ sheet, expected }, tx) => {
+        const touched =
+          await this.collectionsRepository.touchCollectionsIfTokenMatches(
+            p.sheetId,
+            expected,
+            tx,
+          );
+        if (touched.count !== 1) {
+          throw staleDataConflict(STALE_DATA_MESSAGE);
+        }
 
-          // CD-4.2: totals are rebuilt from stored data after the write.
-          const [clients, saved] = await Promise.all([
-            this.collectionsRepository.getClientsForCollectionDisplay(
-              p.sheetId,
-              sheet.group_id,
-              p.category,
+        // CD-7.2: a changed cash amount changes route cash, so Cash
+        // Settlement's token (order_paper.updated_at) moves too and its open
+        // screen goes stale. Same transaction, so a failed save rolls it back.
+        if (routeCashChanged) {
+          const paperTouch =
+            await this.collectionsRepository.touchOrderPaperIfTokenMatches(
+              sheet.order_paper_id,
+              sheet.order_paper.updated_at,
               tx,
-            ),
-            this.collectionsRepository.getCollectionEntries(p.sheetId, tx),
-          ]);
+            );
+          if (paperTouch.count !== 1) {
+            throw staleDataConflict(STALE_DATA_MESSAGE);
+          }
+        }
 
-          const totals = this.collectionBuilder.buildGrid(
-            clients,
-            saved.filter((c) => c.category === p.category),
-            includeAdminColumns,
-          ).totals;
+        return touched.touchedAt;
+      },
+      buildResponse: async ({ sheet }, result, tx) => {
+        // CD-4.2: totals are rebuilt from stored data after the write.
+        const [clients, saved] = await Promise.all([
+          this.collectionsRepository.getClientsForCollectionDisplay(
+            p.sheetId,
+            sheet.group_id,
+            p.category,
+            tx,
+          ),
+          this.collectionsRepository.getCollectionEntries(p.sheetId, tx),
+        ]);
 
-          return { token, totals };
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+        const totals = this.collectionBuilder.buildGrid(
+          clients,
+          saved.filter((c) => c.category === p.category),
+          includeAdminColumns,
+        ).totals;
+
+        return {
+          token: result.token ? new Date(result.token) : null,
+          changed: result.changed,
+          totals,
+        };
+      },
+    });
 
     return {
       success: true,
+      changed,
       message: p.successMessage,
       collectionsUpdatedAt: token?.toISOString() ?? null,
       totals,
     };
-  }
-
-  // Read-only comparison. Does NOT advance the token.
-  private assertTokenMatches(current: Date | null, expected: Date | null) {
-    const same =
-      expected === null
-        ? current === null
-        : current !== null && current.getTime() === expected.getTime();
-    if (!same) throw new ConflictException(STALE_DATA_MESSAGE);
   }
 }

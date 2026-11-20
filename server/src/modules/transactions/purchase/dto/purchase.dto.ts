@@ -25,6 +25,9 @@ import { PURCHASE_LIMITS } from '../purchase.constants.js';
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() : value;
 
+const blankToNull = ({ value }: { value: unknown }): unknown =>
+  value === '' ? null : value;
+
 export class PurchaseEntryDto {
   // PD-2 / PD-60: bounded ids, so an oversized id is a 400, not a database overflow.
   @IsInt()
@@ -51,7 +54,7 @@ export class PurchaseEntryDto {
   // PD-39: null / blank / omitted = untracked (no entry). Explicit 0 = a
   // confirmed zero purchase. The 2-decimal rule is applied in the service so a
   // legacy value echoed back unchanged is tolerated (PD-27).
-  @Transform(({ value }) => (value === '' ? null : value))
+  @Transform(blankToNull)
   @IsOptional()
   @IsNumber({ allowNaN: false, allowInfinity: false })
   @Min(0)

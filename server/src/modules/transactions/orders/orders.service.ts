@@ -24,8 +24,12 @@ import {
   Prisma,
   SupplyCategory,
 } from '../../../generated/prisma/client.js';
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from './orders.constants.js';
-import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import {
+  STALE_DATA_MESSAGE,
+  ERROR_MESSAGES,
+  SUCCESS_MESSAGES,
+} from './orders.constants.js';
+import { TRANSACTION_CONFIG } from '../../../common/transactions/transaction.constants.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { AddProductDto } from './dto/add-product.dto.js';
@@ -35,10 +39,8 @@ import {
   DEPENDENCY_MODULES,
   DEPENDENCY_TRIGGERS,
 } from '../dependencies/dependency.constant.js';
-import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
-
-const STALE_DATA_MESSAGE =
-  'Order data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+import { runSerializableTransaction } from '../../../common/transactions/transaction-runner.js';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
 
 @Injectable()
 export class OrdersService {
@@ -60,11 +62,7 @@ export class OrdersService {
   }
 
   private parseExpected(expected: string | null): Date | null {
-    if (expected === null) return null;
-    const d = new Date(expected);
-    if (Number.isNaN(d.getTime()))
-      throw new BadRequestException('Invalid expectedUpdatedAt');
-    return d;
+    return optimisticConcurrency.parseExpectedUpdatedAt(expected);
   }
 
   // Read-only comparison. Does NOT advance the token (used so no-op saves can still 409 when stale).
@@ -72,12 +70,11 @@ export class OrdersService {
     current: Date | null,
     expected: string | null,
   ): void {
-    const exp = this.parseExpected(expected);
-    const same =
-      exp === null
-        ? current === null
-        : current !== null && current.getTime() === exp.getTime();
-    if (!same) throw new ConflictException(STALE_DATA_MESSAGE);
+    if (
+      !optimisticConcurrency.tokenMatches(current, this.parseExpected(expected))
+    ) {
+      throw new ConflictException(STALE_DATA_MESSAGE);
+    }
   }
 
   // Atomic compare-and-advance. Only called when data is actually going to change.
@@ -169,48 +166,35 @@ export class OrdersService {
   }
 
   async addProductToSheet(sheetId: number, dto: AddProductDto) {
-    await withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
-          if (!sheet)
-            throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+    await runSerializableTransaction(this.prisma, async (tx) => {
+      const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+      if (!sheet) throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-          if (
-            !this.workflowState.canEditNightEntries(sheet.order_paper.status)
-          ) {
-            throw new BadRequestException(
-              'Products can only be added while the paper is in DRAFT',
-            );
-          }
+      if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
+        throw new BadRequestException(
+          'Products can only be added while the paper is in DRAFT',
+        );
+      }
 
-          // Decision 19: product add participates in the order-items concurrency token.
-          await this.touchToken(sheetId, dto.expectedUpdatedAt, tx);
+      // Decision 19: product add participates in the order-items concurrency token.
+      await this.touchToken(sheetId, dto.expectedUpdatedAt, tx);
 
-          const existingLink = await this.ordersRepository.getSheetProductLink(
-            sheetId,
-            dto.productId,
-            tx,
-          );
-          if (existingLink) {
-            throw new BadRequestException(
-              'Product already exists in this sheet',
-            );
-          }
+      const existingLink = await this.ordersRepository.getSheetProductLink(
+        sheetId,
+        dto.productId,
+        tx,
+      );
+      if (existingLink) {
+        throw new BadRequestException('Product already exists in this sheet');
+      }
 
-          await this.validationService.validateProduct(dto.productId, tx);
+      await this.validationService.validateProduct(dto.productId, tx);
 
-          await this.ordersRepository.createSheetProduct(
-            { order_sheet_id: sheetId, product_id: dto.productId },
-            tx,
-          );
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+      await this.ordersRepository.createSheetProduct(
+        { order_sheet_id: sheetId, product_id: dto.productId },
+        tx,
+      );
+    });
 
     // Full sheet response carries the new itemsUpdatedAt.
     return this.getSheetService(sheetId);
@@ -221,68 +205,55 @@ export class OrdersService {
     productId: number,
     expectedUpdatedAt: string | null,
   ) {
-    await withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
-          if (!sheet)
-            throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+    await runSerializableTransaction(this.prisma, async (tx) => {
+      const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+      if (!sheet) throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-          if (
-            !this.workflowState.canEditNightEntries(sheet.order_paper.status)
-          ) {
-            throw new BadRequestException(
-              'Products can only be removed while the paper is in DRAFT',
-            );
-          }
+      if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
+        throw new BadRequestException(
+          'Products can only be removed while the paper is in DRAFT',
+        );
+      }
 
-          // Decision 19.
-          await this.touchToken(sheetId, expectedUpdatedAt, tx);
+      // Decision 19.
+      await this.touchToken(sheetId, expectedUpdatedAt, tx);
 
-          const product = await this.ordersRepository.getProductWithGroup(
-            productId,
-            tx,
-          );
-          if (product.show_by_default) {
-            throw new BadRequestException('Default products cannot be removed');
-          }
+      const product = await this.ordersRepository.getProductWithGroup(
+        productId,
+        tx,
+      );
+      if (product.show_by_default) {
+        throw new BadRequestException('Default products cannot be removed');
+      }
 
-          const hasRealOrders = await tx.order_sheet_items.findFirst({
-            where: {
-              order_sheet_id: sheetId,
-              product_id: productId,
-              ordered_qty: { gt: 0 },
-            },
-            select: { id: true },
-          });
-          if (hasRealOrders) {
-            throw new BadRequestException(
-              'Cannot remove a product that already has ordered quantities. Set quantities to 0 first.',
-            );
-          }
-
-          const link = await this.ordersRepository.deleteSheetProduct(
-            sheetId,
-            productId,
-            tx,
-          );
-          const lines = await this.ordersRepository.deleteSheetItems(
-            sheetId,
-            productId,
-            tx,
-          );
-          if (link.count === 0 && lines.count === 0) {
-            throw new BadRequestException('Product not found in this sheet');
-          }
-
-          await this.ordersRepository.deleteSheetItems(sheetId, productId, tx);
+      const hasRealOrders = await tx.order_sheet_items.findFirst({
+        where: {
+          order_sheet_id: sheetId,
+          product_id: productId,
+          ordered_qty: { gt: 0 },
         },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+        select: { id: true },
+      });
+      if (hasRealOrders) {
+        throw new BadRequestException(
+          'Cannot remove a product that already has ordered quantities. Set quantities to 0 first.',
+        );
+      }
+
+      const link = await this.ordersRepository.deleteSheetProduct(
+        sheetId,
+        productId,
+        tx,
+      );
+      const lines = await this.ordersRepository.deleteSheetItems(
+        sheetId,
+        productId,
+        tx,
+      );
+      if (link.count === 0 && lines.count === 0) {
+        throw new BadRequestException('Product not found in this sheet');
+      }
+    });
 
     return this.getSheetService(sheetId);
   }
@@ -304,110 +275,95 @@ export class OrdersService {
 
       let itemsUpdatedAt = null as string | null;
 
-      await withSerializableRetry(() =>
-        this.prisma.$transaction(
-          async (tx) => {
-            const sheet = await this.ordersRepository.findSheetById(
-              sheetId,
-              tx,
-            );
-            if (!sheet)
-              throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+      await runSerializableTransaction(this.prisma, async (tx) => {
+        const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+        if (!sheet) throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
 
-            if (
-              !this.workflowState.canEditNightEntries(sheet.order_paper.status)
-            ) {
-              throw new BadRequestException(
-                ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
-              );
-            }
+        if (!this.workflowState.canEditNightEntries(sheet.order_paper.status)) {
+          throw new BadRequestException(
+            ERROR_MESSAGES.CANNOT_EDIT_NIGHT(sheet.order_paper.status),
+          );
+        }
 
-            // OD-12.8: token compared first; stale = 409 even for a no-op.
-            this.assertTokenMatches(
-              sheet.order_items_updated_at,
-              expectedUpdatedAt,
-            );
-            itemsUpdatedAt =
-              sheet.order_items_updated_at?.toISOString() ?? null;
+        // OD-12.8: token compared first; stale = 409 even for a no-op.
+        this.assertTokenMatches(
+          sheet.order_items_updated_at,
+          expectedUpdatedAt,
+        );
+        itemsUpdatedAt = sheet.order_items_updated_at?.toISOString() ?? null;
 
-            if (effective.length === 0) return;
+        if (effective.length === 0) return;
 
-            // (a) existence only, for every explicit entry
-            await this.validationService.validateEntriesBatch(
-              effective,
-              sheet.group_id,
-              tx,
-              false,
-            );
+        // (a) existence only, for every explicit entry
+        await this.validationService.validateEntriesBatch(
+          effective,
+          sheet.group_id,
+          tx,
+          false,
+        );
 
-            const existingItemMap =
-              await this.ordersRepository.findSheetItemsByProductBatch(
-                sheetId,
-                effective.map((e) => ({
-                  clientId: e.clientId,
-                  productId: e.productId,
-                })),
-                tx,
-              );
-            const hasLine = (e: ExplicitNightEntry) =>
-              existingItemMap.has(`${e.clientId}_${e.productId}`);
+        const existingItemMap =
+          await this.ordersRepository.findSheetItemsByProductBatch(
+            sheetId,
+            effective.map((e) => ({
+              clientId: e.clientId,
+              productId: e.productId,
+            })),
+            tx,
+          );
+        const hasLine = (e: ExplicitNightEntry) =>
+          existingItemMap.has(`${e.clientId}_${e.productId}`);
 
-            // (c) new line = no line and qty > 0 -> full live checks
-            const newLines = effective.filter(
-              (e) => !hasLine(e) && Number(e.orderedQty) > 0,
-            );
-            if (newLines.length > 0) {
-              await this.validationService.validateEntriesBatch(
-                newLines,
-                sheet.group_id,
-                tx,
-                true,
-              );
-            }
+        // (c) new line = no line and qty > 0 -> full live checks
+        const newLines = effective.filter(
+          (e) => !hasLine(e) && Number(e.orderedQty) > 0,
+        );
+        if (newLines.length > 0) {
+          await this.validationService.validateEntriesBatch(
+            newLines,
+            sheet.group_id,
+            tx,
+            true,
+          );
+        }
 
-            // processed = existing lines (any explicit qty) + new lines. New zeros are no-ops (d).
-            const processed = effective.filter(
-              (e) => hasLine(e) || Number(e.orderedQty) > 0,
-            );
-            if (processed.length === 0) return; // true no-op: token unchanged
+        // processed = existing lines (any explicit qty) + new lines. New zeros are no-ops (d).
+        const processed = effective.filter(
+          (e) => hasLine(e) || Number(e.orderedQty) > 0,
+        );
+        if (processed.length === 0) return; // true no-op: token unchanged
 
-            await this.validationService.validateProductsOnSheet(
-              sheetId,
-              processed.map((e) => e.productId),
-              tx,
-            );
+        await this.validationService.validateProductsOnSheet(
+          sheetId,
+          processed.map((e) => e.productId),
+          tx,
+        );
 
-            itemsUpdatedAt = (
-              await this.touchToken(sheetId, expectedUpdatedAt, tx)
-            ).toISOString();
+        itemsUpdatedAt = (
+          await this.touchToken(sheetId, expectedUpdatedAt, tx)
+        ).toISOString();
 
-            const trayRules = await this.billingService.getTrayRulesOnce(tx);
-            await this.billingService.saveNightEntriesBatch(
-              tx,
-              sheet,
-              sheetId,
-              processed,
-              trayRules,
-              existingItemMap,
-            );
+        const trayRules = await this.billingService.getTrayRulesOnce(tx);
+        await this.billingService.saveNightEntriesBatch(
+          tx,
+          sheet,
+          sheetId,
+          processed,
+          trayRules,
+          existingItemMap,
+        );
 
-            await this.dependencyOrchestrator.execute(
-              DEPENDENCY_MODULES.ORDERS,
-              DEPENDENCY_TRIGGERS.ON_SAVE,
-              {
-                paperId: sheet.order_paper_id,
-                sheetId,
-                paperStatus: sheet.order_paper.status,
-                tx,
-              },
-            );
-          },
+        await this.dependencyOrchestrator.execute(
+          DEPENDENCY_MODULES.ORDERS,
+          DEPENDENCY_TRIGGERS.ON_SAVE,
           {
-            timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-            isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+            paperId: sheet.order_paper_id,
+            sheetId,
+            paperStatus: sheet.order_paper.status,
+            tx,
           },
-        ),
-      );
+        );
+      });
 
       return {
         success: true,
@@ -448,108 +404,95 @@ export class OrdersService {
 
       let itemsUpdatedAt = null as string | null;
 
-      await withSerializableRetry(() =>
-        this.prisma.$transaction(
-          async (tx) => {
-            const sheet = await this.ordersRepository.findSheetById(
-              sheetId,
-              tx,
+      await runSerializableTransaction(this.prisma, async (tx) => {
+        const sheet = await this.ordersRepository.findSheetById(sheetId, tx);
+        if (!sheet) throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+
+        const status = sheet.order_paper.status;
+        if (!this.workflowState.canEditMorningEntries(status)) {
+          throw new BadRequestException(
+            ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
+          );
+        }
+
+        this.assertTokenMatches(
+          sheet.order_items_updated_at,
+          expectedUpdatedAt,
+        );
+        itemsUpdatedAt = sheet.order_items_updated_at?.toISOString() ?? null;
+
+        if (effective.length === 0) return;
+
+        await this.validationService.validateEntriesBatch(
+          effective,
+          sheet.group_id,
+          tx,
+          false,
+        );
+
+        const existingItemMap =
+          await this.ordersRepository.findSheetItemsByProductBatch(
+            sheetId,
+            effective.map((e) => ({
+              clientId: e.clientId,
+              productId: e.productId,
+            })),
+            tx,
+          );
+        const hasLine = (e: ExplicitMorningEntry) =>
+          existingItemMap.has(`${e.clientId}_${e.productId}`);
+
+        const newLines = effective.filter(
+          (e) => !hasLine(e) && Number(e.deliveredQty) > 0,
+        );
+        const processedCount =
+          effective.filter(hasLine).length + newLines.length;
+        if (processedCount === 0) return; // true no-op: token unchanged
+
+        if (newLines.length > 0) {
+          // OD-7.11
+          if (status !== OrderPaperStatus.NIGHT_SUBMITTED) {
+            throw new BadRequestException(
+              ERROR_MESSAGES.NEW_LINE_NOT_ALLOWED_WHEN_REOPENED,
             );
-            if (!sheet)
-              throw new NotFoundException(ERROR_MESSAGES.SHEET_NOT_FOUND);
+          }
+          await this.validationService.validateEntriesBatch(
+            newLines,
+            sheet.group_id,
+            tx,
+            true,
+          );
+          await this.validationService.validateProductsOnSheet(
+            sheetId,
+            newLines.map((e) => e.productId),
+            tx,
+          );
+        }
 
-            const status = sheet.order_paper.status;
-            if (!this.workflowState.canEditMorningEntries(status)) {
-              throw new BadRequestException(
-                ERROR_MESSAGES.CANNOT_EDIT_MORNING(status),
-              );
-            }
+        itemsUpdatedAt = (
+          await this.touchToken(sheetId, expectedUpdatedAt, tx)
+        ).toISOString();
 
-            this.assertTokenMatches(
-              sheet.order_items_updated_at,
-              expectedUpdatedAt,
-            );
-            itemsUpdatedAt =
-              sheet.order_items_updated_at?.toISOString() ?? null;
+        await this.billingService.saveMorningEntriesBatch(
+          tx,
+          sheet,
+          sheetId,
+          effective,
+          existingItemMap,
+        );
+        await this.ordersRepository.markOrderMorningEntrySaved(sheetId, tx);
 
-            if (effective.length === 0) return;
-
-            await this.validationService.validateEntriesBatch(
-              effective,
-              sheet.group_id,
-              tx,
-              false,
-            );
-
-            const existingItemMap =
-              await this.ordersRepository.findSheetItemsByProductBatch(
-                sheetId,
-                effective.map((e) => ({
-                  clientId: e.clientId,
-                  productId: e.productId,
-                })),
-                tx,
-              );
-            const hasLine = (e: ExplicitMorningEntry) =>
-              existingItemMap.has(`${e.clientId}_${e.productId}`);
-
-            const newLines = effective.filter(
-              (e) => !hasLine(e) && Number(e.deliveredQty) > 0,
-            );
-            const processedCount =
-              effective.filter(hasLine).length + newLines.length;
-            if (processedCount === 0) return; // true no-op: token unchanged
-
-            if (newLines.length > 0) {
-              // OD-7.11
-              if (status !== OrderPaperStatus.NIGHT_SUBMITTED) {
-                throw new BadRequestException(
-                  ERROR_MESSAGES.NEW_LINE_NOT_ALLOWED_WHEN_REOPENED,
-                );
-              }
-              await this.validationService.validateEntriesBatch(
-                newLines,
-                sheet.group_id,
-                tx,
-                true,
-              );
-              await this.validationService.validateProductsOnSheet(
-                sheetId,
-                newLines.map((e) => e.productId),
-                tx,
-              );
-            }
-
-            itemsUpdatedAt = (
-              await this.touchToken(sheetId, expectedUpdatedAt, tx)
-            ).toISOString();
-
-            await this.billingService.saveMorningEntriesBatch(
-              tx,
-              sheet,
-              sheetId,
-              effective,
-              existingItemMap,
-            );
-            await this.ordersRepository.markOrderMorningEntrySaved(sheetId, tx);
-
-            await this.dependencyOrchestrator.execute(
-              DEPENDENCY_MODULES.ORDERS,
-              DEPENDENCY_TRIGGERS.ON_SAVE,
-              {
-                paperId: sheet.order_paper_id,
-                sheetId,
-                paperStatus: status,
-                tx,
-              },
-            );
-          },
+        await this.dependencyOrchestrator.execute(
+          DEPENDENCY_MODULES.ORDERS,
+          DEPENDENCY_TRIGGERS.ON_SAVE,
           {
-            timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-            isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
+            paperId: sheet.order_paper_id,
+            sheetId,
+            paperStatus: status,
+            tx,
           },
-        ),
-      );
+        );
+      });
 
       return {
         success: true,

@@ -10,15 +10,9 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
 import { DeliveredRow, UpsertRow } from '../../../types/order.types.js';
 import { istDayBoundsUtc } from '../paper/paper-date.util.js';
+import { isUniqueViolation } from '../../../common/transactions/db-errors.js';
 
 const SQL_CHUNK = 1000; // 20 params/row => 20k params, far below the 65,535 wire limit
-
-const isUniqueViolation = (e: any): boolean =>
-  e?.code === '23505' ||
-  e?.code === 'P2002' ||
-  e?.meta?.code === '23505' ||
-  e?.cause?.originalCode === '23505' ||
-  e?.meta?.driverAdapterError?.cause?.originalCode === '23505';
 
 @Injectable()
 export class OrdersRepository {

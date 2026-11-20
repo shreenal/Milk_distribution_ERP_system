@@ -9,19 +9,11 @@ import {
 } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { buildAllocationKey } from '../../../common/utils/allocation-key.util.js';
-import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
-import {
-  touchIfTokenMatches,
-  touchIfUnchanged,
-} from '../../../common/prisma/touch-if-unchanged.util.js';
+import { sameNullableNumber } from '../../../common/transactions/change-planning/equality.js';
+import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
 import { STALE_DATA_MESSAGE } from './vehicle-allocation.constants.js';
-
-const isUniqueViolation = (e: any): boolean =>
-  e?.code === '23505' ||
-  e?.code === 'P2002' ||
-  e?.meta?.code === '23505' ||
-  e?.cause?.originalCode === '23505' ||
-  e?.meta?.driverAdapterError?.cause?.originalCode === '23505';
+import { isUniqueViolation } from '../../../common/transactions/db-errors.js';
+import { diffByKey } from '../../../common/transactions/change-planning/diff-by-key.js';
 
 const labelledProductInclude = {
   master_brand: true,
@@ -29,14 +21,6 @@ const labelledProductInclude = {
   master_product_type: true,
   master_packaging_type: true,
 } as const;
-
-// A nullable value changed? (null === null is "unchanged")
-const nullableDiffers = (a: unknown, b: unknown): boolean => {
-  const aNull = a === null || a === undefined;
-  const bNull = b === null || b === undefined;
-  if (aNull || bNull) return aNull !== bNull;
-  return Number(a) !== Number(b);
-};
 
 @Injectable()
 export class VehicleAllocationRepository {
@@ -229,7 +213,7 @@ export class VehicleAllocationRepository {
       (existingRow, incomingRow) =>
         Number(existingRow.allocated_qty) !==
           Number(incomingRow.allocated_qty) ||
-        nullableDiffers(
+        !sameNullableNumber(
           existingRow.required_qty_at_save,
           incomingRow.required_qty_at_save,
         ),
@@ -277,20 +261,6 @@ export class VehicleAllocationRepository {
         is_active: true,
       },
     });
-  }
-
-  // Pre-existing helper (not used by the module any more; kept for other callers).
-  async touchVehicleAllocationPaperIfUnchanged(
-    vehicleAllocationPaperId: number,
-    expectedUpdatedAt: Date,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return touchIfUnchanged(
-      db.vehicle_allocation_paper,
-      { id: vehicleAllocationPaperId },
-      'updated_at',
-      expectedUpdatedAt,
-    );
   }
 
   // VA-9: compare-and-advance, returning the new token (same helper as Orders / Client Trays).

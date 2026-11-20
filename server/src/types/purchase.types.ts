@@ -157,3 +157,12 @@ export type PurchaseVarianceMetadata = {
   severity: PurchaseVarianceSeverity;
   shortfallWarning: boolean;
 };
+
+export type ProductLinkBatchItem = Prisma.master_product_linkGetPayload<{
+  select: {
+    id: true;
+    distributor_id: true;
+    product_id: true;
+    is_active: true;
+  };
+}>;

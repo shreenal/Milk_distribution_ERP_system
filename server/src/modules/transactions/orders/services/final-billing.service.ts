@@ -27,7 +27,7 @@ export class FinalBillingService {
     const gstPct = toDecimal(gstPercentage);
 
     let taxableAmount: Decimal;
-    let gstAmount: Decimal;
+    // const gstAmount: Decimal;
     let finalBillAmount: Decimal;
 
     if (gstInclusive) {
@@ -47,7 +47,7 @@ export class FinalBillingService {
     }
 
     taxableAmount = billedQuantity.times(rate);
-    gstAmount = taxableAmount.times(gstPct.dividedBy(100));
+    const gstAmount = taxableAmount.times(gstPct.dividedBy(100));
     finalBillAmount = taxableAmount.plus(gstAmount);
 
     const roundedTaxable = toMoney(taxableAmount);

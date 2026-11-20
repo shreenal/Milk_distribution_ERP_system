@@ -22,6 +22,7 @@ import {
   describeTrayType,
   describeVehicle,
 } from '../dairy-trays.util.js';
+import { duplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
 
 @Injectable()
 export class DairyTraysValidationService {
@@ -32,22 +33,18 @@ export class DairyTraysValidationService {
 
   // DT-4.4: the same vehicle + session + tray type twice is rejected.
   validateNoDuplicateEntries(entries: SaveDairyTrayEntryDto[]): void {
-    const seen = new Set<string>();
-
-    for (const entry of entries) {
-      const key = buildDairyTrayKey(entry);
-
-      if (seen.has(key)) {
-        throw new BadRequestException(
-          MSG.DUPLICATE_ENTRY(
-            entry.vehicleId,
-            entry.trayTypeId,
-            entry.deliverySession,
-          ),
-        );
-      }
-
-      seen.add(key);
+    const duplicates = duplicateKeys(entries, buildDairyTrayKey);
+    if (duplicates.length > 0) {
+      const entry = entries.find(
+        (candidate) => buildDairyTrayKey(candidate) === duplicates[0],
+      )!;
+      throw new BadRequestException(
+        MSG.DUPLICATE_ENTRY(
+          entry.vehicleId,
+          entry.trayTypeId,
+          entry.deliverySession,
+        ),
+      );
     }
   }
 
@@ -87,7 +84,7 @@ export class DairyTraysValidationService {
     const vehicleById = new Map(ledger.vehicles.map((v) => [v.id, v]));
     const trayTypeById = new Map(ledger.trayTypes.map((t) => [t.id, t]));
 
-    const problems: string[] = [];
+    const problems = new Set<string>();
 
     for (const entry of entries) {
       const vehicle = vehicleById.get(entry.vehicleId);
@@ -99,9 +96,9 @@ export class DairyTraysValidationService {
         !vehicle ||
         !trayType
       ) {
-        throw new BadRequestException(
-          MSG.ROW_NOT_FOUND(entry.vehicleId, entry.deliverySession),
-        );
+        // DT-5.6 (amended): reported together with every other problem.
+        problems.add(MSG.ROW_NOT_FOUND(entry.vehicleId, entry.deliverySession));
+        continue;
       }
 
       const line = lineByKey.get(buildDairyTrayKey(entry));
@@ -110,7 +107,7 @@ export class DairyTraysValidationService {
       const inactive = !vehicle.is_active || !trayType.is_active;
 
       if (reconcileInactive && !inactive) {
-        problems.push(
+        problems.add(
           MSG.NOT_INACTIVE(vehicleName, entry.deliverySession, trayLabel),
         );
         continue;
@@ -121,14 +118,14 @@ export class DairyTraysValidationService {
         inactive &&
         entry.returned !== (line?.returned ?? 0)
       ) {
-        problems.push(
+        problems.add(
           MSG.INACTIVE_READ_ONLY(vehicleName, entry.deliverySession, trayLabel),
         );
         continue;
       }
 
       if (entry.returned > MAX_RETURNED_TRAYS) {
-        problems.push(
+        problems.add(
           MSG.RETURN_EXCEEDS_LIMIT(
             vehicleName,
             entry.deliverySession,
@@ -142,7 +139,7 @@ export class DairyTraysValidationService {
       const available = line ? line.opening + line.taken : 0;
 
       if (entry.returned > available) {
-        problems.push(
+        problems.add(
           MSG.RETURN_EXCEEDS_BALANCE(
             vehicleName,
             entry.deliverySession,
@@ -154,10 +151,10 @@ export class DairyTraysValidationService {
       }
     }
 
-    if (problems.length > 0) {
+    if (problems.size > 0) {
       throw new BadRequestException({
         message: MSG.RETURNS_REJECTED,
-        details: problems,
+        details: [...problems],
       });
     }
   }

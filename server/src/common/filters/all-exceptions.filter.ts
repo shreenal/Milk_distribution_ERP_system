@@ -34,6 +34,14 @@ function mapPrismaError(e: unknown): HttpException | null {
       );
     case 'P2025':
       return new NotFoundException('Record not found.');
+    case 'P2028':
+      return new ConflictException(
+        'The request took too long and nothing was saved. Please retry.',
+      );
+    case 'P2034':
+      return new ConflictException(
+        'Your request conflicted with another update and could not be completed. Please retry.',
+      );
     default:
       return null;
   }
@@ -72,7 +80,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       message,
     };
 
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    if (status >= 500) {
       this.logger.error(
         JSON.stringify(logPayload),
         exception instanceof Error ? exception.stack : String(exception),
@@ -86,10 +94,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         ? { ...httpResponseBody, requestId }
         : {
             statusCode: status,
-            message:
-              status === HttpStatus.INTERNAL_SERVER_ERROR
-                ? 'Internal server error'
-                : message,
+            message: status === 500 ? 'Internal server error' : message,
             requestId,
           };
 

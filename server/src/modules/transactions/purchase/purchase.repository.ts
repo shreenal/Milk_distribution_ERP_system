@@ -3,13 +3,7 @@ import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { STALE_DATA_MESSAGE } from './purchase.constants.js';
-
-const isUniqueViolation = (e: any): boolean =>
-  e?.code === '23505' ||
-  e?.code === 'P2002' ||
-  e?.meta?.code === '23505' ||
-  e?.cause?.originalCode === '23505' ||
-  e?.meta?.driverAdapterError?.cause?.originalCode === '23505';
+import { isUniqueViolation } from '../../../common/transactions/db-errors.js';
 
 const labelledProductInclude = {
   master_brand: true,
@@ -19,6 +13,7 @@ const labelledProductInclude = {
 } as const;
 import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
 import { resolveRateForDate, rateKey } from './purchase.util.js';
+import { ProductLinkBatchItem } from '../../../types/purchase.types.js';
 
 @Injectable()
 export class PurchaseRepository {
@@ -353,7 +348,7 @@ export class PurchaseRepository {
     pairs: { distributorId: number; productId: number }[],
     db: PrismaOrTransaction = this.prisma,
     activeOnly = false,
-  ) {
+  ): Promise<Map<string, ProductLinkBatchItem>> {
     const links = await db.master_product_link.findMany({
       where: {
         OR: pairs.map((p) => ({

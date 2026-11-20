@@ -14,6 +14,8 @@ export const PROPAGATION_OUTBOX_STATUS = {
   PROCESSING: 'PROCESSING',
   DONE: 'DONE',
   FAILED: 'FAILED',
+  // PA-10.6: an admin gave up on a FAILED row. Kept for the record, never blocks.
+  DISMISSED: 'DISMISSED',
 } as const;
 
 export type PropagationOutboxStatus =

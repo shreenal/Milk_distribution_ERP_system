@@ -10,6 +10,9 @@ export const MAX_RETURNED_TRAYS = 2000;
 // window queues a forward propagation job, so the work grows quickly.
 export const MAX_RECALCULATION_RANGE_DAYS = 31;
 
+export const STALE_DATA_MESSAGE =
+  'Client Trays data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+
 export const CLIENT_TRAY_ERROR_MESSAGES = {
   SHEET_NOT_FOUND: 'Sheet not found',
 

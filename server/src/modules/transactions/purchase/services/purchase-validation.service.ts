@@ -15,6 +15,7 @@ import {
   describeProduct,
   describeVehicle,
 } from '../../vehicle-allocation/vehicle-allocation.util.js';
+import { duplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
 
 export type ExplicitPurchaseEntry = PurchaseEntryDto & { purchasedQty: number };
 export type AllocationRow = Awaited<
@@ -38,7 +39,11 @@ export type IgnoredEntry = {
   distributorId: number;
   category: string;
   productId: number;
-  reason: 'NOT_ALLOCATED_AND_NOT_SAVED' | 'MISSING_CONFIGURATION';
+  // PD-3 / PD-48 / PD-63 (amended): why an entry was left out of the save.
+  reason:
+    | 'NOT_ALLOCATED_AND_NOT_SAVED'
+    | 'MISSING_CONFIGURATION'
+    | 'UNCHANGED_EXCEEDS_ALLOCATION';
 };
 
 @Injectable()
@@ -116,15 +121,14 @@ export class PurchaseValidationService {
       existingEntries.map((e) => [buildPurchaseKey(e), e]),
     );
 
-    const seen = new Set<string>();
+    const repeated = new Set(duplicateKeys(entries, keyOf));
     for (const e of entries) {
-      const k = keyOf(e);
-      if (seen.has(k)) problems.add(MSG.DUPLICATE_ENTRY(labelOf(e)));
-      seen.add(k);
+      if (repeated.has(keyOf(e))) problems.add(MSG.DUPLICATE_ENTRY(labelOf(e)));
     }
 
-    // PD-1: even a zero must have an active distributor-product link. A saved
-    // row keeps its frozen link (PD-21), so only new keys are checked.
+    // A saved row keeps its frozen link (PD-21), so the link is looked up for
+    // new rows only. PD-1 (amended): it is REQUIRED only for a positive
+    // quantity; a new zero without a link is left out (PD-48).
     const newPairs = entries
       .filter((e) => !existingByKey.has(keyOf(e)))
       .map((e) => ({ distributorId: e.distributorId, productId: e.productId }));
@@ -144,6 +148,19 @@ export class PurchaseValidationService {
     const accepted: AcceptedEntry[] = [];
     const ignored: IgnoredEntry[] = [];
 
+    const ignore = (
+      entry: ExplicitPurchaseEntry,
+      reason: IgnoredEntry['reason'],
+    ) =>
+      ignored.push({
+        vehicleId: entry.vehicleId,
+        deliverySession: entry.deliverySession,
+        distributorId: entry.distributorId,
+        category: entry.category,
+        productId: entry.productId,
+        reason,
+      });
+
     for (const entry of entries) {
       if (
         !vehicleById.has(entry.vehicleId) ||
@@ -156,11 +173,10 @@ export class PurchaseValidationService {
       const label = labelOf(entry);
       const existing = existingByKey.get(key);
       const allocation = allocationByKey.get(key);
+      const hasLink = linkMap.has(`${entry.distributorId}_${entry.productId}`);
 
-      if (
-        !existing &&
-        !linkMap.has(`${entry.distributorId}_${entry.productId}`)
-      ) {
+      // PD-1 (amended): a missing link fails a new POSITIVE entry only.
+      if (!existing && !hasLink && entry.purchasedQty > 0) {
         problems.add(
           MSG.LINK_MISSING(
             distributorById.get(entry.distributorId)!.name,
@@ -177,23 +193,26 @@ export class PurchaseValidationService {
 
       // Zero for a cell that was never allocated and never saved: harmless, reported back.
       if (!existing && !allocation && entry.purchasedQty === 0) {
-        ignored.push({
-          vehicleId: entry.vehicleId,
-          deliverySession: entry.deliverySession,
-          distributorId: entry.distributorId,
-          category: entry.category,
-          productId: entry.productId,
-          reason: 'NOT_ALLOCATED_AND_NOT_SAVED',
-        });
+        ignore(entry, 'NOT_ALLOCATED_AND_NOT_SAVED');
         continue;
       }
 
-      // PD-4: a saved entry whose allocation vanished or moved is an explicit error.
-      if (existing) {
-        if (!allocation) {
-          problems.add(MSG.ALLOCATION_CHANGED(label));
-          continue;
-        }
+      // PD-48 (amended): a new zero for an allocated cell with no active link
+      // cannot be stored (the rate is mandatory); it is reported, not failed.
+      if (!existing && !hasLink) {
+        ignore(entry, 'MISSING_CONFIGURATION');
+        continue;
+      }
+
+      // PD-4: a saved entry whose allocation vanished is an explicit error.
+      if (existing && !allocation) {
+        problems.add(MSG.ALLOCATION_CHANGED(label));
+        continue;
+      }
+
+      if (allocation) {
+        // PD-4 (amended, Q3): the allocation the user saw must be echoed back
+        // for every cell that has an allocation, saved or not.
         if (
           entry.sourceAllocationId == null ||
           entry.sourceAllocatedQty == null
@@ -201,16 +220,14 @@ export class PurchaseValidationService {
           problems.add(MSG.ECHO_REQUIRED(label));
           continue;
         }
-      }
-      if (
-        allocation &&
-        entry.sourceAllocationId != null &&
-        entry.sourceAllocatedQty != null &&
-        (entry.sourceAllocationId !== allocation.id ||
-          Number(entry.sourceAllocatedQty) !== Number(allocation.allocated_qty))
-      ) {
-        problems.add(MSG.ALLOCATION_CHANGED(label));
-        continue;
+
+        if (
+          entry.sourceAllocationId !== allocation.id ||
+          Number(entry.sourceAllocatedQty) !== Number(allocation.allocated_qty)
+        ) {
+          problems.add(MSG.ALLOCATION_CHANGED(label));
+          continue;
+        }
       }
 
       if (entry.purchasedQty > 0) {
@@ -223,6 +240,17 @@ export class PurchaseValidationService {
             toDecimal(allocation.allocated_qty),
           )
         ) {
+          // PD-63 (amended, Q5): a saved entry that is already above its
+          // lowered allocation and is sent back unchanged is left as it is
+          // (it stays stale and blocks submission) instead of failing the
+          // whole save. Raising or changing it is still rejected.
+          if (
+            existing &&
+            Number(existing.purchased_qty) === entry.purchasedQty
+          ) {
+            ignore(entry, 'UNCHANGED_EXCEEDS_ALLOCATION');
+            continue;
+          }
           problems.add(
             MSG.PURCHASE_EXCEEDS_ALLOCATION(
               label,
@@ -235,7 +263,8 @@ export class PurchaseValidationService {
       }
 
       // PD-27: new or changed quantities must have at most 2 decimals; an
-      // unchanged echo of a stored value is tolerated.
+      // unchanged echo of a stored value is tolerated. (Checked here, inside
+      // the transaction, because the tolerance needs the stored value.)
       const unchanged =
         existing && Number(existing.purchased_qty) === entry.purchasedQty;
       if (!unchanged && !hasAllowedPrecision(entry.purchasedQty)) {
@@ -302,9 +331,11 @@ export class PurchaseValidationService {
       allocations,
     );
 
+    // PD-7 (amended): an entry with no cell OR no current allocation is an orphan.
     const orphanRecords = this.purchaseBuilder.findOrphanedEntries(
       grids,
       entries,
+      allocations,
     );
     const orphanIds = new Set(orphanRecords.map((o) => o.entryId));
     const orphans = orphanRecords.map(
@@ -344,5 +375,26 @@ export class PurchaseValidationService {
         ],
       });
     }
+  }
+
+  /**
+   * PD-70: true while a zero-allocation sign-off is still needed (no allocation
+   * above 0 and no sign-off recorded). The same test as
+   * `zeroAllocationSignOffRequired` in the submission gate (PD-54), exposed so
+   * Paper readiness can announce it. Read-only.
+   */
+  async isZeroAllocationSignOffPending(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<boolean> {
+    const [allocations, purchasePaper] = await Promise.all([
+      this.purchaseRepository.findVehicleAllocationsByPaperId(paperId, db),
+      this.purchaseRepository.findPurchasePaper(paperId, db),
+    ]);
+
+    return (
+      !allocations.some((a) => Number(a.allocated_qty) > 0) &&
+      !purchasePaper?.signed_off_at
+    );
   }
 }

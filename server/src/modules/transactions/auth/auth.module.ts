@@ -6,7 +6,7 @@ import { AuthService } from './auth.service.js';
 
 import { UsersModule } from '../../masters/administration/users/users.module.js';
 import { JwtModule } from '@nestjs/jwt';
-
+import type { SignOptions } from 'jsonwebtoken';
 import { JwtStrategy } from './jwt.strategy.js';
 import { PassportModule } from '@nestjs/passport';
 import { RolesGuard } from './roles.guard.js';
@@ -27,7 +27,10 @@ import { PrismaModule } from '../../../prisma/prisma.module.js';
       useFactory: (config: ConfigService) => ({
         secret: config.get<string>('SECRET'),
         signOptions: {
-          expiresIn: config.get<string>('ACCESS_TOKEN_TTL', '15m') as any,
+          expiresIn: config.get<string>(
+            'ACCESS_TOKEN_TTL',
+            '15m',
+          ) as SignOptions['expiresIn'],
         },
       }),
     }),

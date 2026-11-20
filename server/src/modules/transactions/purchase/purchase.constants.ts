@@ -37,8 +37,9 @@ export const PURCHASE_ERROR_MESSAGES = {
   ALLOCATION_CHANGED: (label: string) =>
     `Allocation modified or removed: ${label}. Reload the purchase data and try again`,
 
+  // PD-4 (amended): the allocation the user saw is echoed for every cell that has one.
   ECHO_REQUIRED: (label: string) =>
-    `${label}: sourceAllocationId and sourceAllocatedQty must be echoed for a saved entry`,
+    `${label}: sourceAllocationId and sourceAllocatedQty must be sent back exactly as loaded`,
 
   PURCHASE_EXCEEDS_ALLOCATION: (
     label: string,

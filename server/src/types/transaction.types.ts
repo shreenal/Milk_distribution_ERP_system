@@ -1,6 +1,6 @@
 // ✅ src/common/types/transaction.types.ts
 
-import { Prisma, SupplyCategory } from '../../src/generated/prisma/client.js';
+import { Prisma, SupplyCategory } from '../generated/prisma/client.js';
 import { PrismaService } from '../../src/prisma/prisma.service.js';
 
 export type TransactionClient = Prisma.TransactionClient;

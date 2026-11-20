@@ -20,6 +20,7 @@ import {
   findDistributorConflicts,
 } from '../vehicle-allocation.util.js';
 import { ANOMALY_REASON_MESSAGES } from '../vehicle-allocation.constants.js';
+import { duplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
 
 type Allocations = SaveVehicleAllocationDto['allocations'];
 
@@ -159,6 +160,38 @@ export class VehicleAllocationValidationService {
     }
   }
 
+  /** VA-5.8: unknown distributors and products are rejected for every entry, zero included. */
+  validateEntityReferences(
+    dto: SaveVehicleAllocationDto,
+    refs: AllocationReferences,
+  ): void {
+    const problems = new Set<string>();
+
+    for (const allocation of dto.allocations) {
+      if (!refs.distributorNames.has(allocation.distributorId)) {
+        problems.add(
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.DISTRIBUTOR_NOT_FOUND(
+            allocation.distributorId,
+          ),
+        );
+      }
+      if (!refs.productLabels.has(allocation.productId)) {
+        problems.add(
+          VEHICLE_ALLOCATION_ERROR_MESSAGES.PRODUCT_NOT_FOUND(
+            allocation.productId,
+          ),
+        );
+      }
+    }
+
+    if (problems.size > 0) {
+      throw new BadRequestException({
+        message: 'Invalid distributor or product references',
+        details: [...problems],
+      });
+    }
+  }
+
   /** VA-5.7: links are checked only for rows with qty > 0. */
   async validateAllocationProductLinks(
     dto: SaveVehicleAllocationDto,
@@ -227,31 +260,31 @@ export class VehicleAllocationValidationService {
     dto: SaveVehicleAllocationDto,
     refs: AllocationReferences,
   ): void {
-    const seen = new Set<string>();
-    const duplicates: string[] = [];
+    const keyOf = (a: Allocations[number]) =>
+      `${a.vehicleId}_${a.distributorId}_${a.category}_${a.productId}`;
+    const repeated = new Set(duplicateKeys(dto.allocations, keyOf));
+    if (repeated.size === 0) return;
 
-    for (const a of dto.allocations) {
-      const key = `${a.vehicleId}_${a.distributorId}_${a.category}_${a.productId}`;
-      if (seen.has(key)) {
-        duplicates.push(
-          VEHICLE_ALLOCATION_ERROR_MESSAGES.DUPLICATE_ENTRY(
-            vehicleName(refs, a.vehicleId),
-            distributorName(refs, a.distributorId),
-            a.category,
-            productName(refs, a.productId),
+    const details = [
+      ...new Set(
+        dto.allocations
+          .filter((a) => repeated.has(keyOf(a)))
+          .map((a) =>
+            VEHICLE_ALLOCATION_ERROR_MESSAGES.DUPLICATE_ENTRY(
+              vehicleName(refs, a.vehicleId),
+              distributorName(refs, a.distributorId),
+              a.category,
+              productName(refs, a.productId),
+            ),
           ),
-        );
-      }
-      seen.add(key);
-    }
+      ),
+    ];
 
-    if (duplicates.length > 0) {
-      throw new BadRequestException({
-        message:
-          'Duplicate allocation entries. Each vehicle, distributor, category and product combination can only appear once.',
-        details: [...new Set(duplicates)],
-      });
-    }
+    throw new BadRequestException({
+      message:
+        'Duplicate allocation entries. Each vehicle, distributor, category and product combination can only appear once.',
+      details,
+    });
   }
 
   validateSingleDistributorPerVehicleCategory(
@@ -327,13 +360,21 @@ export class VehicleAllocationValidationService {
         )
       : [];
 
-    // Layer 1
+    const detection = await this.reconciliationService.detect(
+      stored,
+      requirements.requiredTotals,
+      db,
+    );
+    const invalidIds = new Set(detection.invalid.map((i) => i.row.id));
+
+    // Layer 1. VA-8.2: invalid rows do not count towards coverage, exactly as
+    // in the grid view (they are reported by Layer 2 instead).
     const grids = this.vehicleAllocationBuilder.applyVehicleAllocations(
       this.vehicleAllocationBuilder.buildVehicleAllocationGrids(
         requirements.summaries,
         vehicles,
       ),
-      stored,
+      stored.filter((r) => !invalidIds.has(r.id)),
     );
 
     const coverageProblems = this.vehicleAllocationBuilder
@@ -345,11 +386,6 @@ export class VehicleAllocationValidationService {
       );
 
     // Layer 2
-    const detection = await this.reconciliationService.detect(
-      stored,
-      requirements.requiredTotals,
-      db,
-    );
     const integrityProblems: string[] = [];
 
     for (const { row, reason } of detection.invalid) {
@@ -377,7 +413,6 @@ export class VehicleAllocationValidationService {
       }
     }
 
-    const invalidIds = new Set(detection.invalid.map((i) => i.row.id));
     const names = new Map(stored.map((r) => [r.vehicle_id, r.master_vehicle]));
     const distributors = new Map(
       stored.map((r) => [r.distributor_id, r.distributor.name]),

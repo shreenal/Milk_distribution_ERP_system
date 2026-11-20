@@ -129,7 +129,15 @@ export class OrderCommercialService {
               ? 0
               : priorities.get(distributorId)!,
         }))
-        .sort((a, b) => a.priority - b.priority);
+        // OD-8.2: ties are broken deterministically: the primary first, then
+        // the lowest distributor id.
+        .sort(
+          (a, b) =>
+            a.priority - b.priority ||
+            Number(b.distributorId === primaryDistributorId) -
+              Number(a.distributorId === primaryDistributorId) ||
+            a.distributorId - b.distributorId,
+        );
 
       if (eligible.length === 0) {
         throw new BadRequestException(

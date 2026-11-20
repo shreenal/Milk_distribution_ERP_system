@@ -20,7 +20,10 @@ import { ExpectedUpdatedAt } from '../../../../common/dto/expected-updated-at.de
 import { VEHICLE_ALLOCATION_LIMITS } from '../vehicle-allocation.constants.js';
 import { toDecimal } from '../../../../common/utils/money.util.js';
 
-class VehicleAllocationItemDto {
+const blankOrNullToZero = ({ value }: { value: unknown }): unknown =>
+  value === '' || value === null ? 0 : value;
+
+export class VehicleAllocationItemDto {
   @IsInt()
   @Min(1)
   @Max(2147483647)
@@ -42,7 +45,7 @@ class VehicleAllocationItemDto {
   // VA-4.1: blank ("") and null mean 0 (the cell is cleared). Strings such as
   // "5", NaN, Infinity, negatives and more than 2 decimal places are rejected,
   // never rounded.
-  @Transform(({ value }) => (value === '' || value === null ? 0 : value))
+  @Transform(blankOrNullToZero)
   @IsNumber(
     { allowNaN: false, allowInfinity: false },
     {

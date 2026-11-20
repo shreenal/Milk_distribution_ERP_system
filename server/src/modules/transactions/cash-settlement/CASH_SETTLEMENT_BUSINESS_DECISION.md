@@ -4,7 +4,7 @@
 **Purpose:** Binding business requirements. A reviewer or developer must NOT infer, assume, or "improve" behavior that is not written here. If code and this file disagree, this file wins. If this file is silent, STOP and ask. See Section 15 (flagged decisions), Section 16 (open items) and Section 18 (frontend contract).
 **Rule for changes:** Any behavior change requires a new or amended decision ID below, approved by the business owner, before code changes.
 
-Decision IDs (`CS-n`) are stable. Cite them in code comments, PRs and reviews. Section 17 maps them to the numbered review decisions (`S1` to `S36`) they came from.
+Decision IDs (`CS-n`) are stable. Cite them in code comments, PRs and reviews. Section 17 maps them to the numbered review decisions (`S1` to `S36`) they came from. Section 19 records the review of the discovery questions (`DQ1` to `DQ11`).
 
 **How the review decisions were applied.** Each decision `S1` to `S36` was checked against the decision files of the modules provided (Orders `OD`, Collections `CD`, Vehicle Allocation `VA`, Purchase `PD`). A decision that matched them was applied. A decision that contradicted them, or that cannot be implemented inside this module, was NOT applied and is listed in Section 15. Client Trays and Dairy Trays decision files were not available, so no check against them was possible. The review list contains no `S22`, `S23` or `S24`; confirm none was intended.
 
@@ -35,6 +35,8 @@ Decision IDs (`CS-n`) are stable. Cite them in code comments, PRs and reviews. S
 **CS-1.1** All endpoints require login (JWT) and the `EMPLOYEE` role. How `ADMIN` passes is decided by the roles guard, outside this module.
 
 **CS-1.2** Each of the four save endpoints is limited to 10 requests per minute per user. The read endpoint uses the global limit. Exceeding a limit returns 429.
+
+**CS-1.3 No per-paper or per-route scoping (binding, as implemented; DQ4).** Any employee (and any admin) may read and edit the cash settlement of any paper. There is no per-group or per-sheet authorization in Cash Settlement, as in Orders (OD-1.3), Collections (CD-12.3) and Paper (PA-1.3).
 
 ---
 
@@ -72,7 +74,7 @@ All arithmetic uses exact decimals, rounded half-up to 2 decimals.
 
 **CS-3.4** Per route: `difference = route net cash − denomination amount`.
 
-**CS-3.5 Normal summary (every status except REOPENED):** total route cash, total route expenses, total route net cash, `directCollectionCash`, `officeCash = total route net cash + directCollectionCash`, `totalDeposits`, `cashInHandAfterDeposits = officeCash − totalDeposits`.
+**CS-3.5 Normal summary (every status except REOPENED):** total route cash, total route expenses, total route net cash, `directCollectionCash`, `officeCash = total route net cash + directCollectionCash`, `totalDeposits`, `cashInHandAfterDeposits = officeCash − totalDeposits`. The same shape is used for every status except REOPENED, including FINALIZED after a re-finalize: `reconciliationDifference` is then no longer shown, and the `submission` block (CS-4.4) still lists any mismatch (binding, DQ9).
 
 **CS-3.6 REOPENED summary:** historical route denomination cash and historical direct collection cash (the counted figures), `revisedOfficeCash = total route net cash + historical direct collection cash`, `revisedCashOnHand = revisedOfficeCash − totalDeposits`, `historicalCashOnHand = historical route denomination cash + historical direct collection cash − totalDeposits`, `reconciliationDifference = revisedCashOnHand − historicalCashOnHand`. Direct collections and deposits cancel out, so this equals total route net cash minus total counted route denominations.
 
@@ -126,7 +128,7 @@ Body: `{ expenses: [{ id?, sheetId, expenseTypeId, amount }], deletedExpenseIds?
 
 **CS-6.3 Nothing is deleted by omission (binding, S2).** Expenses of routes, or lines, that are not in the payload are untouched. A line is removed only by listing its id in `deletedExpenseIds`. This is the same rule as Purchase PD-5 / PD-6.
 
-**CS-6.4 Checks.** Every sent id and every deleted id must belong to this paper (400). An id cannot be both saved and deleted (400). An expense cannot move to a different route (400; delete it and add a new one). Every `sheetId` must belong to the paper (400). Every `expenseTypeId` must exist and be active (400). Several lines for the same route and the same type are allowed (Section 15, S14).
+**CS-6.4 Checks.** Every sent id and every deleted id must belong to this paper (400). An id cannot be both saved and deleted (400). An expense cannot move to a different route (400; delete it and add a new one). Every `sheetId` must belong to the paper (400). Every `expenseTypeId` of a NEW line, or of a line whose type is being changed, must exist and be active (400). A saved line whose type is unchanged is not checked: its type may have been deactivated since, and the line stays saveable, amount changes included. This is the historical-record rule of CD-6.2, OD-6.5(b) and CS-8.5 (DQ1). Several lines for the same route and the same type are allowed (Section 15, S14).
 
 **CS-6.5 Settlement records are not created in bulk (binding, CS-16.4).** A route's settlement record is created only when that route receives a new expense line, because the line needs a parent record. Saving expenses no longer creates empty records for every route. Reason: with the old behavior, whether a route appeared in `routeDenominations` depended on whether anyone had saved an expense for any route, and a route that was never counted looked the same as a route counted as zero. This follows OD-6.8 and CD-2.2 (never create zero-valued records). Operations could not be consulted from the code; the change was made on that evidence and is easy to reverse. Known remainder: deleting a route's last expense leaves its (zero) settlement record in place.
 
@@ -156,9 +158,9 @@ Body: `{ directCollections: [{ employeeId, note2000 ... note10, coins }], delete
 
 **CS-8.3 Nothing is deleted by omission (binding, S3).** Employees not in the payload are untouched. A row is removed only through `deletedEmployeeIds` or through CS-8.4. Every deleted employee id must have a row on this paper (400), and an employee cannot be both saved and deleted (400).
 
-**CS-8.4 All-zero rows are not kept (binding, S15).** An all-zero entry for an employee with no stored row creates nothing. An all-zero entry for an employee who has a stored row removes that row. This follows the sparse-row rules of CD-2.2 and VA-5.4 / VA-5.6.
+**CS-8.4 All-zero rows are not kept (binding, S15).** An all-zero entry for an employee with no stored row creates nothing. An all-zero entry for an employee who has a stored row removes that row. This follows the sparse-row rules of CD-2.2 and VA-5.4 / VA-5.6. **The all-zero rule runs first (binding, DQ2):** an all-zero entry for an employee with no stored row is ignored before any employee rule of CS-8.5, so an unknown or inactive employee id in such an entry is not an error (as CD-2.2 and OD-6.5(d)).
 
-**CS-8.5 Employee checks (binding, S7).** Every `employeeId` must exist (400). An inactive employee cannot receive a NEW direct collection (400), but an employee who already has a row on this paper stays updatable. This is the historical-record rule of CD-6.2 and OD-6.5(b).
+**CS-8.5 Employee checks (binding, S7).** Every `employeeId` of an entry that is not ignored under CS-8.4 must exist (400). An inactive employee cannot receive a NEW direct collection (400), but an employee who already has a row on this paper stays updatable. This is the historical-record rule of CD-6.2 and OD-6.5(b).
 
 ---
 
@@ -168,7 +170,7 @@ Body: `{ bankDeposits: [{ id?, bankId, note2000 ... note10, coins }], deletedDep
 
 **CS-9.1** Allowed only in NIGHT_SUBMITTED (CS-2.1).
 
-**CS-9.2** An entry with an `id` updates that deposit. An entry without one adds a new deposit. Several deposits to the same bank are allowed. Every `bankId` must exist and be active (400).
+**CS-9.2** An entry with an `id` updates that deposit. An entry without one adds a new deposit. Several deposits to the same bank are allowed. Every `bankId` of a NEW deposit, or of a deposit whose bank is being changed, must exist and be active (400). A saved deposit whose bank is unchanged is not checked, so it stays saveable after its bank is deactivated (DQ1).
 
 **CS-9.3 Nothing is deleted by omission (binding, S4).** A deposit is removed only by listing its id in `deletedDepositIds`. Every sent or deleted id must belong to this paper (400). The same id twice in one request is rejected (400, S9). An id cannot be both saved and deleted (400).
 
@@ -186,7 +188,7 @@ Body: `{ bankDeposits: [{ id?, bankId, note2000 ... note10, coins }], deletedDep
 
 **CS-10.2** The token is `order_paper.updated_at`, returned as `cashSettlementUpdatedAt`.
 
-**CS-10.3 One token for the whole settlement (binding, S26).** Expenses, denominations, direct collections and bank deposits share one token, as Collections shares one token across its phases (CD-9.2). Saving any section advances it. This is acceptable because every save returns the new token (CS-11.1). It is also the right granularity: the paper's status changes (submit, finalize, reopen) also advance `updated_at`, so a screen opened before a status change can no longer save into the wrong workflow state.
+**CS-10.3 One token for the whole settlement (binding, S26).** Expenses, denominations, direct collections and bank deposits share one token, as Collections shares one token across its phases (CD-9.2). Saving any section advances it. This is acceptable because every save returns the new token (CS-11.1). It is also the right granularity: the paper's status changes (submit, finalize, reopen) also advance `updated_at`, so a screen opened before a status change can no longer save into the wrong workflow state. **Other writers of the same token (binding, DQ8):** a Collections save that creates a positive `cash_collection` or changes a stored one also advances it (CD-7.2), so an open Cash Settlement screen gets 409 on its next save and reloads. Distributor Transfer uses the same token (PA-8.11), so its screen goes stale too. Marking a sheet no-operation (PA-17.6) and Collections saves that change only office cash, cheque, online or bank deposit do not advance it. This coupling is a direct same-transaction write by Collections. It is not an entry of the business dependency register, which lists only cross-module propagation dispatched through the orchestrator.
 
 **CS-10.4 Compared first, advanced atomically.** After the status check the token is compared (409 on mismatch, before any request check). It is advanced by a conditional update that must still match, using the clock-safe helper `touchIfTokenMatches` (as in all other modules). The advance happens inside the same transaction as the writes, so a failed save rolls it back.
 
@@ -194,11 +196,19 @@ Body: `{ bankDeposits: [{ id?, bankId, note2000 ... note10, coins }], deletedDep
 
 **CS-10.6 Transaction.** Each save is one serializable transaction with up to 3 total attempts on a serialization conflict, then 409 `Your request conflicted with another update and could not be completed. Please retry.`
 
+**CS-10.7 Timeout (binding, DQ7).** A save that exceeds its time limit (10 s) saves nothing and returns 409 `The request took too long and nothing was saved. Please retry.` Accepted as is, as OD-6.2 and CD-6.3.
+
+**CS-10.8 Lost response (binding, as implemented; DQ7).** If a save succeeded but its response never reached the client, a retry with the old token returns 409. There is no idempotency key and an identical payload is not recognised as already applied. The user reloads and re-checks (as OD-12.9, CD-9.6).
+
+**CS-10.9 Token format (binding, DQ7).** A token value must be ISO-8601. Any parseable ISO-8601 string is accepted (a full timestamp is what the API returns). A well-formed value that differs from the current token is 409, an unparseable one is 400 (as OD-12.10, CD-9.7).
+
 ---
 
 ## 11. Save Responses
 
 **CS-11.1 (binding, S25).** Every successful save returns `{ success: true, changed, cashSettlementUpdatedAt, routeSettlements, routeExpenses, routeDenominations, directCollections, bankDeposits, summary, submission }`. The data is rebuilt from stored data inside the same transaction, after the write. `changed` is `false` for a no-op (CS-10.5), and the token is then the unchanged current one. The frontend replaces its token and its screen state without a GET. As in OD-12.4, CD-4.2, VA-5.16 and PD-57.
+
+**CS-11.2 Success status (binding, DQ3).** All four saves answer 200, as Orders and Collections (CD-11.1), not 201.
 
 ---
 
@@ -212,9 +222,9 @@ The paper workflow decides when these run. This module only provides the checks.
 
 **CS-12.3 Deposit checks.** (a) Total deposits must not exceed office cash: `Bank deposits exceed available office cash. Available: <x>, Deposited: <y>`. (b) For each of ₹2000, 500, 200, 100, 50, 20, 10 and coins, the deposited count (or coin amount), summed over all deposits, must not exceed what is available, which is the route denominations plus the direct collections: `Bank deposit <label> count exceeds available cash. Available: <a>, Deposited: <d>`. Both checks are always evaluated. **The bankable cash pool is exactly route denominations plus direct collections (binding, CS-16.9 resolved).** Cheque and online amounts are not cash. The night office cash collection is excluded, as decided in CS-16.2. Note that check (a) uses route net cash from the books and check (b) uses counted notes, so while a route still has a mismatch the two can differ; at submission they agree because every route must reconcile (CS-12.2).
 
-**CS-12.4 Which paper transition runs what (as called today).** Morning submit runs CS-12.2 and CS-12.3. Finalizing a REOPENED paper runs them again and then CS-12.5.
+**CS-12.4 Which paper transition runs what (as called today).** Morning submit runs CS-12.2 and CS-12.3. **Amended (PA-8.3, PA-8.9):** re-finalizing a REOPENED paper no longer runs CS-12.2, CS-12.3 or CS-12.5 as gates. Paper reports the same findings as non-blocking warnings (`Cash settlement: ...`) in the finalize response and audit entry.
 
-**CS-12.5 Reopened paper reconciles route by route (binding, S10).** Finalizing a REOPENED paper requires every route to reconcile (CS-12.2). An error on one route can no longer hide behind the opposite error on another. Failure: 400 `{ message: "Cash settlement no longer reconciles after reopening. Route denominations must be re-entered before finalizing.", details[] }`. For any other status this check does nothing.
+**CS-12.5 Reopened paper reconciles route by route (S10; superseded by PA-8.3, the gate is no longer called by Paper).** The method `validateReconciliationOnFinalize` would require every route of a REOPENED paper to reconcile (CS-12.2). An error on one route can no longer hide behind the opposite error on another. Failure: 400 `{ message: "Cash settlement no longer reconciles after reopening. Route denominations must be re-entered before finalizing.", details[] }`. For any other status this check does nothing. *(Amendment, PA-8.3: Paper no longer calls this gate. On a REOPENED paper a client's cash can change while the counted notes cannot, and direct collections and deposits are frozen (CS-2.4), so a route can legitimately not match and the deposit checks could fail with no way to fix them. The difference is still shown in `summary.reconciliationDifference` (CS-3.6) and reported as a warning at re-finalize. The method `validateReconciliationOnFinalize` remains in the code, unused by Paper.)*
 
 ---
 
@@ -228,6 +238,7 @@ The paper workflow decides when these run. This module only provides the checks.
 | Stale token, explicit null token, serialization retry exhausted | 409 |
 | Not authenticated / lacks role | 401 / 403 |
 | Throttled | 429 |
+| Successful save | 200 (CS-11.2) |
 
 **CS-13.1** A missing paper is 404 `Paper not found`, as in OD-14.1, CD-3.2, VA-3.1 and PD-55.
 
@@ -332,6 +343,16 @@ The paper workflow decides when these run. This module only provides the checks.
 | CS-4.2 | Changed | Routes of inactive groups with no money recorded are hidden (CS-16.6) |
 | CS-10.5 | Changed | No-op saves do not advance the token; saves return `changed` (CS-16.7) |
 | CS-16 | Changed | Open items resolved; only the placeholder caps (CS-16.1) remain open |
+| CS-12.4 / CS-12.5 | Amended | Paper no longer gates re-finalize of a REOPENED paper on route reconciliation or deposits; reported as warnings (PA-8.3, PA-8.9) |
+| CS-1.3 | New | No per-paper or per-route scoping, documented (DQ4) |
+| CS-6.4, CS-9.2 | Changed | The active check for expense types and banks applies only to new lines and to changed types or banks (DQ1) |
+| CS-8.4, CS-8.5 | Changed | An all-zero direct-collection entry with no stored row is ignored before any employee rule (DQ2) |
+| CS-10.3 | Amended | Names the other writers of the shared token: Collections cash saves (CD-7.2), Distributor Transfer (DQ8) |
+| CS-10.7 to CS-10.9 | New | Timeout 409, lost-response 409 and token format documented as binding (DQ7) |
+| CS-11.2, CS-13 | New | Saves answer 200 (DQ3) |
+| CS-3.5 | Clarified | Normal summary shape for every status except REOPENED, including a re-finalized paper (DQ9) |
+| CS-12.5 | Clarified | Marked as superseded for Paper; the method is unused (D-9) |
+| CS-18.6, CS-18.8, CS-18.9 | Changed | Timeout 409 keeps the edits; a save resets only its own section; no refetch on focus or reconnect (DQ5, DQ6) |
 
 ---
 
@@ -344,5 +365,29 @@ These are client-side requirements. The backend cannot enforce them.
 3. **Show `submission` prominently (CS-16.10).** Display `submission.ready`, and list every entry of `routeMismatches` and `depositProblems` where the user can see them while editing, not only after a failed submit. Saving is permissive and submission is strict, so this block is the only live signal that a saved draft would fail submission.
 4. Send expense lines with their `id` to edit them, without an `id` to add them, and list removed lines in `deletedExpenseIds`. Do the same with `deletedDepositIds` for deposits and `deletedEmployeeIds` for direct collections. Leaving something out never deletes it.
 5. Send all eight denomination fields on every entry, with 0 for empty ones.
-6. On 409, reload. On 400 with `details`, show the list.
+6. On a 409 that means the data changed (stale token, exhausted serialization retry), reload and discard the unsaved edits. On the timeout 409 (`took too long and nothing was saved`) keep the edits and the screen as they are (DQ5, as OD-12.10). On 400 with `details`, show the list and keep the edits.
 7. Use `workflow.permissions` to enable or disable each section.
+8. A successful save replaces the token and resets only the drafts and the delete list of the section that was saved. Unsaved edits in the other sections stay (DQ5).
+9. The screen query is not refetched on window focus or on reconnect, so the token cannot change under unsaved edits (DQ6, as OD-12.10 and CD-8.5).
+
+---
+
+## 19. Review of the discovery questions (DQ1 to DQ11)
+
+The behavioral specification discovery for this module raised eleven questions. The business owner answered them.The choice made is stated below and is easy to reverse. Code changes are implemented but not yet compiled or run.
+
+| DQ | Decision | Applied as |
+|---|---|---|
+| DQ1 | A saved line keeps working after its expense type or bank is deactivated. The active check applies only to new lines and to lines whose type or bank is changed (logical best: the historical-record rule of CD-6.2, OD-6.5(b), CS-8.5) | CS-6.4, CS-9.2 |
+| DQ2 | An all-zero direct-collection entry with no stored row is ignored before any employee rule (logical best: as CD-2.2, OD-6.5(d)) | CS-8.4, CS-8.5 |
+| DQ3 | Saves answer 200, as the other modules | CS-11.2, CS-13 |
+| DQ4 | Any employee, any paper | CS-1.3 |
+| DQ5 | As Orders (OD-12.10): the timeout 409 keeps the edits, a 409 that means the data changed reloads and clears them. A successful save resets only the section that was saved (this per-section reading of the answer is an assumption, easy to reverse) | CS-18.6, CS-18.8 |
+| DQ6 | No automatic refetch on window focus or on reconnect | CS-18.9 |
+| DQ7 | Timeout 409, lost-response 409 and token format are documented as binding, as in the sibling decision files (logical best) | CS-10.7 to CS-10.9 |
+| DQ8 | CS-10.3 carries the Collections amendment (CD-7.3). The coupling is not added to the dependency register, because the register lists only cross-module propagation dispatched through the orchestrator and Collections writes the token directly (logical best) | CS-10.3 |
+| DQ9 | After a re-finalize the normal summary is shown. The `submission` block still lists any mismatch, and Paper reports it at finalize (logical best: CS-3.5 already says so, PA-8.9) | CS-3.5 |
+| DQ10 | The placeholder caps stay as they are | CS-16.1 |
+| DQ11 | The shared frontend files (`@/shared/api/error`, `@/shared/api/http`, `paper/utils/error`) were supplied and checked. The masters hooks and the Reports module were not | Section 16 |
+
+**Code changed:** `cash-settlement.controller.ts` (200 on the four saves), `cash-settlement.service.ts` (active checks only for new or changed type and bank; all-zero direct entries ignored first), `cash-settlement.repository.ts` (`isAllZero` exported), `CashSettlementPage.tsx`, `useSaveCashSettlement.ts`, `useCashSettlement.ts`. No other module changed.

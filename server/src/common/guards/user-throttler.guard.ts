@@ -23,16 +23,26 @@ export class UserThrottlerGuard extends ThrottlerGuard {
     super(options, storage, reflector);
   }
 
-  protected async getTracker(req: Record<string, any>): Promise<string> {
-    const h: string | undefined = req.headers?.authorization;
-    if (h?.startsWith('Bearer ')) {
+  protected getTracker(req: Record<string, unknown>): Promise<string> {
+    const headers = req.headers as { authorization?: string } | undefined;
+
+    const authorization = headers?.authorization;
+
+    if (authorization?.startsWith('Bearer ')) {
       try {
-        const p = this.jwt.verify<{ sub?: number }>(h.slice(7));
-        if (p?.sub) return `user:${p.sub}`;
+        const payload = this.jwt.verify<{ sub?: number }>(
+          authorization.slice(7),
+        );
+
+        if (payload?.sub) {
+          return Promise.resolve(`user:${payload.sub}`);
+        }
       } catch {
-        /* fall through */
+        // Fall through to IP-based tracking.
       }
     }
-    return req.ip; // login/refresh stay per-IP
+
+    const ip = req.ip;
+    return Promise.resolve(typeof ip === 'string' ? ip : 'unknown');
   }
 }

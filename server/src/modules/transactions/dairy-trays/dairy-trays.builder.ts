@@ -119,9 +119,12 @@ export class DairyTraysBuilder {
       ledgerLines.map((line) => `${line.vehicleId}_${line.deliverySession}`),
     );
 
+    // DT-3.5 (as VA-3.6): by vehicle name, vehicles without a name last, then id.
     const sortedVehicles = [...vehicles].sort(
       (a, b) =>
-        describeVehicle(a).localeCompare(describeVehicle(b)) || a.id - b.id,
+        Number(a.vehicle_name === null) - Number(b.vehicle_name === null) ||
+        (a.vehicle_name ?? '').localeCompare(b.vehicle_name ?? '') ||
+        a.id - b.id,
     );
 
     const rows: DairyTrayRow[] = [];

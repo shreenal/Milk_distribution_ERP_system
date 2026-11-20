@@ -43,7 +43,7 @@ export function describeAllocationRow(row: DescribableRow): string {
 /** Key of one required quantity: distributor + category + product. */
 export function buildRequirementKey(
   distributorId: number,
-  category: SupplyCategory | string,
+  category: SupplyCategory,
   productId: number,
 ): string {
   return `${distributorId}_${category}_${productId}`;

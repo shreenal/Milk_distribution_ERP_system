@@ -11,7 +11,7 @@ export class HealthController {
   ) {}
 
   @Get()
-  async check() {
+  check() {
     return { status: 'ok', timestamp: new Date().toISOString() };
   }
 

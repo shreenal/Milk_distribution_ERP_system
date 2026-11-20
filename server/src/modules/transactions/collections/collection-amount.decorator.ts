@@ -21,7 +21,7 @@ import { COLLECTION_AMOUNT } from './collections.constants.js';
  */
 export const CollectionAmount = () =>
   applyDecorators(
-    Transform(({ value }) => (value === '' ? null : value)),
+    Transform(({ value }: { value: unknown }) => (value === '' ? null : value)),
     IsOptional(),
     IsNumber(
       { allowNaN: false, allowInfinity: false },
@@ -37,12 +37,15 @@ export const CollectionAmount = () =>
     ValidateBy({
       name: 'collectionAmountDecimals',
       validator: {
-        validate: (value: unknown) =>
-          typeof value !== 'number' ||
-          !Number.isFinite(value) ||
-          toDecimal(value).decimalPlaces() <=
-            COLLECTION_AMOUNT.MAX_DECIMAL_PLACES,
-        defaultMessage: (a?: ValidationArguments) =>
+        validate: (value: unknown): boolean => {
+          if (typeof value !== 'number' || !Number.isFinite(value)) {
+            return true;
+          }
+
+          const decimalPlaces: number = toDecimal(value).decimalPlaces();
+          return decimalPlaces <= COLLECTION_AMOUNT.MAX_DECIMAL_PLACES;
+        },
+        defaultMessage: (a?: ValidationArguments): string =>
           `${a?.property} must have at most ${COLLECTION_AMOUNT.MAX_DECIMAL_PLACES} decimal places`,
       },
     }),

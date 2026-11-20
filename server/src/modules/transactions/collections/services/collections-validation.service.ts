@@ -3,6 +3,7 @@ import { CollectionsRepository } from '.././collections.repository.js';
 import { COLLECTION_ERROR_MESSAGES } from '.././collections.constants.js';
 import { SupplyCategory } from '../../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
+import { assertNoDuplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
 
 @Injectable()
 export class CollectionsValidationService {
@@ -88,20 +89,11 @@ export class CollectionsValidationService {
   }
 
   validateNoDuplicateClients(entries: { clientId: number }[]): void {
-    const seen = new Set<number>();
-    const duplicates: number[] = [];
-
-    for (const entry of entries) {
-      if (seen.has(entry.clientId)) {
-        duplicates.push(entry.clientId);
-      }
-      seen.add(entry.clientId);
-    }
-
-    if (duplicates.length > 0) {
-      throw new BadRequestException(
+    assertNoDuplicateKeys(
+      entries,
+      (entry) => String(entry.clientId),
+      (duplicates) =>
         `Duplicate client entries found: ${duplicates.join(', ')}. Each client can only appear once per save.`,
-      );
-    }
+    );
   }
 }

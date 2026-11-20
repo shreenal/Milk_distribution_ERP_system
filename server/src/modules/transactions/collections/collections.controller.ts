@@ -2,8 +2,8 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
-  ParseIntPipe,
   Post,
   Req,
   UseGuards,
@@ -47,6 +47,7 @@ export class CollectionsController {
   @Post('/sheet/:sheetId/milk/night-save')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CD-11.1: saves answer 200, as Orders
   saveMilkNightCollections(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -65,6 +66,7 @@ export class CollectionsController {
   @Post('/sheet/:sheetId/non-milk/night-save')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CD-11.1: saves answer 200, as Orders
   saveNonMilkNightCollections(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -83,6 +85,7 @@ export class CollectionsController {
   @Post('/sheet/:sheetId/milk/morning-save')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CD-11.1: saves answer 200, as Orders
   saveMilkMorningCollections(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -101,6 +104,7 @@ export class CollectionsController {
   @Post('/sheet/:sheetId/non-milk/morning-save')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CD-11.1: saves answer 200, as Orders
   saveNonMilkMorningCollections(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -119,6 +123,7 @@ export class CollectionsController {
   @Post('/sheet/:sheetId/milk/admin-save')
   @Roles('ADMIN')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CD-11.1: saves answer 200, as Orders
   saveMilkAdminCollections(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -137,6 +142,7 @@ export class CollectionsController {
   @Post('/sheet/:sheetId/non-milk/admin-save')
   @Roles('ADMIN')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CD-11.1: saves answer 200, as Orders
   saveNonMilkAdminCollections(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,

@@ -204,7 +204,7 @@ export class PurchaseBuilder {
         seeds.set(key, seed);
       }
       if (!seed.products.has(product.id)) {
-        seed.products.set(product.id, product as unknown as Product);
+        seed.products.set(product.id, product);
       }
     }
 
@@ -352,12 +352,30 @@ export class PurchaseBuilder {
     return purchaseGrids;
   }
 
-  /** Entries that cannot be drawn in any grid cell (PD-6 / PD-7). */
+  /**
+   * Entries that cannot be drawn (PD-6 / PD-7, amended): the entry has no grid
+   * cell, OR no current allocation exists for it. Such an entry can no longer
+   * be edited (PD-4), so it is resolved by explicit deletion (PD-8).
+   */
   findOrphanedEntries(
     purchaseGrids: PurchaseGrid,
     entries: SavedPurchaseEntry[],
+    allocations: VehicleAllocation[],
   ): OrphanedPurchaseEntry[] {
     const index = new PurchaseRowIndex(purchaseGrids.purchases);
+    const allocatedKeys = new Set(
+      allocations
+        .filter((a) => Number(a.allocated_qty) > 0)
+        .map((a) =>
+          buildPurchaseKey({
+            vehicleId: a.vehicle_id,
+            distributorId: a.distributor_id,
+            category: a.category,
+            productId: a.product_id,
+            deliverySession: a.vehicle_allocation_paper.delivery_session,
+          }),
+        ),
+    );
     const orphans: OrphanedPurchaseEntry[] = [];
 
     for (const entry of entries) {
@@ -368,7 +386,7 @@ export class PurchaseBuilder {
         entry.delivery_session,
         `product_${entry.product_id}`,
       );
-      if (row) continue;
+      if (row && allocatedKeys.has(buildPurchaseKey(entry))) continue;
 
       orphans.push({
         entryId: entry.id,
@@ -398,7 +416,9 @@ export class PurchaseBuilder {
     result.orphanedEntries = this.findOrphanedEntries(
       purchaseGrids,
       purchaseEntries,
+      currentAllocations,
     );
+    const orphanIds = new Set(result.orphanedEntries.map((o) => o.entryId));
 
     const index = new PurchaseRowIndex(result.purchases);
 
@@ -417,6 +437,9 @@ export class PurchaseBuilder {
     }
 
     for (const entry of purchaseEntries) {
+      // PD-7: an orphan is listed in orphanedEntries, never drawn in a cell.
+      if (orphanIds.has(entry.id)) continue;
+
       const quantityField = `product_${entry.product_id}`;
 
       const row = index.findRow(

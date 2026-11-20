@@ -8,7 +8,7 @@ export function buildAllocationKey(row: {
   vehicleId?: number;
   distributor_id?: number;
   distributorId?: number;
-  category: SupplyCategory | string;
+  category: SupplyCategory;
   product_id?: number;
   productId?: number;
 }): string {
@@ -24,7 +24,7 @@ export function buildPurchaseKey(row: {
   vehicleId?: number;
   distributor_id?: number;
   distributorId?: number;
-  category: SupplyCategory | string;
+  category: SupplyCategory;
   product_id?: number;
   productId?: number;
   delivery_session?: DeliverySession;

@@ -15,8 +15,9 @@ import { SaveDairyTrayEntriesDto } from './dto/save-dairy-tray-entries.dto.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { DairyTraysPropagationService } from './services/dairy-trays-propagation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
-import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { TRANSACTION_CONFIG } from '../../../common/transactions/transaction.constants.js';
+import { runSerializableTransaction } from '../../../common/transactions/transaction-runner.js';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
 import { PropagationOutboxRepository } from '../propagation-queue/propagation-outbox.repository.js';
 import { PROPAGATION_OUTBOX_TYPES } from '../propagation-queue/propagation-queue.constants.js';
 import { parseStrictDate } from '../paper/paper-date.util.js';
@@ -100,23 +101,19 @@ export class DairyTraysService {
   }
 
   private parseExpected(expected: string | null): Date | null {
-    if (expected === null) return null;
-
-    const date = new Date(expected);
-
-    if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException(MSG.INVALID_EXPECTED_UPDATED_AT);
-    }
-
-    return date;
+    return optimisticConcurrency.parseExpectedUpdatedAt(
+      expected,
+      MSG.INVALID_EXPECTED_UPDATED_AT,
+    );
   }
 
   /**
    * DT-5: order of checks inside the transaction:
    * paper exists (404) -> status allows editing (400) -> header exists (400)
    * -> token (409) -> entries validated against the server's own ledger (400)
-   * -> no conflicting stored return anywhere (409) -> write -> on a REOPENED
-   * paper, forward conflict check (409) and a queued cascade.
+   * -> no conflicting stored return anywhere (409) -> unchanged? return the
+   * current token (DT-5.13) -> advance token -> write -> on a REOPENED paper,
+   * forward conflict check (409) and a queued cascade.
    *
    * `reconcileInactive` is true only from the admin route (DT-5.11).
    */
@@ -129,125 +126,141 @@ export class DairyTraysService {
     this.dairytraysValidationService.validateNoDuplicateEntries(dto.entries);
     const expected = this.parseExpected(dto.expectedUpdatedAt);
 
-    const dairyTraysUpdatedAt = await withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const paper = await this.dairyTraysRepository.findPaperById(
+    const outcome = await runSerializableTransaction(
+      this.prisma,
+      async (tx) => {
+        const paper = await this.dairyTraysRepository.findPaperById(
+          paperId,
+          tx,
+        );
+
+        if (!paper) {
+          throw new NotFoundException(MSG.PAPER_NOT_FOUND);
+        }
+
+        if (!this.workflowStateService.canEditDairyTrays(paper.status)) {
+          throw new BadRequestException(MSG.EDIT_NOT_ALLOWED);
+        }
+
+        // GET never creates the header (DT-3.3), and a save must not either.
+        const dairyTrayPaper =
+          await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
             paperId,
             tx,
           );
 
-          if (!paper) {
-            throw new NotFoundException(MSG.PAPER_NOT_FOUND);
-          }
+        if (!dairyTrayPaper) {
+          throw new BadRequestException(MSG.DAIRY_TRAY_PAPER_NOT_FOUND);
+        }
 
-          if (!this.workflowStateService.canEditDairyTrays(paper.status)) {
-            throw new BadRequestException(MSG.EDIT_NOT_ALLOWED);
-          }
+        // DT-9.2: the header always has a token, so an explicit null can
+        // never match: it is the normal stale conflict.
+        if (expected === null) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
 
-          // GET never creates the header (DT-3.3), and a save must not either.
-          const dairyTrayPaper =
-            await this.dairyTraysRepository.findDairyTrayPaperByOrderPaperId(
-              paperId,
-              tx,
-            );
+        // DT-5.13: compare first, advance only if something changes. A stale
+        // token is a 409 even for a save that would change nothing.
+        if (
+          !optimisticConcurrency.tokenMatches(
+            dairyTrayPaper.updated_at,
+            expected,
+          )
+        ) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
 
-          if (!dairyTrayPaper) {
-            throw new BadRequestException(MSG.DAIRY_TRAY_PAPER_NOT_FOUND);
-          }
+        // Everything is validated against the server's own numbers.
+        const ledger = await this.ledgerService.loadLedger(
+          paper,
+          dairyTrayPaper.id,
+          tx,
+        );
 
-          // DT-9.2: the header always has a token, so an explicit null can
-          // never match: it is the normal stale conflict.
-          if (expected === null) {
-            throw new ConflictException(STALE_DATA_MESSAGE);
-          }
+        this.dairytraysValidationService.validateReturnEntries(
+          dto.entries,
+          ledger,
+          options.reconcileInactive === true,
+        );
 
-          const touch =
-            await this.dairyTraysRepository.touchDairyTrayPaperIfTokenMatches(
-              dairyTrayPaper.id,
-              expected,
-              tx,
-            );
+        // DT-4.6: rows not in the request keep their stored return;
+        // submitted entries override.
+        const returnedByKey = new Map(ledger.returnedByKey);
 
-          if (touch.count !== 1) {
-            throw new ConflictException(STALE_DATA_MESSAGE);
-          }
+        for (const entry of dto.entries) {
+          returnedByKey.set(buildDairyTrayKey(entry), entry.returned);
+        }
 
-          // Everything is validated against the server's own numbers.
-          const ledger = await this.ledgerService.loadLedger(
-            paper,
+        // DT-6.5: never leave any stored return above its balance.
+        await this.ledgerService.assertNoReturnConflicts(
+          ledger.openingBalances,
+          ledger.takenByKey,
+          returnedByKey,
+          paper.sale_date,
+          tx,
+        );
+
+        const lines = this.ledgerService.buildLedger(
+          ledger.openingBalances,
+          ledger.takenByKey,
+          returnedByKey,
+        );
+
+        // DT-5.13: nothing would change in the stored ledger. No write, no
+        // token move, no forward check, no cascade.
+        if (!this.ledgerService.hasLedgerChanged(ledger.stored, lines)) {
+          return {
+            changed: false,
+            token: dairyTrayPaper.updated_at.toISOString(),
+          };
+        }
+
+        const touch =
+          await this.dairyTraysRepository.touchDairyTrayPaperIfTokenMatches(
             dairyTrayPaper.id,
+            expected,
             tx,
           );
 
-          this.dairytraysValidationService.validateReturnEntries(
-            dto.entries,
-            ledger,
-            options.reconcileInactive === true,
-          );
+        if (touch.count !== 1) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
 
-          // DT-4.6: rows not in the request keep their stored return;
-          // submitted entries override.
-          const returnedByKey = new Map(ledger.returnedByKey);
+        await this.dairyTraysRepository.replaceTrayTransactions(
+          dairyTrayPaper.id,
+          lines.map((line) =>
+            this.ledgerService.toTransactionInput(dairyTrayPaper.id, line),
+          ),
+          tx,
+        );
 
-          for (const entry of dto.entries) {
-            returnedByKey.set(buildDairyTrayKey(entry), entry.returned);
-          }
-
-          // DT-6.5: never leave any stored return above its balance.
-          await this.ledgerService.assertNoReturnConflicts(
-            ledger.openingBalances,
-            ledger.takenByKey,
-            returnedByKey,
-            paper.sale_date,
+        // DT-10.2: on a reopened paper a changed closing balance must reach
+        // later papers. Refuse the save if a later paper could no longer
+        // cover its own returns, otherwise queue the forward cascade.
+        if (paper.status === OrderPaperStatus.REOPENED) {
+          await this.dairyTraysPropagationService.assertNoForwardReturnConflicts(
+            paper.id,
             tx,
           );
 
-          const lines = this.ledgerService.buildLedger(
-            ledger.openingBalances,
-            ledger.takenByKey,
-            returnedByKey,
-          );
-
-          await this.dairyTraysRepository.replaceTrayTransactions(
-            dairyTrayPaper.id,
-            lines.map((line) =>
-              this.ledgerService.toTransactionInput(dairyTrayPaper.id, line),
-            ),
+          await this.propagationOutboxRepository.enqueue(
+            PROPAGATION_OUTBOX_TYPES.DAIRY_TRAYS_FORWARD,
+            paper.id,
+            null,
             tx,
           );
+        }
 
-          // DT-10.2: on a reopened paper a changed closing balance must reach
-          // later papers. Refuse the save if a later paper could no longer
-          // cover its own returns, otherwise queue the forward cascade.
-          if (paper.status === OrderPaperStatus.REOPENED) {
-            await this.dairyTraysPropagationService.assertNoForwardReturnConflicts(
-              paper.id,
-              tx,
-            );
-
-            await this.propagationOutboxRepository.enqueue(
-              PROPAGATION_OUTBOX_TYPES.DAIRY_TRAYS_FORWARD,
-              paper.id,
-              null,
-              tx,
-            );
-          }
-
-          // DT-9.4: the caller needs the new token to save again.
-          return touch.touchedAt.toISOString();
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
+        // DT-9.4: the caller needs the new token to save again.
+        return { changed: true, token: touch.touchedAt.toISOString() };
+      },
     );
 
     return {
       success: true,
+      changed: outcome.changed,
       message: DAIRY_TRAY_TRACKING_SUCCESS_MESSAGES.TRAY_RETURNS_SAVED,
-      dairyTraysUpdatedAt,
+      dairyTraysUpdatedAt: outcome.token,
     };
   }
 

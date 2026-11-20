@@ -1,11 +1,11 @@
 import {
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   Body,
   UseGuards,
-  ParseIntPipe,
   UseInterceptors,
 } from '@nestjs/common';
 import { ClientTraysService } from './client-trays.service.js';
@@ -36,6 +36,7 @@ export class ClientTraysController {
   }
 
   @Post('sheet/:sheetId/save')
+  @HttpCode(200)
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @UseInterceptors(StripUnknownTrayFieldsInterceptor)
@@ -56,6 +57,7 @@ export class ClientTraysController {
   // and rules as the normal save, but only inactive tray types can be
   // changed, and only an admin can call it.
   @Post('sheet/:sheetId/reconcile-inactive')
+  @HttpCode(200)
   @Roles('ADMIN')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(StripUnknownTrayFieldsInterceptor)
@@ -75,6 +77,7 @@ export class ClientTraysController {
 
   // Decision 26: administrative recalculation over a sale-date range.
   @Post('recalculate')
+  @HttpCode(200)
   @Roles('ADMIN')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   async recalculateRange(@Body() dto: RecalculateClientTraysRangeDto) {

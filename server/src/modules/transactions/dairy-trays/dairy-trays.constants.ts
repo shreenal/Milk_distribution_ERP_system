@@ -12,7 +12,7 @@ export const STALE_DATA_MESSAGE =
   'Dairy Trays data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
 
 export const DAIRY_TRAYS_ERROR_MESSAGES = {
-  PAPER_NOT_FOUND: 'Paper not found',
+  PAPER_NOT_FOUND: 'Order paper not found',
 
   DAIRY_TRAY_PAPER_NOT_FOUND:
     'Dairy tray tracking has not been generated for this paper',

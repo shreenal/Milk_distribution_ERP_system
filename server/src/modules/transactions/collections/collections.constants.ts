@@ -11,6 +11,9 @@ export const COLLECTION_AMOUNT = {
   MAX_DECIMAL_PLACES: 2,
 } as const;
 
+export const STALE_DATA_MESSAGE =
+  'Collections data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+
 export const COLLECTION_ERROR_MESSAGES = {
   SHEET_NOT_FOUND: 'Order sheet not found',
 

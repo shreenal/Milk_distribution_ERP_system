@@ -2,11 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
-import { diffByKey } from '../../../common/prisma/diff-by-key.util.js';
-import {
-  touchIfTokenMatches,
-  touchIfUnchanged,
-} from '../../../common/prisma/touch-if-unchanged.util.js';
+import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { diffByKey } from '../../../common/transactions/change-planning/diff-by-key.js';
 
 @Injectable()
 export class DistributorTransferRepository {

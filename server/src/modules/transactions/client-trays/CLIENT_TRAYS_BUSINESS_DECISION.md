@@ -44,6 +44,8 @@ Where a rule is marked **(as implemented)** it describes existing behavior that 
 
 **CT-1.3** Save is throttled to 10 requests per minute per user. Range recalculation and reconciliation are each throttled to 5 requests per minute per user. Sheet view uses the global limit. Exceeding a limit returns 429.
 
+**CT-1.4 No per-group scoping (binding, as implemented).** Any employee (and any admin) may read and save the tray sheet of any group. There is no per-group or per-sheet authorization in Client Trays (same as Orders OD-1.3 and Paper PA-1.3). *(Q7.)*
+
 ---
 
 ## 2. Workflow: what can be done at each paper status
@@ -107,15 +109,17 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-4.7 Validation order.** Request-shape checks (CT-4.1 to CT-4.5) and the duplicate check run before the database transaction starts, so a malformed request never touches data. The token check, status check and balance checks run inside the transaction.
 
+**CT-4.8 Frontend checks before sending (binding, UI).** The save button sends nothing while any Returned value is not a whole number from 0 to 2,000, and tells the user which clients are affected. A blank cell counts as 0 (CT-4.6). If the grids have no Returned cell to send (CT-4.3), the user is told there is nothing to save instead of the button doing nothing. The server rules are unchanged and remain the authority. *(Q14.)*
+
 ---
 
 ## 5. Save (`POST /client-trays/sheet/:sheetId/save`)
 
 **CT-5.1 Ledger key (binding).** A ledger line is identified by sheet + client + tray type + **category**. The database enforces this with a unique key on all four. *(Business decision #9.)*
 
-**CT-5.2 Atomic.** The whole request is one serializable transaction. If anything fails, nothing is saved and the concurrency token is rolled back too. On a database serialization conflict the system makes at most 3 total attempts, then returns 409 `Your request conflicted with another update and could not be completed. Please retry.`
+**CT-5.2 Atomic.** The whole request is one serializable transaction. If anything fails, nothing is saved and the concurrency token is rolled back too. On a database serialization conflict the system makes at most 3 total attempts, then returns 409 `Your request conflicted with another update and could not be completed. Please retry.` A transaction that exceeds its time limit (10 s) saves nothing and returns 409 `The request took too long and nothing was saved. Please retry.` This is accepted as is, the same as Orders OD-6.2. *(Q8.)*
 
-**CT-5.3 Order of checks inside the transaction:** sheet exists (404) → paper status allows editing (400, CT-2.2) → concurrency token (409, CT-9) → every entry validated against the server's own calculated ledger (400) → write.
+**CT-5.3 Order of checks inside the transaction:** sheet exists (404) → paper status allows editing (400, CT-2.2) → concurrency token compared read-only (409, CT-9) → every entry validated against the server's own calculated ledger (400) → no stored return anywhere above its balance (409, CT-5.13) → if the ledger is unchanged, stop with success (CT-5.14) → token advanced → write.
 
 **CT-5.4 The server's numbers are authoritative.** Opening, taken and balances are always recalculated on the server. The client sends only returns. Nothing the client sends can change opening or taken.
 
@@ -127,13 +131,20 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-5.8 What is written.** The complete calculated ledger for the sheet: each line gets its opening, taken, the returned value (CT-4.6) and closing. Lines that no longer qualify are removed (CT-7.3). The write is restricted to this sheet.
 
-**CT-5.9 Response** `{ success: true, message: "Tray returns saved successfully", clientTraysUpdatedAt }`, where `clientTraysUpdatedAt` is the NEW token (CT-9.4). *(Business decision #16.)*
+**CT-5.9 Response** `{ success: true, message: "Tray returns saved successfully", clientTraysUpdatedAt }`, where `clientTraysUpdatedAt` is the NEW token (CT-9.4), or, when the save changed nothing (CT-5.14), the CURRENT token (null if the sheet was never saved). The HTTP status is 200 (CT-13). *(Business decision #16.)*
 
 **CT-5.10 Save on a REOPENED paper queues a cascade, after a conflict check.** Because a changed closing balance must reach later sheets, a save on a REOPENED paper first checks every later sheet of the group in memory. If any of them would be left with returns above its balance, the whole save is refused with 409 (CT-6.6). Otherwise the save succeeds and a forward cascade for this sheet is queued through the existing propagation queue (CT-10.2). A save on NIGHT_SUBMITTED does neither.
 
 **CT-5.11 Reconciling inactive tray types: `POST /client-trays/sheet/:sheetId/reconcile-inactive` (ADMIN only, binding).** The body and every rule are the same as the normal save (token, status, balance rule, limit, cascade on a reopened paper), with one difference: only inactive tray types can be changed. An entry for an active tray type is rejected with 400 `Client "X": <brand> <colour> tray is active. Use the normal save instead of reconciliation`. It is not a way around CT-10.8, because the master data stays unchanged. *(CT-15.5.)*
 
-**CT-5.12 The 2,000 limit is on the row's total (binding).** The limit applies to the total returned for one ledger row (sheet + client + tray type + category). A save sets that total, it does not add to it, so the limit holds across saves. It is checked in the request (CT-4.1) and again in the service, so the admin route is covered too. Over the limit: 400 `Client "X": 2001 <tray> returned exceeds the limit of 2000 per row`. *(CT-15.6.)*
+**CT-5.12 The 2,000 limit is on the row's total (binding).** The limit applies to the total returned for one ledger row (sheet + client + tray type + category). A save sets that total, it does not add to it, so the limit holds across saves. It is checked in the request (CT-4.1) and again in the service, so the admin route is covered too. Over the limit: 400 `Client "X": 2001 <tray> returned exceeds the limit of 2000 per row`. Only the 400 status is binding, not the wording: through the API the request validation (CT-4.1) rejects the value first with the standard validation text, and the service message is a safety net. The same holds for `Tray row not found` (CT-5.6), which reports the first offending entry. *(CT-15.6, Q13.)*
+
+**CT-5.13 A save is refused while any stored return exceeds its balance (binding, approved).** After the submitted entries are applied in memory, the sheet's whole ledger is checked. If any stored return, including rows that are not in the request, is higher than that line's available balance (opening + taken), the save is refused with 409 `This change would leave returned trays higher than the outstanding balance. Correct the returns first, then repeat the change` and a `details[]` list of client, tray and sale date (the CT-6.6 message). Nothing is capped or deleted. The check also runs on the admin reconciliation route (CT-5.11).
+Why: CT-6.6 prevents such rows from being created, so they can only come from legacy data. Before this rule, (a) a stored return on a row with no opening balance and nothing taken made every save on that sheet fail with an unexplained 500, and (b) a stored return above its balance on a row that still had activity was written back as a negative closing, which CT-5.5 forbids.
+How it is repaired: the sheet view still shows such rows (it never throws). A normal save that sets the stranded return to a value within its balance (0 for a row with no balance) repairs an active tray type. An inactive tray type is repaired through reconciliation (CT-5.11). Rows with a conflict must all be corrected in the same request. This mirrors Dairy Trays DT-5.3.
+Status: approved by the business owner (Q10), applied as written. This includes a stranded return on an inactive tray type, which only the admin reconciliation can repair (CT-5.11): until an admin does that, normal saves on that sheet are refused, and the 409 `details[]` names the client and tray.
+
+**CT-5.14 A save that changes nothing is a no-op (binding, new).** After the status check (CT-2.2), the supplied token is compared with the current one read-only; a mismatch is 409 even for a no-op. Then the request is validated and the ledger it would write is calculated (CT-5.8). If that ledger is exactly the one already stored for the sheet (the same rows, and the same opening, taken, returned and closing on every row, with a stored return of empty counting as different from 0), nothing is written, the token is NOT advanced, and on a REOPENED paper no forward dry run runs and no cascade is queued. The response is success with the CURRENT token (null if the sheet has never been saved), the same as Orders OD-12.8. Otherwise the token is advanced (compare and advance in one statement) and the ledger is written as before. Reason: an unchanged save must not make another editor's valid token stale or queue background work. *(Q1.)*
 
 ---
 
@@ -143,7 +154,7 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-6.2 Formula.** `Closing = Opening + Taken − Returned`, where an empty return counts as 0.
 
-**CT-6.3 Opening balance (as implemented, extended by category).** The closing balance of the immediately previous sheet of the SAME delivery group (latest earlier sale date), per client + tray type + category. Only non-zero closings carry forward. **Balances carry across gaps (binding, CT-15.7):** for each client + tray type + category, the opening is the most recent earlier closing in the same group, even when the immediately previous sheet has no line for it. If the latest earlier closing is 0, or there is none, opening is 0. A client who changes group starts from 0 in the new group.
+**CT-6.3 Opening balance (as implemented, extended by category).** The closing balance of the immediately previous sheet of the SAME delivery group (latest earlier sale date), per client + tray type + category. Only non-zero closings carry forward. **Balances carry across gaps (binding, CT-15.7):** for each client + tray type + category, the opening is the most recent earlier closing in the same group, even when the immediately previous sheet has no line for it. If the latest earlier closing is 0, or there is none, opening is 0. A client who changes group starts from 0 in the new group (this changes once CT-6.7 is implemented).
 
 **CT-6.4 Taken is aggregated before rounding (binding).** Quantities of all order lines for the same client + tray type + category are summed first and rounded once, half-up. They are NOT rounded line by line. Examples: three lines of 0.4 crates total 1.2 crates and give 1 tray; 10.5 crates gives 11 trays; 10.4 gives 10. *(Business decision #6. This replaces the old per-line rounding for Client Trays.)*
 
@@ -158,6 +169,8 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 - A return save on a REOPENED paper: refused with 409 in the same way (CT-5.10).
 - A background cascade or admin recalculation that meets a conflict: the job fails and shows as FAILED, with the same list in `last_error`, in the paper propagation status. Nothing is capped. After the returns are fixed the admin retries the failed job.
 *(CT-15.1.)*
+
+**CT-6.7 A client moved to another group takes its open tray balance along (binding, DECIDED, NOT YET IMPLEMENTED).** When a client's delivery group changes, every non-zero tray balance (per tray type and category) the client has in the old group moves to the new group. Afterwards the client has no balance in the old group and the new group's openings include it. The move must not rewrite taken, returned or closing recorded on any finalized sheet. The mechanism (a recorded transfer that the opening-balance calculation reads) is not designed yet, needs a schema change and a hook in the client master-data update flow (outside this module), and is tracked as CT-15.8. Until it is implemented the behavior of CT-6.3 and CT-8.2 as written applies: the balance stays in the old group and the new group starts at 0. *(Q11.)*
 
 ---
 
@@ -177,7 +190,7 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-8.1 Who appears (binding).** A client appears in a category's grid if it has a ledger line in that category: a non-zero opening balance, or taken greater than 0 on the current sheet. This includes a new client receiving deliveries with no previous balance. *(Business decision #7.)*
 
-**CT-8.2 Outstanding balances stay visible (binding).** A client with an outstanding balance remains visible even with no current order lines, and even if the client is inactive or has moved to another group. Client names are looked up by id regardless of status. *(Business decision #8.)*
+**CT-8.2 Outstanding balances stay visible (binding).** A client with an outstanding balance remains visible even with no current order lines, and even if the client is inactive or has moved to another group (until CT-6.7 is implemented, after which the balance moves with the client). Client names are looked up by id regardless of status. *(Business decision #8.)*
 
 **CT-8.3 A client with no balance and no delivery on this sheet is not shown**, even if they appear on other sheets.
 
@@ -185,11 +198,13 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-8.5 Tray-type columns** shown in a grid are exactly the tray types that have a ledger line in that category.
 
+**CT-8.6 Inactive tray types keep accruing trays taken (binding, as implemented).** Trays that physically go out are recorded whatever the tray type's status: a tray rule, or a line frozen to an inactive tray type, still produces taken on it. That balance is returned only through the admin reconciliation (CT-5.11). Retiring a tray type is therefore a master-data procedure: repoint or deactivate its tray rules first (CT-10.8). *(Q3.)*
+
 ---
 
 ## 9. Concurrency Token
 
-**CT-9.1 Sheet-level (binding).** The token is `order_sheet.client_trays_updated_at`. Concurrency control stays at the sheet level, not per client or per row. *(Business decision #17.)*
+**CT-9.1 Sheet-level (binding).** The token is `order_sheet.client_trays_updated_at`. Concurrency control stays at the sheet level, not per client or per row. *(Business decision #17.)* **Which writes advance it (binding, as implemented):** only a tray save that changes the ledger (CT-5.14), including the admin reconciliation. Orders recalculation, cascades, propagation and range recalculation rewrite ledger rows without advancing it. This is safe because every save is validated against the server's own live numbers (CT-5.4): a screen made stale by those writes cannot save a return above the balance, it receives the CT-5.5 error. *(Q2.)*
 
 **CT-9.2 Mandatory (binding).** `expectedUpdatedAt` is required on every save.
 - **Omitted → always 400.** It is never treated as `null`.
@@ -203,6 +218,10 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 **CT-9.4 Save returns the new token (binding).** The frontend replaces its local token with `clientTraysUpdatedAt` and can save again without reloading. *(Business decision #16.)*
 
 **CT-9.5 Rollback.** The token is advanced inside the same transaction as the data. If the save fails for any reason, the token is rolled back with it.
+
+**CT-9.6 Token format and lost response (binding, as implemented).** A token value must be ISO-8601. Any parseable ISO-8601 string is accepted (a full timestamp is what the API returns); a well-formed value that differs from the current token is 409, an unparseable one is 400. If a save succeeded but its response never reached the client, a retry with the old token returns 409; there is no idempotency key and an identical payload is not recognised as already applied. The user reloads and re-checks. Same as Orders OD-12.9 and OD-12.10. *(Q9.)*
+
+**CT-9.7 Frontend reload rules (binding, UI).** After a failed save: (a) 409 stale token, unique-key race or exhausted serialization retries: the sheet changed, so the frontend discards the unsaved edits and reloads; (b) 409 `took too long and nothing was saved`: edits are kept, no reload; (c) 409 return discrepancy (the response carries `details[]`): nothing changed, so edits are kept, no reload, and the user corrects the returns; (d) 400: edits are kept. The sheet query is not refetched on window focus or on reconnect, so the token cannot change under unsaved edits. It does refetch when the page mounts (a fresh mount starts with no edits); no other component may mount an observer of the same query key while a sheet has unsaved edits. Switching between normal and reconciliation mode discards edits and reloads. *(Q6, Q15.)*
 
 ---
 
@@ -231,6 +250,8 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-10.8 Master data is not changed while a paper is being worked on (binding, operational).** No tray rule, tray type or other master-data change is made while a paper is in progress. This is a business procedure, not enforced by code. *(Business decision #24.)*
 
+**CT-10.9 Opening-balance lookup cost (binding, operational).** The opening-balance lookup reads the group's earlier ledger rows and runs on every view, save, Orders recalculation and cascade step. `order_sheet.group_id` is indexed for it (migration `20261029_order_sheet_group_index`). Nothing else changes now. Before go-live the lookup, a 31-day range recalculation and a forward propagation are measured on the largest real group history; if they approach the transaction time limit, the design (a look-back limit or a stored current-balance table) is decided then as a new decision. *(Q12, CT-15.9.)*
+
 ---
 
 ## 11. Administrative Recalculation and Correction
@@ -249,7 +270,7 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 ## 12. Submission and Finalization Gates (validators owned by Client Trays)
 
-**CT-12.1 Night submit: tray calculation must exist.** Every sheet must have at least one ledger line, otherwise 400 `Tray calculation failed`. *(As implemented.)*
+**CT-12.1 Night submit: no tray ledger check (amended by PA-6.3).** Night submit no longer requires a tray ledger line. A sheet may legitimately have none (it orders only non-tray products, or less than one tray in total). `validateTrayCalculationExists` and its `Tray calculation failed` error remain in the code but Paper no longer calls them.
 
 **CT-12.2 No return-completeness check (binding).** Because an untouched return is 0 (CT-4.6), morning submit and re-finalize no longer require returns to be entered or saved. The check and its error `Tray returns incomplete for: ...` are removed. *(CT-15.4. This replaces business decision #29, which asked for every incomplete client to be listed, because nothing can be incomplete any more.)*
 
@@ -263,9 +284,10 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 |---|---|
 | Format/validation errors, wrong paper status, over-return, return over the 2,000 limit, inactive tray type changed (normal save), active tray type (reconciliation), duplicate entry, unknown tray row, empty entries, invalid date range | 400 |
 | Sheet not found | 404 |
-| Stale or missing-match token, serialization retry exhausted, return discrepancy (CT-6.6) | 409 |
+| Stale or missing-match token, serialization retry exhausted, return discrepancy (CT-6.6, CT-5.13) | 409 |
 | Not authenticated / lacks role | 401 / 403 |
 | Throttled | 429 |
+| Successful save, reconciliation or range recalculation (including a save that changed nothing) | 200 |
 
 ---
 
@@ -277,7 +299,7 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 **CT-14.3 Field added.** `client_tray_transaction.category` (required). Existing rows are backfilled by inferring the category; the migration stops if a row cannot be inferred and that row must be resolved manually.
 
-**CT-14.4 Frozen tray type (binding, as implemented).** An order line's tray type is captured when the line is created and never changed by later tray-rule changes. For a line with no stored tray type, the active tray rules are used. *(Business decision #21.)*
+**CT-14.4 Frozen tray type (binding, as implemented).** An order line's tray type is captured when the line is created and never changed by later tray-rule changes. For a line with no stored tray type, the active tray rules are used. *(Business decision #21.)* **Accepted consequence:** a line created while no tray rule matched stores no tray type, so it is resolved from the active rules each time the sheet is recalculated, and a rule added later starts producing trays for it. Freezing "no tray" would need a marker that separates it from legacy lines and is not done. *(Q4.)*
 
 **CT-14.5 Tray rule matching (binding, as implemented).** A rule matches when each of its brand, product group and product type is either empty (wildcard) or equal to the product's. If the rule applies to packaging, the packaging type must also match. The most specific matching rule wins (most filled-in fields). Among equally specific rules, the lowest rule id wins. Overlapping or ambiguous wildcard rules are left as they are. A product with no matching rule produces no trays. *(Business decisions #22 and #23.)*
 
@@ -285,7 +307,12 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 
 ## 15. Open Items
 
-**None.** All seven items that were open in the previous version were decided by the business owner and are now binding rules above. A new ambiguity must be recorded here and decided before any code change.
+| ID | Item | Current behavior |
+|---|---|---|
+| CT-15.8 | The balance transfer when a client moves group (CT-6.7) is decided but not implemented. It needs a design for recording the transfer (opening balances are derived only from sheet ledgers) and a hook in the client master-data update flow. | The balance stays in the old group; the new group starts at 0. |
+| CT-15.9 | Cost of the opening-balance lookup and of propagation is not yet measured on real history (CT-10.9). | Index added; no behavior change. |
+
+A new ambiguity must be recorded here and decided before any code change.
 
 ### Resolved items
 
@@ -298,6 +325,22 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 | CT-15.5 Reconciling an inactive tray type | Inactive tray types stay read-only for ordinary users. A controlled administrative reconciliation route exists. | CT-5.7, CT-5.11, CT-1.2 |
 | CT-15.6 Scope of the 2,000 limit | The limit is on the total return for the logical ledger row on the sheet, across saves. | CT-4.1, CT-5.12 |
 | CT-15.7 Clients with a balance but no line on a day | Outstanding balances carry across gaps, using the most recent applicable prior balance. | CT-6.3, CT-10.4 |
+| Save that changes nothing | A no-op: no write, no token advance, no cascade | CT-5.14 |
+| Which writes advance the token | Only tray saves that change the ledger; saves are revalidated on live numbers | CT-9.1 |
+| New taken on an inactive tray type | Keeps accruing; returned through reconciliation | CT-8.6 |
+| Line with no tray type at creation | Resolved from live rules (accepted) | CT-14.4 |
+| Success status | 200 for save, reconcile and recalculate | CT-13, CT-5.9 |
+| Frontend reload on 409 | Reload on stale, race, exhausted retries; keep edits on timeout and discrepancy | CT-9.7 |
+| Who may edit which sheet | Any employee, any group | CT-1.4 |
+| Timeout response | 409, as Orders | CT-5.2 |
+| Token format, lost-response retry | Any parseable ISO-8601; retry gets 409 | CT-9.6 |
+| Stranded-return rule (CT-5.13) | Approved as written | CT-5.13 |
+| Client moves group with an open balance | Balance moves with the client (not yet implemented) | CT-6.7, CT-15.8 |
+| Opening-balance lookup at scale | Index added; measure before go-live | CT-10.9, CT-15.9 |
+| Wording of rejections | Only the 400 status is binding | CT-5.12 |
+| Frontend validation and empty save | Validate before sending; say when there is nothing to save | CT-4.8 |
+| Sheet-query refetch policy | No refetch on focus or reconnect; refetch on mount only | CT-9.7 |
+| Dead code (`validateTrayCalculationExists`, `calculateTraysTaken`) | Left in place until every caller is ruled out | CT-12.1 |
 
 ---
 
@@ -327,3 +370,12 @@ Body: `{ entries: [{ clientId, trayTypeId, category, returned }], expectedUpdate
 | CT-5.7 / 5.11 / 1.2 | Changed | Inactive tray types read-only for ordinary users. Admin reconciliation route added (CT-15.5) |
 | CT-4.1 / 5.12 | Changed | 2,000 limit applies to the row's total return across saves (CT-15.6) |
 | CT-6.3 / 10.4 | Changed | Balances carry across gaps using the most recent prior balance (CT-15.7) |
+| CT-5.13 / 5.3 | New (approved) | Save refused with 409 while a stored return exceeds its balance; replaces an unexplained 500 on legacy stranded returns and stops negative closings being written |
+| CT-5.14 / 5.3 / 5.9 | New | A save that changes nothing is a no-op; the token is compared read-only first and advanced only when there is something to write (Q1) |
+| CT-13 / 5.9 | Changed | Save, reconcile and recalculate return 200 (Q5) |
+| CT-9.7 / 9.6 / 9.1 | New | Frontend reload rules, token format and lost response, which writes advance the token (Q2, Q6, Q9, Q15) |
+| CT-1.4 / 5.2 / 5.12 | Documented | No per-group scoping, timeout 409, rejection wording not binding (Q7, Q8, Q13) |
+| CT-8.6 / 14.4 | Documented | Inactive tray types keep accruing; a null tray type is resolved from live rules (Q3, Q4) |
+| CT-4.8 | New (UI) | Values validated and an empty save reported before sending (Q14) |
+| CT-6.7 / 6.3 / 8.2 / 15.8 | New (decided, not implemented) | A client moved to another group takes its open balance along (Q11) |
+| CT-10.9 / 15.9 | New | `order_sheet.group_id` index; opening-balance lookup to be measured before go-live (Q12) |

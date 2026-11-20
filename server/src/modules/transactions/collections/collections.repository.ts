@@ -7,7 +7,14 @@ import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
 
 // CD-3.6: clients are ordered by code, then by name. A client without a code
-// sorts after every client that has one (ties broken by name).
+// sorts after every client that has one (ties broken by name). The comparison
+// is natural (numeric-aware, "C9" before "C10") and case-insensitive, in a
+// fixed locale so the order does not depend on the server's settings.
+const collator = new Intl.Collator('en', {
+  numeric: true,
+  sensitivity: 'base',
+});
+
 function compareClients(
   a: { code: string | null; name: string },
   b: { code: string | null; name: string },
@@ -15,10 +22,10 @@ function compareClients(
   if (a.code !== b.code) {
     if (a.code === null) return 1;
     if (b.code === null) return -1;
-    const byCode = a.code.localeCompare(b.code);
+    const byCode = collator.compare(a.code, b.code);
     if (byCode !== 0) return byCode;
   }
-  return a.name.localeCompare(b.name);
+  return collator.compare(a.name, b.name);
 }
 
 export type AmountColumn =
@@ -190,6 +197,21 @@ export class CollectionsRepository {
       db.order_sheet,
       { id: sheetId },
       'collections_updated_at',
+      expectedUpdatedAt,
+    );
+  }
+
+  // CD-7.2: Cash Settlement's token is the paper's updated_at (CS-10.2). It is
+  // moved with the same clock-safe helper when a save changes a cash amount.
+  async touchOrderPaperIfTokenMatches(
+    paperId: number,
+    expectedUpdatedAt: Date,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    return touchIfTokenMatches(
+      db.order_paper,
+      { id: paperId },
+      'updated_at',
       expectedUpdatedAt,
     );
   }

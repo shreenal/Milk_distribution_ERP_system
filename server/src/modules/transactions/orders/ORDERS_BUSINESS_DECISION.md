@@ -35,6 +35,8 @@ Decision IDs (`OD-n`) are stable. Cite them in code comments, PRs and reviews.
 
 **OD-1.2** Night-save and morning-save are throttled to 60 requests per minute per user. Other endpoints use the global limit.
 
+**OD-1.3 No per-group scoping (binding, as implemented).** Any employee (and any admin) may read and edit the sheet of any group. There is no per-group or per-sheet authorization in Orders. *(Q3.)*
+
 ---
 
 ## 2. Workflow: what can be done at each paper status
@@ -86,6 +88,8 @@ Decision IDs (`OD-n`) are stable. Cite them in code comments, PRs and reviews.
 
 **OD-4.3 Sheet id format.** URL ids must be digits only, 1 to 2147483647. Otherwise 400 `Invalid id`.
 
+**OD-4.4 Product selector hides products already on the sheet (UI, binding).** The frontend's "Add product" selector lists only products that are not already a column of the sheet. The endpoint itself is unchanged (OD-4.1). *(Q9.)*
+
 ---
 
 ## 5. Input Validation Rules (all quantities)
@@ -99,7 +103,7 @@ Decision IDs (`OD-n`) are stable. Cite them in code comments, PRs and reviews.
 
 **OD-5.2 Precision (binding, all products, both phases).** Ordered and delivered quantities may have **at most 2 decimal places**. `5`, `5.5`, `5.25`, `5.00` are valid. `5.255` is **rejected** with `Invalid quantity: <n>. Quantity must be specified to at most 2 decimal places.` Values are NEVER silently rounded. Tray vs non-tray products make no difference.
 
-**OD-5.3 Range and type.** Quantity is a JSON number from 0 to 10000 (ordered and delivered). Strings (`"5"`), NaN, Infinity and negatives are rejected. Negative values use `<field> cannot be negative`.
+**OD-5.3 Range and type.** Quantity is a JSON number from 0 to 10000 (ordered and delivered). Strings (`"5"`), NaN, Infinity and negatives are rejected with HTTP 400. A negative value is rejected by request validation (the standard validation message for the quantity field); the service-level `<field> cannot be negative` message is a safety net that the API does not normally reach. Only the 400 status is binding, not the wording. *(Q6.)*
 
 **OD-5.4 Units.** The quantity is in **order units** (e.g. crates), not litres or kg. Price is derived from the line's pricing quantity (Section 9).
 
@@ -119,7 +123,7 @@ Body: `{ entries: [{ clientId, productId, orderedQty? }], expectedUpdatedAt }`
 
 **OD-6.1 Allowed only in DRAFT** (OD-2.1).
 
-**OD-6.2 Atomic.** The whole request is one serializable transaction. If any entry fails, nothing is saved and the concurrency token is also rolled back. On a database serialization conflict the system makes at most 3 total attempts (1 initial attempt + 2 retries), then returns 409 `Your request conflicted with another update and could not be completed. Please retry.`
+**OD-6.2 Atomic.** The whole request is one serializable transaction. If any entry fails, nothing is saved and the concurrency token is also rolled back. On a database serialization conflict the system makes at most 3 total attempts (1 initial attempt + 2 retries), then returns 409 `Your request conflicted with another update and could not be completed. Please retry.` A transaction that exceeds its time limit (10 s) saves nothing and also returns 409 `The request took too long and nothing was saved. Please retry.` This is accepted as is; it is not a production blocker and is revisited only if real papers approach the limit. *(Q4.)*
 
 **OD-6.3 Concurrency check first (within the transaction).** After confirming the sheet exists and the paper status allows the operation, the concurrency token is checked (OD-12) before transactional entry validation, supplier resolution, rate resolution, or mutation. Request-shape validation, duplicate-entry validation, and quantity precision/range checks (OD-5.2, OD-5.3, OD-5.6, OD-5.7) occur before the transaction. Therefore, these pre-transaction validation errors may be returned before a stale-token conflict. Within the transaction, a stale token returns 409 before transactional entry validation, even if the request would otherwise be a no-op.
 
@@ -152,7 +156,7 @@ Body: `{ entries: [{ clientId, productId, orderedQty? }], expectedUpdatedAt }`
 
 **OD-6.14 Response** `{ success: true, message, itemsUpdatedAt }` where `itemsUpdatedAt` is the NEW token (OD-12.4).
 
-**OD-6.15 Night submission rule (not changed).** An empty night sheet is not a valid business scenario and is outside the normal workflow. No extra behavior may be built to support it. The existing submit-time validator (at least one line with quantity > 0 per sheet) stays as is. It is a sheet-level check on actual order lines. Blank cells are fine.
+**OD-6.15 Night submission rule (not changed).** An empty night sheet is not a valid business scenario and is outside the normal workflow. No extra behavior may be built to support it *in Orders*. (Amendment, PA-17: a route with genuinely no business that day is marked no-operation at Paper level; Orders itself builds nothing for it and is unchanged.) The existing submit-time validator (at least one line with quantity > 0 per sheet) stays as is. It is a sheet-level check on actual order lines. Blank cells are fine.
 
 ---
 
@@ -168,7 +172,7 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 
 **OD-7.4 Over-delivery is allowed.** Delivered may exceed ordered. There is no hard maximum relative to ordered. *(KEEP.)*
 
-**OD-7.5 Over-delivery above 150% of ordered is a warning only.** During morning save, when a line's delivered quantity exceeds 150% of its ordered quantity, an informational warning is logged. It is logged only when the delivered value changes (a re-save with an unchanged value does not log again) and it is NOT logged again at morning submission. It never blocks the save or submission and needs no approval. It applies only where ordered > 0 (a morning-created line has ordered = 0, so it is not subject to this check). *(KEEP.)*
+**OD-7.5 Over-delivery above 150% of ordered is a warning only.** During morning save, when a line's delivered quantity exceeds 150% of its ordered quantity, an informational warning is logged. It is logged only when the delivered value changes (a re-save with an unchanged value does not log again) and it is NOT logged again at morning submission. It never blocks the save or submission and needs no approval. It applies only where ordered > 0 (a morning-created line has ordered = 0, so it is not subject to this check). *(KEEP.)* **Confirmed log only (Q12):** no flag, audit record or response field is added, and the log line may repeat if the save is retried.
 
 **OD-7.6 Morning may create new order lines, in NIGHT_SUBMITTED only (binding).** If the paper is NIGHT_SUBMITTED, and a valid client/product has **no existing line**, and an **explicit positive** delivered quantity is submitted, the system creates the line. This is NOT permitted when the paper is REOPENED (OD-7.11). The following rules apply:
 - **Live validation as for night:** client active, in this sheet's group, authorized for the category; product active; product available on this sheet (OD-6.6).
@@ -184,7 +188,7 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 
 **OD-7.8 Pricing source on morning save:**
 - **Normal (non-reopened, or reopened line not yet validly billed):** live rate as of sale date (client rate, else distributor rate) plus the product's current GST % and inclusive flag. Missing rate fails the save: `No rate configured for client X product Y`. Exception: OD-7.12.
-- **Reopened + line already billed with actual delivery (> 0):** original final rate, GST % and inclusive flag are retained (OD-9.6).
+- **Reopened, or NIGHT_SUBMITTED after a first morning save, and line already billed with actual delivery (> 0):** original final rate, GST % and inclusive flag are retained (OD-9.6).
 
 **OD-7.9 Side effects only on real work.** The "morning entry saved" flag (which flips the grid from ordered to delivered display) and tray recalculation run only if at least one entry was actually processed (an existing line updated or a new line created). An all-blank or all-zero-without-line request does not flip the grid view, advance the token, or run tray recalculation (OD-12.8).
 
@@ -193,6 +197,8 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 **OD-7.11 REOPENED never creates lines (binding).** On a REOPENED paper, a morning save may only correct delivered quantities on lines that already exist. An explicit positive delivered quantity for a client/product with no existing line is rejected (400): `New order lines cannot be created while the paper is REOPENED. Reopened sheets allow delivery corrections to existing lines only.` The whole request fails and nothing is saved. An explicit `0` with no existing line remains a harmless no-op (OD-7.7). This is checked before any supplier or pricing work.
 
 **OD-7.12 Cancelled lines need no live rate on morning save (binding).** A line is *previously cancelled* when its ordered quantity is 0 and it has a stored night rate (cancellation per OD-6.10 keeps the night rate; a morning-created line never has one). If a morning save sets such a line's delivered quantity to explicit `0`, no live rate is looked up or required. The save succeeds with delivered quantity 0, final taxable amount, GST amount and bill amount 0, and the line's existing final rate, GST % and inclusive flag (set by OD-6.10) unchanged. If a positive delivered quantity is entered for a cancelled line (NIGHT_SUBMITTED or REOPENED), the normal pricing rules apply (OD-7.8, OD-9.4). The exception applies only to previously cancelled lines, not to other lines whose quantity merely happens to be 0; those follow OD-7.8 / OD-9.6.
+
+**OD-7.13 Reopened grid locks cells without a line (UI, binding).** On a REOPENED paper the frontend makes a product cell editable only when the client already has a line for that product. The server rule OD-7.11 is unchanged and still rejects any attempt to create a line. *(Q10.)*
 
 ---
 
@@ -205,7 +211,7 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 2. Find distributors **allowed to supply** the product's brand + category + product group (active procurement rules held by an ACTIVE distributor; an inactive distributor is never eligible, OD-8.8). If none: `No eligible distributor found for product <id> in group <g>`.
 3. Build the candidate list: the primary supplier (priority 0) if it is in the allowed set, plus any distributor that is in the allowed set AND listed as a fallback for this group + product (its configured priority number).
 4. If the candidate list is empty: `No eligible supplier (primary or fallback) can supply product <p> for client <c> in group <g>`.
-5. Walk candidates in ascending priority. Choose the **first with an active product link** for the product.
+5. Walk candidates in ascending priority. Ties are broken deterministically: the primary supplier first, then the lowest distributor id. Choose the **first with an active product link** for the product. *(Q8.)*
 6. If nobody has an active link: `No product link found for any eligible distributor for product <p> in group <g>`.
 
 **OD-8.3 A client with no primary supplier for the category cannot order that category (binding).** A client is eligible for a category only through its category record (`master_client_category`), which carries a required primary supplier (OD-15.3). If none exists the order is rejected with HTTP 400 `Missing <CATEGORY> supplier for client <id>`, before any fallback is considered. Fallback suppliers (OD-8.2, OD-8.4) apply only when the primary EXISTS but cannot supply the product: it is not an allowed supplier (OD-8.5) or has no active product link. A fallback never substitutes for a missing primary (OD-8.7). Otherwise an order is rejected only when no eligible supplier (primary or fallback) can supply the product.
@@ -244,7 +250,7 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 
 **OD-9.5 No manual price override (binding).** Employees cannot enter, change or override prices, rates, GST or amounts. All pricing is backend-controlled. *(KEEP.)*
 
-**OD-9.6 Reopened + already billed keeps original pricing (binding).** On a REOPENED sheet, if a line already has a final rate, final GST % and a delivered quantity > 0, correcting the delivered quantity reuses the stored final rate, GST % and inclusive flag. It must not reprice with today's configuration. Lines billed before the inclusive flag was stored fall back to the product's current inclusive flag. A reopened line that was previously zero or never billed is priced at live rates.
+**OD-9.6 Already-billed lines keep original pricing (binding, changed).** If a line already has a final rate, final GST % and a delivered quantity > 0, correcting the delivered quantity reuses the stored final rate, GST % and inclusive flag. It must not reprice with today's configuration. This applies on a REOPENED sheet, and also on a NIGHT_SUBMITTED sheet once a morning save has stored delivered quantities (the morning-entry-saved flag is set). The latter covers a paper an admin reverted from MORNING_SUBMITTED (PA-18) and repeated morning saves before submission. The FIRST morning save on a sheet still prices at live rates, because the flag is set only after it. Lines billed before the inclusive flag was stored fall back to the product's current inclusive flag. A line that was previously zero or never billed is priced at live rates. *(Q2.)*
 
 **OD-9.7 Night GST freezing (as implemented).** Night GST uses the product's CURRENT GST % and inclusive flag each time the night line is saved. These are not frozen at night (no additional columns). This is the approved, binding behavior (OD-15.1 resolved): night GST must not be frozen.
 
@@ -269,6 +275,8 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 **OD-11.3 Remove (`DELETE /orders/sheet/:sheetId/products/:productId?expectedUpdatedAt=`)**. Order of checks: sheet exists (404) → DRAFT → **token check (OD-12)** → product exists → **default products can never be removed** (`Default products cannot be removed`) → blocked if any client has ordered quantity > 0 (`Cannot remove a product that already has ordered quantities. Set quantities to 0 first.`) → the explicit-add link (if one exists) and all leftover (zeroed) lines for that product on this sheet are deleted → if neither a link nor any line existed, `Product not found in this sheet` (400). A non-default product that was once a default or was never explicitly added can therefore be removed once no client has ordered quantity > 0. Default products can never be removed, even if deactivated. Returns the refreshed sheet.
 
 **OD-11.4 Add and remove participate in the order-items concurrency token (binding).** They use the same `expectedUpdatedAt` / `itemsUpdatedAt` check as saves. A stale token returns the standard 409 conflict. *(KEEP.)*
+
+**OD-11.5 Status-error wording for add and remove (binding).** Add outside DRAFT: 400 `Products can only be added while the paper is in DRAFT`. Remove outside DRAFT: 400 `Products can only be removed while the paper is in DRAFT`. *(Q14.)*
 
 ---
 
@@ -302,13 +310,17 @@ Body: `{ entries: [{ clientId, productId, deliveredQty? }], expectedUpdatedAt }`
 5. Any save that targets an existing line counts as a data change even if the submitted values equal the stored ones, because the line is rewritten and its `updated_at` changes. Employees should send only cells they changed.
 Reason: an empty or meaningless request must not invalidate another editor's valid token.
 
+**OD-12.9 Lost response (binding, as implemented).** If a save succeeded but its response never reached the client, a retry with the old token returns 409. There is no idempotency key and an identical payload is not recognised as already applied. The user reloads and re-checks. *(Q5.)*
+
+**OD-12.10 Token format and frontend reload (binding).** A token value must be ISO-8601. Any parseable ISO-8601 string is accepted (a full timestamp is what the API returns); a well-formed value that differs from the current token is 409, an unparseable one is 400. *(Q7.)* After a save fails with a 409 meaning the sheet changed (stale token, unique-key race, or exhausted serialization retry) the frontend discards the user's unsaved edits and reloads the sheet. A "took too long, nothing was saved" 409 keeps the edits. The sheet query is not refetched on window focus or on reconnect, so the token cannot change under unsaved edits. *(Q11, Q13.)*
+
 ---
 
 ## 13. Submission and Finalization Gates (validators owned by Orders)
 
-**OD-13.1 Night submit.** Every sheet must have at least one line with ordered quantity > 0: `No orders entered for sheet "<group>". Please enter at least one order before submitting.` The check operates on actual lines. Blank cells are fine. Employees need not enter zeros.
+**OD-13.1 Night submit.** Every sheet must have at least one line with ordered quantity > 0: `No orders entered for sheet "<group>". Please enter at least one order before submitting.` The check operates on actual lines. Blank cells are fine. Employees need not enter zeros. *(Amendment, PA-17.2: a sheet an employee marked no-operation at Paper level is exempt from this check.)*
 
-**OD-13.2 Morning submit: empty sheet is rejected (binding).** A sheet with NO order lines fails: `No order lines exist for sheet "<group>". A sheet with no orders cannot be submitted.`
+**OD-13.2 Morning submit: empty sheet is rejected (binding; a sheet with no line that is marked no-operation, or of a deactivated group, is exempt, PA-7.5).** A sheet with NO order lines fails: `No order lines exist for sheet "<group>". A sheet with no orders cannot be submitted.`
 
 **OD-13.3 Morning submit: completeness.** Every existing line must have a delivered quantity (not null): `Delivered quantity missing for: <product codes>`. Morning submission operates on actual order lines. It does NOT require zeros for clients/products with no line.
 
@@ -316,7 +328,7 @@ Reason: an empty or meaningless request must not invalidate another editor's val
 
 **OD-13.5 Empty grid ≠ empty sheet.** An individual blank client row or product cell is normal. A sheet is "empty" only when it has zero order lines.
 
-**OD-13.6 First-morning-save practical rule.** Before the first morning save, the grid shows ordered quantities pre-filled but they are not stored as delivered. Because morning submit requires every line to have a delivered value, the frontend must send a delivered quantity for EVERY existing line on the first morning save. (Previously cancelled lines already hold delivered quantity 0 from OD-6.10; sending 0 for them needs no rate, OD-7.12.)
+**OD-13.6 First-morning-save practical rule.** Before the first morning save, the grid shows ordered quantities pre-filled but they are not stored as delivered. Because morning submit requires every line to have a delivered value, the frontend must send a delivered quantity for EVERY existing line on the first morning save. (Previously cancelled lines already hold delivered quantity 0 from OD-6.10; sending 0 for them needs no rate, OD-7.12.) **Confirmed (Q1):** the server accepts a first morning save that covers only some lines and does not enforce this. A direct API client that sends a subset flips the grid and the tray basis to delivered, and the unsent lines count as 0 until they are saved.
 
 ---
 
@@ -346,6 +358,8 @@ No item is currently open. A new ambiguity must be recorded here and decided bef
 
 **OD-15.3 RESOLVED.** A client is eligible for a category only if it has a category record with a primary supplier. A client without one cannot order that category, and fallback never bypasses this (OD-8.3, OD-8.7). Because the primary supplier is a required column, this state is not normally reachable; the `Missing <CATEGORY> supplier` rejection is kept as a guard. (ID retained so references stay stable.)
 
+**OD-15.5 RESOLVED (Q1 to Q14).** Decided by the business owner: partial first morning save accepted (OD-13.6); original pricing kept after the first morning save (OD-9.6); no per-group scoping (OD-1.3); timeout 409 left as is (OD-6.2); lost-response retry accepted as 409 (OD-12.9); negative-quantity wording not binding (OD-5.3); token format (OD-12.10); deterministic supplier ties (OD-8.2); selector hides existing products (OD-4.4); reopened grid locks no-line cells (OD-7.13); reload on every "sheet changed" 409 (OD-12.10); over-delivery warning log only (OD-7.5); no refetch on focus or reconnect (OD-12.10); add/remove messages documented below (OD-11.5).
+
 **OD-15.4 RESOLVED.** Only the GST-inclusive night total is stored; no separate night taxable/GST amounts are persisted (OD-9.2). (ID retained so references stay stable.)
 
 ---
@@ -372,6 +386,10 @@ No item is currently open. A new ambiguity must be recorded here and decided bef
 | OD-5.1 | Clarified | Sparse entry: null/blank/omitted = no operation; explicit 0 keeps its meaning |
 | OD-3.1, 11.1, 2.2, 2.3, 7.4, 7.5, 8.1, 8.6, 9.4, 9.5, 9.6, 6.15 | Kept | Existing behavior confirmed as business rules |
 | OD-6.2 | Clarified | Max 3 total attempts (1 initial + 2 retries), then 409 (D1) |
+| OD-9.6 / 7.8 | Changed | Original pricing also kept in NIGHT_SUBMITTED after the first morning save (Q2) |
+| OD-8.2 | Changed | Deterministic tie-break: primary first, then lowest distributor id (Q8) |
+| OD-1.3 / 12.9 / 12.10 / 13.6 / 5.3 / 7.5 / 11.5 | Documented | Existing behavior confirmed as binding (Q1, Q3, Q5, Q6, Q7, Q12, Q14) |
+| OD-4.4 / 7.13 / 12.10 | Changed (UI) | Selector hides existing products; reopened grid locks no-line cells; reload on every sheet-changed 409; no refetch on focus or reconnect (Q9, Q10, Q11, Q13) |
 | OD-8.2 / 8.5 / 8.8 | Changed | Inactive distributors never selected for new lines; existing lines keep their supplier (D2) |
 | OD-7.12 / 7.8 / 9.4 / 13.6 | Changed | Delivered 0 on a previously cancelled line needs no live rate (D3) |
 | OD-6.6 | Clarified | "Already has a line" means any client on the sheet; other checks stay independent (D4) |

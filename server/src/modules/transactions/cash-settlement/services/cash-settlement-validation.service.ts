@@ -14,6 +14,14 @@ import {
 import { WorkflowStateService } from '../../workflow/workflow-state.service.js';
 
 import { CashSettlementCalculationService } from '../../../../common/calculators/cash-settlement.calculator.js';
+import {
+  overlappingIds,
+  uniqueIds,
+  unknownIds,
+} from '../../../../common/transactions/validation/deletion-validation.js';
+import { duplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
+import { transactionValidationError } from '../../../../common/transactions/errors/transaction-validation.error.js';
+import { uniqueConflictDetails } from '../../../../common/transactions/errors/conflict-details.js';
 
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { OrderPaperStatus } from '../../../../generated/prisma/client.js';
@@ -29,9 +37,7 @@ type CashSettlementPaper = NonNullable<
   Awaited<ReturnType<CashSettlementRepository['getCashSettlementData']>>
 >;
 
-const unique = (ids: number[]) => [...new Set(ids)];
-const duplicatesOf = (ids: number[]) =>
-  unique(ids.filter((id, index) => ids.indexOf(id) !== index));
+const unique = uniqueIds;
 
 @Injectable()
 export class CashSettlementValidationService {
@@ -291,7 +297,9 @@ export class CashSettlementValidationService {
   // ---------------------------------------------------------------------
 
   validateNoDuplicateRoutes(entries: { sheetId: number }[]): void {
-    const duplicates = duplicatesOf(entries.map((e) => e.sheetId));
+    const duplicates = duplicateKeys(entries, (e) => String(e.sheetId)).map(
+      Number,
+    );
     if (duplicates.length > 0) {
       throw new BadRequestException(MSG.DUPLICATE_ROUTES(duplicates));
     }
@@ -302,7 +310,7 @@ export class CashSettlementValidationService {
     ids: (number | null | undefined)[],
   ): void {
     const present = ids.filter((id): id is number => id != null);
-    const duplicates = duplicatesOf(present);
+    const duplicates = duplicateKeys(present, String).map(Number);
     if (duplicates.length > 0) {
       throw new BadRequestException(
         MSG.DUPLICATE_RECORD_IDS(label, duplicates),
@@ -311,12 +319,9 @@ export class CashSettlementValidationService {
   }
 
   validateNoDuplicateEmployees(entries: { employeeId: number }[]): void {
-    const seen = new Set<number>();
-    const duplicates: number[] = [];
-    for (const e of entries) {
-      if (seen.has(e.employeeId)) duplicates.push(e.employeeId);
-      seen.add(e.employeeId);
-    }
+    const duplicates = duplicateKeys(entries, (e) => String(e.employeeId)).map(
+      Number,
+    );
     if (duplicates.length > 0) {
       throw new BadRequestException(
         `Duplicate employee entries found: ${duplicates.join(', ')}. Each employee can only appear once per save.`,
@@ -429,16 +434,14 @@ export class CashSettlementValidationService {
     const label = 'Direct collection employee';
     const problems: string[] = [];
 
-    const unknown = unique(deletedEmployeeIds).filter(
-      (id) => !employeeIdsWithRow.has(id),
-    );
+    const unknown = unknownIds(deletedEmployeeIds, employeeIdsWithRow);
     if (unknown.length > 0) {
       problems.push(MSG.RECORD_NOT_IN_PAPER(label, unknown, paperId));
     }
 
-    const deleted = new Set(deletedEmployeeIds);
-    const both = unique(entries.map((e) => e.employeeId)).filter((id) =>
-      deleted.has(id),
+    const both = overlappingIds(
+      entries.map((e) => e.employeeId),
+      deletedEmployeeIds,
     );
     if (both.length > 0) problems.push(MSG.RECORD_ALSO_DELETED(label, both));
 
@@ -506,26 +509,23 @@ export class CashSettlementValidationService {
   ): string[] {
     const problems: string[] = [];
 
-    const unknown = unique([...sentIds, ...deletedIds]).filter(
-      (id) => !existingIds.has(id),
-    );
+    const unknown = unknownIds([...sentIds, ...deletedIds], existingIds);
     if (unknown.length > 0) {
       problems.push(MSG.RECORD_NOT_IN_PAPER(label, unknown, paperId));
     }
 
-    const deleted = new Set(deletedIds);
-    const both = unique(sentIds.filter((id) => deleted.has(id)));
+    const both = overlappingIds(sentIds, deletedIds);
     if (both.length > 0) problems.push(MSG.RECORD_ALSO_DELETED(label, both));
 
-    return problems;
+    return uniqueConflictDetails(problems);
   }
 
   private throwIfProblems(problems: string[]): void {
     if (problems.length > 0) {
-      throw new BadRequestException({
-        message: CASH_SETTLEMENT_ERRORS.INVALID_ENTRIES,
-        details: problems,
-      });
+      throw transactionValidationError(
+        CASH_SETTLEMENT_ERRORS.INVALID_ENTRIES,
+        problems,
+      );
     }
   }
 }

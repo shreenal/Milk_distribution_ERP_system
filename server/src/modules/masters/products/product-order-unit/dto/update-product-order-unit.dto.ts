@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 
 import { CreateProductOrderUnitDto } from './create-product-order-unit.dto.js';
 

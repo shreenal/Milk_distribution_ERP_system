@@ -23,6 +23,33 @@ type PaperSheet = Awaited<
   ReturnType<PaperRepository['getPaperSheets']>
 >[number];
 
+type PaperWithSheets = NonNullable<
+  Awaited<ReturnType<PaperRepository['findPaperById']>>
+>;
+
+export type PaperAction = 'SUBMIT_NIGHT' | 'SUBMIT_MORNING' | 'FINALIZE';
+
+// PA-19.5: a step the user must take, given as data so the screen never has to
+// parse message text.
+export type PaperRequiredAction = 'SIGN_OFF_ZERO_ALLOCATION';
+
+// PA-19.5: shown in DRAFT readiness only. The sign-off cannot be recorded in
+// DRAFT (PD-66), and a MORNING allocation may still be saved, so it is a
+// warning and never a problem.
+const ZERO_ALLOCATION_DRAFT_WARNING =
+  'Purchase: no vehicle allocation exists yet. If none is saved, a zero-allocation sign-off is required after night submit and before morning submit';
+
+// PA-19: what the next action would find, without doing it.
+export type PaperReadiness = {
+  paperId: number;
+  status: OrderPaperStatus;
+  action: PaperAction | null;
+  ready: boolean;
+  problems: string[];
+  warnings: string[];
+  requiredActions: PaperRequiredAction[];
+};
+
 @Injectable()
 export class PaperValidationService {
   constructor(
@@ -77,20 +104,70 @@ export class PaperValidationService {
     return [error.message];
   }
 
-  private throwIfAny(message: string, failures: string[]): void {
-    const details = [...new Set(failures)];
+  private unique(items: string[]): string[] {
+    return [...new Set(items)];
+  }
+
+  private throwIfAny(
+    message: string,
+    failures: string[],
+    extra: Record<string, unknown> = {},
+  ): void {
+    const details = this.unique(failures);
     if (details.length > 0) {
-      throw new BadRequestException({ message, details });
+      throw new BadRequestException({ message, details, ...extra });
     }
   }
 
-  // PA-6.5 / PA-7.5: a sheet of a deactivated group that has no order line at
-  // all can never satisfy the orders checks and cannot be excluded any other
-  // way. It is skipped for the orders checks only. A deactivated group that
-  // does have order lines is validated like any other sheet.
-  private isIgnorableSheet(sheet: PaperSheet): boolean {
+  // PA-19.5 / PD-70: same test the Purchase gate uses for
+  // zeroAllocationSignOffRequired, reported as data.
+  private async collectRequiredActions(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<PaperRequiredAction[]> {
+    return (await this.purchaseValidationService.isZeroAllocationSignOffPending(
+      paperId,
+      db,
+    ))
+      ? ['SIGN_OFF_ZERO_ALLOCATION']
+      : [];
+  }
+
+  private async findPaperOrThrow(paperId: number, db: PrismaOrTransaction) {
+    const paper = await this.paperRepository.findPaperById(paperId, db);
+
+    if (!paper) {
+      throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    }
+
+    return paper;
+  }
+
+  // ---------------------------------------------------------------------
+  // Sheets that need no orders check
+  //
+  // PA-6.5 / PA-17.2 (night): a sheet is exempt from "at least one order"
+  // when it is marked no-operation, or when its group is deactivated and it
+  // has no line at all. A sheet that has lines is never exempt by the
+  // deactivation rule, so recorded data is not left unchecked.
+  //
+  // PA-7.5 / PA-17.3 (morning): the checks are about lines that exist. A sheet
+  // with no line at all is exempt when it is marked no-operation or its group
+  // is deactivated. A marked sheet that HAS lines (for example morning-created)
+  // is validated like any other.
+  // ---------------------------------------------------------------------
+
+  private skipsNightOrdersCheck(sheet: PaperSheet): boolean {
     return (
-      !sheet.master_group.is_active && sheet._count.order_sheet_items === 0
+      sheet.no_operation ||
+      (!sheet.master_group.is_active && sheet._count.order_sheet_items === 0)
+    );
+  }
+
+  private skipsMorningOrdersCheck(sheet: PaperSheet): boolean {
+    return (
+      sheet._count.order_sheet_items === 0 &&
+      (sheet.no_operation || !sheet.master_group.is_active)
     );
   }
 
@@ -98,26 +175,17 @@ export class PaperValidationService {
   // Night submit
   // ---------------------------------------------------------------------
 
-  async validateNightSubmitReadiness(paperId: number, db: PrismaOrTransaction) {
-    const paper = await this.paperRepository.findPaperById(paperId, db);
-
-    if (!paper) {
-      throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-    }
-
-    if (paper.status !== OrderPaperStatus.DRAFT) {
-      throw new ConflictException(
-        ERROR_MESSAGES.NIGHT_ALREADY_SUBMITTED(paper.status),
-      );
-    }
-
+  private async collectNightFailures(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<string[]> {
     const sheets = await this.paperRepository.getPaperSheets(paperId, db);
     const failures: string[] = [];
 
     for (const sheet of sheets) {
       const name = sheet.master_group.name;
 
-      if (!this.isIgnorableSheet(sheet)) {
+      if (!this.skipsNightOrdersCheck(sheet)) {
         await this.collect(failures, () =>
           this.ordersValidationService.validateNightEntriesComplete(
             sheet.id,
@@ -149,7 +217,22 @@ export class PaperValidationService {
       ),
     );
 
-    this.throwIfAny(ERROR_MESSAGES.NIGHT_NOT_READY, failures);
+    return failures;
+  }
+
+  async validateNightSubmitReadiness(paperId: number, db: PrismaOrTransaction) {
+    const paper = await this.findPaperOrThrow(paperId, db);
+
+    if (paper.status !== OrderPaperStatus.DRAFT) {
+      throw new ConflictException(
+        ERROR_MESSAGES.NIGHT_ALREADY_SUBMITTED(paper.status),
+      );
+    }
+
+    this.throwIfAny(
+      ERROR_MESSAGES.NIGHT_NOT_READY,
+      await this.collectNightFailures(paperId, db),
+    );
 
     return paper;
   }
@@ -158,15 +241,23 @@ export class PaperValidationService {
   // Morning submit
   // ---------------------------------------------------------------------
 
+  private async collectMorningFailures(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<string[]> {
+    const failures: string[] = [];
+    await this.runCompletionValidations(paperId, db, failures, {
+      includeVehicleAllocation: true,
+      includeCashSettlement: true,
+    });
+    return failures;
+  }
+
   async validateMorningSubmitReadiness(
     paperId: number,
     db: PrismaOrTransaction,
   ) {
-    const paper = await this.paperRepository.findPaperById(paperId, db);
-
-    if (!paper) {
-      throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
-    }
+    const paper = await this.findPaperOrThrow(paperId, db);
 
     if (
       paper.status === OrderPaperStatus.MORNING_SUBMITTED ||
@@ -187,11 +278,16 @@ export class PaperValidationService {
       );
     }
 
-    const failures: string[] = [];
-    await this.runCompletionValidations(paperId, db, failures, {
-      includeVehicleAllocation: true,
-    });
-    this.throwIfAny(ERROR_MESSAGES.MORNING_NOT_READY, failures);
+    const failures = await this.collectMorningFailures(paperId, db);
+
+    this.throwIfAny(
+      ERROR_MESSAGES.MORNING_NOT_READY,
+      failures,
+      // PA-19.5: only worth computing when the submit is blocked.
+      failures.length > 0
+        ? { requiredActions: await this.collectRequiredActions(paperId, db) }
+        : {},
+    );
 
     return paper;
   }
@@ -200,12 +296,127 @@ export class PaperValidationService {
   // Finalize
   // ---------------------------------------------------------------------
 
-  async validateFinalizeReadiness(paperId: number, db: PrismaOrTransaction) {
-    const paper = await this.paperRepository.findPaperById(paperId, db);
+  /**
+   * PA-8.2 / PA-8.4: the nearest earlier paper must be FINALIZED and must not
+   * have a FAILED propagation. Returns the blocking message, or null.
+   */
+  private async getPreviousPaperBlock(
+    saleDate: Date,
+    db: PrismaOrTransaction,
+  ): Promise<string | null> {
+    const previous = await this.paperRepository.findPreviousPaper(saleDate, db);
 
-    if (!paper) {
-      throw new NotFoundException(ERROR_MESSAGES.PAPER_NOT_FOUND);
+    if (!previous) {
+      return null;
     }
+
+    if (previous.status !== OrderPaperStatus.FINALIZED) {
+      return ERROR_MESSAGES.PREVIOUS_PAPER_NOT_FINALIZED(
+        formatIsoDate(previous.sale_date),
+        previous.status,
+      );
+    }
+
+    // Only FAILED blocks. Work that is still PENDING / PROCESSING does not,
+    // because every Orders, Purchase and tray save already recalculates its
+    // own ledger synchronously; propagation is the safety net for later days.
+    // A row an admin DISMISSED (PA-10.6) no longer counts as FAILED.
+    const failed = await this.paperRepository.countFailedPropagations(
+      previous.id,
+      db,
+    );
+
+    if (failed > 0) {
+      return ERROR_MESSAGES.PREVIOUS_PAPER_PROPAGATION_FAILED(
+        formatIsoDate(previous.sale_date),
+      );
+    }
+
+    return null;
+  }
+
+  /**
+   * PA-8.3 / PA-8.6 / PA-8.9: the finalize checks (not including the
+   * previous-paper rule).
+   *
+   * - MORNING_SUBMITTED: nothing can have changed since the morning submit, so
+   *   only the admin collections and the transfer rules are checked.
+   * - REOPENED: the completion checks run again, WITHOUT the two gates that
+   *   the reopened surface cannot fix: Vehicle Allocation (locked, VA-2.4) and
+   *   Cash Settlement (a client's cash can change while the counted notes and
+   *   the deposits cannot). Cash Settlement is reported as warnings instead.
+   */
+  private async collectFinalizeChecks(
+    paper: PaperWithSheets,
+    db: PrismaOrTransaction,
+  ): Promise<{ failures: string[]; warnings: string[] }> {
+    const failures: string[] = [];
+    const warnings: string[] = [];
+    const reopened = paper.status === OrderPaperStatus.REOPENED;
+
+    if (reopened) {
+      await this.runCompletionValidations(paper.id, db, failures, {
+        includeVehicleAllocation: false,
+        includeCashSettlement: false,
+      });
+    } else {
+      // PA-8.10: finalize rebuilds the distributor transfers, so a missing
+      // transfer rule is reported here with every other problem instead of as
+      // a lone error from the transfer step. (Already part of the completion
+      // checks for a REOPENED paper.)
+      await this.collect(failures, () =>
+        this.distributorTransferValidationService.validateGenerationReadiness(
+          paper.id,
+          db,
+        ),
+      );
+    }
+
+    const sheets = await this.paperRepository.getPaperSheets(paper.id, db);
+
+    for (const sheet of sheets) {
+      await this.collect(
+        failures,
+        () =>
+          this.collectionsValidationService.validateAdminCollections(
+            sheet.id,
+            db,
+          ),
+        `Sheet "${sheet.master_group.name}": `,
+      );
+    }
+
+    if (reopened) {
+      warnings.push(...(await this.collectCashWarnings(paper.id, db)));
+    }
+
+    return { failures, warnings };
+  }
+
+  // PA-8.9: the same route and deposit checks Cash Settlement applies at
+  // morning submit, reported but never blocking.
+  private async collectCashWarnings(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<string[]> {
+    const cashPaper =
+      await this.cashSettlementValidationService.getCashSettlementPaper(
+        paperId,
+        db,
+      );
+    const status =
+      this.cashSettlementValidationService.getSubmissionStatus(cashPaper);
+
+    return [...status.routeMismatches, ...status.depositProblems].map(
+      (m) => `Cash settlement: ${m}`,
+    );
+  }
+
+  async validateFinalizeReadiness(
+    paperId: number,
+    db: PrismaOrTransaction,
+  ): Promise<{ paper: PaperWithSheets; warnings: string[] }> {
+    const paper = await this.findPaperOrThrow(paperId, db);
 
     if (paper.status === OrderPaperStatus.FINALIZED) {
       throw new ConflictException(ERROR_MESSAGES.ALREADY_FINALIZED);
@@ -228,99 +439,106 @@ export class PaperValidationService {
     // Applies to re-finalizing a REOPENED paper too. Read inside the caller's
     // Serializable transaction, so a concurrent change to the previous paper
     // cannot slip past this check.
-    await this.assertPreviousPaperFinalized(paper.sale_date, db);
-
-    const failures: string[] = [];
-
-    // FIX C1 (production review): a REOPENED paper can have its purchases,
-    // dairy trays, client trays and delivered quantities edited before being
-    // finalized again, so the completion validation set is re-run here.
-    // PA-8.3: the VEHICLE ALLOCATION gate is deliberately left out. Allocations
-    // are locked while a paper is REOPENED (VA-2.4, VA-7.7), so an allocation
-    // problem that appeared after the original morning submit (for example a
-    // vehicle or product link deactivated since) could not be fixed from the
-    // allocation screen and would make re-finalizing impossible. Purchases
-    // keeps its own stale / orphan gate against the allocation.
-    if (paper.status === OrderPaperStatus.REOPENED) {
-      await this.runCompletionValidations(paperId, db, failures, {
-        includeVehicleAllocation: false,
-      });
+    const block = await this.getPreviousPaperBlock(paper.sale_date, db);
+    if (block) {
+      throw new ConflictException(block);
     }
 
-    const sheets = await this.paperRepository.getPaperSheets(paperId, db);
-
-    for (const sheet of sheets) {
-      await this.collect(
-        failures,
-        () =>
-          this.collectionsValidationService.validateAdminCollections(
-            sheet.id,
-            db,
-          ),
-        `Sheet "${sheet.master_group.name}": `,
-      );
-    }
-
-    await this.collect(failures, () =>
-      this.cashSettlementValidationService.validateReconciliationOnFinalize(
-        paperId,
-        db,
-      ),
-    );
-
+    const { failures, warnings } = await this.collectFinalizeChecks(paper, db);
     this.throwIfAny(ERROR_MESSAGES.FINALIZE_NOT_READY, failures);
 
-    return paper;
+    return { paper, warnings };
   }
 
-  private async assertPreviousPaperFinalized(
-    saleDate: Date,
+  // ---------------------------------------------------------------------
+  // Readiness (PA-19): the same checks, nothing committed
+  // ---------------------------------------------------------------------
+
+  async getReadiness(
+    paperId: number,
     db: PrismaOrTransaction,
-  ): Promise<void> {
-    const previous = await this.paperRepository.findPreviousPaper(saleDate, db);
+  ): Promise<PaperReadiness> {
+    const paper = await this.findPaperOrThrow(paperId, db);
 
-    if (!previous) {
-      return;
-    }
+    const result = (
+      action: PaperAction | null,
+      problems: string[],
+      warnings: string[] = [],
+      requiredActions: PaperRequiredAction[] = [],
+    ): PaperReadiness => {
+      const unique = this.unique(problems);
+      return {
+        paperId: paper.id,
+        status: paper.status,
+        action,
+        ready: action !== null && unique.length === 0,
+        problems: unique,
+        warnings,
+        requiredActions,
+      };
+    };
 
-    if (previous.status !== OrderPaperStatus.FINALIZED) {
-      throw new ConflictException(
-        ERROR_MESSAGES.PREVIOUS_PAPER_NOT_FINALIZED(
-          formatIsoDate(previous.sale_date),
-          previous.status,
-        ),
-      );
-    }
+    switch (paper.status) {
+      case OrderPaperStatus.DRAFT: {
+        const signOffPending =
+          await this.purchaseValidationService.isZeroAllocationSignOffPending(
+            paper.id,
+            db,
+          );
+        return result(
+          'SUBMIT_NIGHT',
+          await this.collectNightFailures(paper.id, db),
+          signOffPending ? [ZERO_ALLOCATION_DRAFT_WARNING] : [],
+        );
+      }
 
-    // PA-8.4: only FAILED blocks. Work that is still PENDING / PROCESSING does
-    // not, because every Orders, Purchase and tray save already recalculates
-    // its own ledger synchronously; propagation is the safety net for later days.
-    const failed = await this.paperRepository.countFailedPropagations(
-      previous.id,
-      db,
-    );
+      case OrderPaperStatus.NIGHT_SUBMITTED:
+        return result(
+          'SUBMIT_MORNING',
+          await this.collectMorningFailures(paper.id, db),
+          [],
+          await this.collectRequiredActions(paper.id, db),
+        );
 
-    if (failed > 0) {
-      throw new ConflictException(
-        ERROR_MESSAGES.PREVIOUS_PAPER_PROPAGATION_FAILED(
-          formatIsoDate(previous.sale_date),
-        ),
-      );
+      case OrderPaperStatus.MORNING_SUBMITTED:
+      case OrderPaperStatus.REOPENED: {
+        const block = await this.getPreviousPaperBlock(paper.sale_date, db);
+        const { failures, warnings } = await this.collectFinalizeChecks(
+          paper,
+          db,
+        );
+        return result(
+          'FINALIZE',
+          block ? [block, ...failures] : failures,
+          warnings,
+        );
+      }
+
+      default:
+        // FINALIZED: there is no further submit or finalize action.
+        return result(null, []);
     }
   }
+
+  // ---------------------------------------------------------------------
+  // Completion checks (morning submit, re-finalize of a REOPENED paper)
+  // ---------------------------------------------------------------------
 
   private async runCompletionValidations(
     paperId: number,
     db: PrismaOrTransaction,
     failures: string[],
-    options: { includeVehicleAllocation: boolean },
+    options: {
+      includeVehicleAllocation: boolean;
+      includeCashSettlement: boolean;
+    },
   ): Promise<void> {
     const sheets = await this.paperRepository.getPaperSheets(paperId, db);
 
     for (const sheet of sheets) {
       const prefix = `Sheet "${sheet.master_group.name}": `;
 
-      if (!this.isIgnorableSheet(sheet)) {
+      if (!this.skipsMorningOrdersCheck(sheet)) {
         await this.collect(
           failures,
           () =>
@@ -374,11 +592,13 @@ export class PaperValidationService {
       ),
     );
 
-    await this.collect(failures, () =>
-      this.cashSettlementValidationService.validateMorningSubmitReadiness(
-        paperId,
-        db,
-      ),
-    );
+    if (options.includeCashSettlement) {
+      await this.collect(failures, () =>
+        this.cashSettlementValidationService.validateMorningSubmitReadiness(
+          paperId,
+          db,
+        ),
+      );
+    }
   }
 }

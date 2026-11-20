@@ -35,6 +35,13 @@ export const VEHICLE_ALLOCATION_ERROR_MESSAGES = {
   VEHICLE_NOT_FOUND: (vehicleId: number) =>
     `Vehicle ${vehicleId} does not exist`,
 
+  // VA-5.8: unknown distributor / product ids are rejected for every entry.
+  DISTRIBUTOR_NOT_FOUND: (distributorId: number) =>
+    `Distributor ${distributorId} does not exist`,
+
+  PRODUCT_NOT_FOUND: (productId: number) =>
+    `Product ${productId} does not exist`,
+
   VEHICLE_INACTIVE: (vehicleName: string) =>
     `Vehicle "${vehicleName}" is inactive and cannot receive allocations`,
 

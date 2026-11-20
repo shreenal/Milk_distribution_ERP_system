@@ -314,8 +314,15 @@ export class BillingService {
     }
 
     const isReopened = sheet!.order_paper.status === OrderPaperStatus.REOPENED;
+    // OD-9.6: original final pricing is also kept in NIGHT_SUBMITTED once a
+    // morning save has stored delivered quantities (this covers a paper that
+    // was reverted from MORNING_SUBMITTED). The first morning save still
+    // prices at live rates, because the flag is set only after it.
+    const morningEntrySaved =
+      sheet!.order_paper.status === OrderPaperStatus.NIGHT_SUBMITTED &&
+      sheet!.order_morning_entry_saved_at !== null;
     const hasFrozenCommercials = (item: ExistingSheetItem) =>
-      isReopened &&
+      (isReopened || morningEntrySaved) &&
       item.final_selling_rate !== null &&
       item.final_gst_percentage !== null &&
       Number(item.delivered_qty ?? 0) > 0;
@@ -544,7 +551,7 @@ export class BillingService {
             ?.tray_type_id ?? null,
         unitsPerOrderUnit: orderUnit.units_per_order_unit,
         pricingQuantity: Number(orderUnit.pricing_quantity),
-        pricingUnit: orderUnit.pricing_unit as PricingUnit,
+        pricingUnit: orderUnit.pricing_unit,
         ownerDistributorId: ownerByClient.get(entry.clientId) ?? null,
       };
     });

@@ -1,6 +1,6 @@
 import { it, expect } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service.js';
-import { TRANSACTION_CONFIG } from './transaction.constants.js';
+import { TRANSACTION_CONFIG } from '../transactions/transaction.constants.js';
 
 it.skipIf(!process.env.PAPER_ID)('chunk duration vs timeout', async () => {
   const prisma = new PrismaService();

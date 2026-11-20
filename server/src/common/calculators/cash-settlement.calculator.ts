@@ -14,7 +14,29 @@ import { Decimal, toDecimal, toMoney } from '../utils/money.util.js';
 @Injectable()
 export class CashSettlementCalculationService {
   getDenominationTotals(rows: DenominationRow[]): DenominationTotals {
-    const totals = rows.reduce(
+    type DecimalTotals = {
+      note2000: Decimal;
+      note500: Decimal;
+      note200: Decimal;
+      note100: Decimal;
+      note50: Decimal;
+      note20: Decimal;
+      note10: Decimal;
+      coins: Decimal;
+    };
+
+    const initialTotals: DecimalTotals = {
+      note2000: new Decimal(0),
+      note500: new Decimal(0),
+      note200: new Decimal(0),
+      note100: new Decimal(0),
+      note50: new Decimal(0),
+      note20: new Decimal(0),
+      note10: new Decimal(0),
+      coins: new Decimal(0),
+    };
+
+    const totals = rows.reduce<DecimalTotals>(
       (acc, row) => ({
         note2000: acc.note2000.plus(toDecimal(row.note_2000 ?? 0)),
         note500: acc.note500.plus(toDecimal(row.note_500 ?? 0)),
@@ -25,16 +47,7 @@ export class CashSettlementCalculationService {
         note10: acc.note10.plus(toDecimal(row.note_10 ?? 0)),
         coins: acc.coins.plus(toDecimal(row.coins ?? 0)),
       }),
-      {
-        note2000: new Decimal(0),
-        note500: new Decimal(0),
-        note200: new Decimal(0),
-        note100: new Decimal(0),
-        note50: new Decimal(0),
-        note20: new Decimal(0),
-        note10: new Decimal(0),
-        coins: new Decimal(0),
-      },
+      initialTotals,
     );
 
     return {

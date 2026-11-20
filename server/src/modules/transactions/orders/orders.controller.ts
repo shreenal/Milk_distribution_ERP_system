@@ -4,6 +4,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Post,
   UseGuards,
@@ -31,12 +32,14 @@ export class OrdersController {
 
   @Get('sheet/:sheetId')
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async getSheet(@Param('sheetId', ParseIdPipe) sheetId: number) {
     return this.ordersService.getSheetService(sheetId);
   }
 
   @Get('products')
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async getAvailableProducts(
     @Query('category', new ParseEnumPipe(SupplyCategory))
     category: SupplyCategory,
@@ -46,6 +49,7 @@ export class OrdersController {
 
   @Get('sheet/:sheetId/items')
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async getSheetItems(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -56,6 +60,7 @@ export class OrdersController {
   @Post('sheet/:sheetId/night-save')
   @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async saveNightEntries(
     @Param('sheetId', ParseIdPipe) sheetId: number,
     @Body() dto: SaveNightEntriesRequestDto,
@@ -70,6 +75,7 @@ export class OrdersController {
   @Post('sheet/:sheetId/morning-save')
   @Throttle({ default: { limit: 60, ttl: 60000 } })
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async saveMorningEntries(
     @Param('sheetId', ParseIdPipe)
     sheetId: number,
@@ -85,6 +91,7 @@ export class OrdersController {
 
   @Post('sheet/:sheetId/products')
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async addProduct(
     @Param('sheetId', ParseIdPipe) sheetId: number,
     @Body() dto: AddProductDto,
@@ -94,6 +101,7 @@ export class OrdersController {
 
   @Delete('sheet/:sheetId/products/:productId')
   @Roles('EMPLOYEE')
+  @HttpCode(200)
   async removeProduct(
     @Param('sheetId', ParseIdPipe) sheetId: number,
     @Param('productId', ParseIdPipe) productId: number,

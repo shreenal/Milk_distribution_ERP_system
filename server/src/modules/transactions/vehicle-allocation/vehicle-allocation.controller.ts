@@ -2,9 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   ParseEnumPipe,
-  ParseIntPipe,
   Post,
   Query,
   UseGuards,
@@ -41,7 +41,9 @@ export class VehicleAllocationController {
     );
   }
 
+  // VA-10: success is 200, including a save that changed nothing.
   @Post(':paperId/vehicle-allocations')
+  @HttpCode(200)
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async saveVehicleAllocations(
@@ -56,6 +58,7 @@ export class VehicleAllocationController {
   // VA-7.4: removes invalid allocations (keeping the evidence) and closes
   // resolved flags, without changing any quantity.
   @Post(':paperId/vehicle-allocations/reconcile')
+  @HttpCode(200)
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   async reconcileVehicleAllocations(

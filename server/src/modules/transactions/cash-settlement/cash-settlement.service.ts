@@ -1,10 +1,9 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-} from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 
-import { CashSettlementRepository } from './cash-settlement.repository.js';
+import {
+  CashSettlementRepository,
+  isAllZero,
+} from './cash-settlement.repository.js';
 import { CashSettlementBuilder } from './cash-settlement.builder.js';
 
 import { SaveRouteExpensesDto } from './dto/save-route-expense.dto.js';
@@ -16,14 +15,13 @@ import { CashSettlementValidationService } from './services/cash-settlement-vali
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { Prisma } from '../../../generated/prisma/client.js';
-import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
-import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
+import { runTransactionSave } from '../../../common/transactions/transaction-save-pipeline.js';
 import {
   CASH_SETTLEMENT_ERRORS,
   STALE_DATA_MESSAGE,
 } from './cash-settlement.constants.js';
-
-type SavePlan = { changed: boolean; write: () => Promise<void> };
+import type { SaveChangePlan } from '../../../common/transactions/transaction-save-pipeline.js';
 
 type SaveFlow = {
   paperId: number;
@@ -32,7 +30,7 @@ type SaveFlow = {
   checkEditing: (tx: Prisma.TransactionClient) => Promise<{ updated_at: Date }>;
   // Request-vs-database checks. Returns whether anything would change and the
   // function that performs the writes (CS-10.5).
-  plan: (tx: Prisma.TransactionClient) => Promise<SavePlan>;
+  plan: (tx: Prisma.TransactionClient) => Promise<SaveChangePlan>;
 };
 
 @Injectable()
@@ -95,13 +93,25 @@ export class CashSettlementService {
           dto.expenses.map((e) => e.sheetId),
           tx,
         );
-        await validation.validateExpenseTypesExist(
-          dto.expenses.map((e) => e.expenseTypeId),
-          tx,
-        );
 
         const existing = await this.repository.findExpensesForPaper(
           paperId,
+          tx,
+        );
+
+        // CS-6.4: the active check applies only to new lines and to lines whose
+        // type is being changed. A saved line keeps its type even if that type
+        // was deactivated since (historical-record rule).
+        const storedTypeById = new Map(
+          existing.map((e) => [e.id, e.expense_type_id] as const),
+        );
+        await validation.validateExpenseTypesExist(
+          dto.expenses
+            .filter(
+              (e) =>
+                e.id == null || storedTypeById.get(e.id) !== e.expenseTypeId,
+            )
+            .map((e) => e.expenseTypeId),
           tx,
         );
         validation.validateExpenseChanges(
@@ -181,8 +191,12 @@ export class CashSettlementService {
         );
         const employeeIdsWithRow = new Set(existing.map((r) => r.employee_id));
 
+        // CS-8.4 / CS-8.5: an all-zero entry for an employee with no stored row
+        // creates nothing, so it is ignored before any employee rule.
         await validation.validateEmployees(
-          dto.directCollections,
+          dto.directCollections.filter(
+            (c) => employeeIdsWithRow.has(c.employeeId) || !isAllZero(c),
+          ),
           employeeIdsWithRow,
           tx,
         );
@@ -222,12 +236,21 @@ export class CashSettlementService {
       expectedUpdatedAt: dto.expectedUpdatedAt,
       checkEditing: (tx) => validation.validateBankDepositEditing(paperId, tx),
       plan: async (tx) => {
+        const existing = await this.repository.findBankDeposits(paperId, tx);
+
+        // CS-9.2: the active check applies only to new deposits and to deposits
+        // whose bank is being changed.
+        const storedBankById = new Map(
+          existing.map((d) => [d.id, d.bank_id] as const),
+        );
         await validation.validateBanksExist(
-          dto.bankDeposits.map((d) => d.bankId),
+          dto.bankDeposits
+            .filter(
+              (d) => d.id == null || storedBankById.get(d.id) !== d.bankId,
+            )
+            .map((d) => d.bankId),
           tx,
         );
-
-        const existing = await this.repository.findBankDeposits(paperId, tx);
         validation.validateBankDepositChanges(
           paperId,
           dto.bankDeposits,
@@ -256,56 +279,49 @@ export class CashSettlementService {
    * -> otherwise advance token -> write -> rebuild the full screen.
    */
   private async runSave(flow: SaveFlow) {
-    return withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const header = await flow.checkEditing(tx);
+    return runTransactionSave(this.prisma, {
+      loadContext: async (tx) => {
+        const header = await flow.checkEditing(tx);
 
-          const expected = this.parseExpected(flow.expectedUpdatedAt);
-          if (header.updated_at.getTime() !== expected.getTime()) {
-            throw new ConflictException(STALE_DATA_MESSAGE);
-          }
+        const expected = this.parseExpected(flow.expectedUpdatedAt);
+        if (header.updated_at.getTime() !== expected.getTime()) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
 
-          const plan = await flow.plan(tx);
+        return { header, expected };
+      },
+      plan: (_context, tx) => flow.plan(tx),
+      currentToken: ({ header }) => header.updated_at,
+      advanceToken: async ({ expected }, tx) => {
+        // A no-op save never advances the token (as OD-12.8, CD-9.4,
+        // VA-5.15, PD-57). A stale token was already rejected above.
+        const touch = await this.repository.touchOrderPaperIfTokenMatches(
+          flow.paperId,
+          expected,
+          tx,
+        );
+        if (touch.count !== 1) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
+        return touch.touchedAt;
+      },
+      buildResponse: async (_context, result, tx) => {
+        // CS-11: the response carries the token and the recalculated
+        // screen, so the frontend never needs a follow-up GET.
+        const paper =
+          await this.cashSettlementValidationService.getCashSettlementPaper(
+            flow.paperId,
+            tx,
+          );
 
-          // A no-op save never advances the token (as OD-12.8, CD-9.4,
-          // VA-5.15, PD-57). A stale token was already rejected above.
-          let token = header.updated_at;
-          if (plan.changed) {
-            const touch = await this.repository.touchOrderPaperIfTokenMatches(
-              flow.paperId,
-              expected,
-              tx,
-            );
-            if (touch.count !== 1) {
-              throw new ConflictException(STALE_DATA_MESSAGE);
-            }
-            token = touch.touchedAt;
-
-            await plan.write();
-          }
-
-          // CS-11: the response carries the token and the recalculated
-          // screen, so the frontend never needs a follow-up GET.
-          const paper =
-            await this.cashSettlementValidationService.getCashSettlementPaper(
-              flow.paperId,
-              tx,
-            );
-
-          return {
-            success: true,
-            changed: plan.changed,
-            cashSettlementUpdatedAt: token.toISOString(),
-            ...this.buildView(paper),
-          };
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
-    );
+        return {
+          success: true,
+          changed: result.changed,
+          cashSettlementUpdatedAt: result.token!,
+          ...this.buildView(paper),
+        };
+      },
+    });
   }
 
   private buildView(
@@ -326,12 +342,9 @@ export class CashSettlementService {
     if (expected === null) {
       throw new ConflictException(STALE_DATA_MESSAGE);
     }
-    const date = new Date(expected);
-    if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException(
-        CASH_SETTLEMENT_ERRORS.INVALID_EXPECTED_UPDATED_AT,
-      );
-    }
-    return date;
+    return optimisticConcurrency.parseExpectedUpdatedAt(
+      expected,
+      CASH_SETTLEMENT_ERRORS.INVALID_EXPECTED_UPDATED_AT,
+    )!;
   }
 }

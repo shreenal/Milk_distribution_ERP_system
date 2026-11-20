@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
   Post,
   UseGuards,
@@ -25,7 +26,9 @@ export class DairyTraysController {
   constructor(private readonly dairyTraysService: DairyTraysService) {}
 
   // DT-11.1: administrative recalculation over a sale-date range.
+  // DT-13: success is 200, as in the other modules.
   @Post('recalculate')
+  @HttpCode(200)
   @Roles('ADMIN')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   recalculateRange(@Body() dto: RecalculateDairyTraysRangeDto) {
@@ -42,6 +45,7 @@ export class DairyTraysController {
   }
 
   @Post(':paperId/save')
+  @HttpCode(200)
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
   @UseInterceptors(StripUnknownDairyTrayFieldsInterceptor)
@@ -56,6 +60,7 @@ export class DairyTraysController {
   // Same body and rules as the normal save, but only entries for an inactive
   // vehicle or tray type can be changed, and only an admin can call it.
   @Post(':paperId/reconcile-inactive')
+  @HttpCode(200)
   @Roles('ADMIN')
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @UseInterceptors(StripUnknownDairyTrayFieldsInterceptor)

@@ -7,6 +7,9 @@ import { DirectCollectionDto } from './dto/save-direct-collections.dto.js';
 import { BankDepositDto } from './dto/save-bank-deposit.dto.js';
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
+import { diffById } from '../../../common/transactions/change-planning/diff-by-id.js';
+import { sameNumber } from '../../../common/transactions/change-planning/equality.js';
+import { splitById } from '../../../common/transactions/validation/request-entry-validation.js';
 import { toDecimal, toMoney } from '../../../common/utils/money.util.js';
 
 // CS-10.5: every section first PLANS its changes (pure, nothing written) so the
@@ -73,7 +76,7 @@ function sameAmounts(stored: StoredAmounts, c: IncomingAmounts): boolean {
 }
 
 // CS-7.3 / CS-8.4: an all-zero entry with no stored row creates nothing.
-function isAllZero(c: IncomingAmounts): boolean {
+export function isAllZero(c: IncomingAmounts): boolean {
   return (
     c.note2000 === 0 &&
     c.note500 === 0 &&
@@ -177,32 +180,27 @@ export class CashSettlementRepository {
       ReturnType<CashSettlementRepository['findExpensesForPaper']>
     >,
   ): ExpenseChangeSet {
-    const existingById = new Map(existing.map((e) => [e.id, e]));
-    const updates: ExpenseChangeSet['updates'] = [];
-    const inserts: ExpenseChangeSet['inserts'] = [];
-
-    for (const e of expenses) {
-      if (e.id == null) {
-        inserts.push({
-          sheetId: e.sheetId,
-          expenseTypeId: e.expenseTypeId,
-          amount: e.amount,
-        });
-        continue;
-      }
-
-      const stored = existingById.get(e.id)!;
-      if (
-        stored.expense_type_id !== e.expenseTypeId ||
-        Number(stored.amount) !== toMoney(toDecimal(e.amount))
-      ) {
-        updates.push({
-          id: e.id,
-          expenseTypeId: e.expenseTypeId,
-          amount: e.amount,
-        });
-      }
-    }
+    const { withId: persisted, withoutId: newExpenses } = splitById(expenses);
+    const { toUpdate } = diffById(
+      existing,
+      persisted,
+      (e) => e.id,
+      (stored, incoming) =>
+        stored.expense_type_id !== incoming.expenseTypeId ||
+        !sameNumber(stored.amount, toMoney(toDecimal(incoming.amount))),
+    );
+    const updates: ExpenseChangeSet['updates'] = toUpdate.map(
+      ({ incomingRow }) => ({
+        id: incomingRow.id,
+        expenseTypeId: incomingRow.expenseTypeId,
+        amount: incomingRow.amount,
+      }),
+    );
+    const inserts: ExpenseChangeSet['inserts'] = newExpenses.map((e) => ({
+      sheetId: e.sheetId,
+      expenseTypeId: e.expenseTypeId,
+      amount: e.amount,
+    }));
 
     return {
       deletedIds,
@@ -444,14 +442,16 @@ export class CashSettlementRepository {
     deposits: BankDepositDto[],
     deletedIds: number[],
   ): BankDepositChangeSet {
-    const existingById = new Map(existing.map((d) => [d.id, d]));
-
-    const inserts = deposits.filter((d) => d.id == null);
-    const updates = deposits.filter((d) => {
-      if (d.id == null) return false;
-      const stored = existingById.get(d.id)!;
-      return stored.bank_id !== d.bankId || !sameAmounts(stored, d);
-    });
+    const { withId: persisted, withoutId: newDeposits } = splitById(deposits);
+    const { toUpdate } = diffById(
+      existing,
+      persisted,
+      (d) => d.id,
+      (stored, incoming) =>
+        stored.bank_id !== incoming.bankId || !sameAmounts(stored, incoming),
+    );
+    const updates = toUpdate.map(({ incomingRow }) => incomingRow);
+    const inserts = newDeposits;
 
     return {
       deletedIds,

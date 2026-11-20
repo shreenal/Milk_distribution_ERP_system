@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 
 import { CreateDistributorProductPriorityDto } from './create-distributor-product-priority.dto.js';
 

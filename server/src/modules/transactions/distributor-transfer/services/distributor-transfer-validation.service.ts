@@ -15,6 +15,9 @@ export class DistributorTransferValidationService {
     private readonly repository: DistributorTransferRepository,
     private readonly builder: DistributorTransferBuilder,
   ) {}
+
+  // PA-6.4 / PA-7.4 / PA-8.6: every supplier and owner pair without a rule is
+  // reported, not only the first. One missing pair keeps the original message.
   validateTransferRules(
     summaries: TransferSummaryBuilder[],
     transferRules: DistributorTransferRule[],
@@ -26,15 +29,29 @@ export class DistributorTransferValidationService {
       ),
     );
 
+    const missing = new Set<string>();
+
     for (const summary of summaries) {
       const key = `${summary.supplierDistributor.id}_${summary.ownerDistributor.id}`;
 
       if (!transferRuleSet.has(key)) {
-        throw new BadRequestException(
+        missing.add(
           `Transfer rule not found for supplier ${summary.supplierDistributor.name} and owner ${summary.ownerDistributor.name}`,
         );
       }
     }
+
+    if (missing.size === 0) return;
+
+    const details = [...missing];
+
+    throw new BadRequestException({
+      message:
+        details.length === 1
+          ? details[0]
+          : `Transfer rules not found for ${details.length} supplier and owner pairs`,
+      details,
+    });
   }
 
   async validateGenerationReadiness(paperId: number, db: PrismaOrTransaction) {

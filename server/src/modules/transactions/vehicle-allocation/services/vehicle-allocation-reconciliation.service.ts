@@ -10,7 +10,10 @@ import {
   StoredAllocation,
   StoredAnomaly,
 } from '../../../../types/vehicle-allocation.types.js';
-import { VehicleAllocationAnomalyReason } from '../../../../generated/prisma/client.js';
+import {
+  SupplyCategory,
+  VehicleAllocationAnomalyReason,
+} from '../../../../generated/prisma/client.js';
 import {
   Decimal,
   moneyEquals,
@@ -133,7 +136,7 @@ export class VehicleAllocationReconciliationService {
     requiredTotals: Map<string, number>,
     rows: {
       distributor_id: number;
-      category: string;
+      category: SupplyCategory;
       product_id: number;
       allocated_qty: unknown;
     }[],

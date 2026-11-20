@@ -27,69 +27,6 @@ export class ClientTraysPropagationService {
     await this.recalculateSheet(sheetId, tx);
   }
 
-  // async propagateFromPaper(
-  //   paperId: number,
-  //   tx: Prisma.TransactionClient,
-  // ): Promise<void> {
-  //   const sheets = await this.clientTraysRepository.getSheetsByPaperId(
-  //     paperId,
-  //     tx,
-  //   );
-
-  //   for (const sheet of sheets) {
-  //     await this.propagateFromSheet(sheet.id, tx);
-  //   }
-  // }
-
-  // async propagateFromSheet(
-  //   startSheetId: number,
-  //   tx: Prisma.TransactionClient,
-  // ): Promise<void> {
-  //   const startSheet = await this.clientTraysRepository.findSheetById(
-  //     startSheetId,
-  //     tx,
-  //   );
-
-  //   if (!startSheet) {
-  //     throw new NotFoundException(`Order sheet ${startSheetId} not found`);
-  //   }
-
-  //   // Only the sheet whose own data actually changed gets a full recompute
-  //   // of trays_taken (from its own order items + current tray rules).
-  //   await this.recalculateSheet(startSheetId, tx);
-
-  //   // Everything after it only inherits the shifted opening balance —
-  //   // their own trays_taken/trays_returned must never be touched by
-  //   // someone else's correction or by tray-rule drift since they were
-  //   // last finalized.
-  //   let currentSheetId: number | null =
-  //     (
-  //       await this.clientTraysRepository.getNextSheet(
-  //         startSheet.group_id,
-  //         startSheet.order_paper.sale_date,
-  //         tx,
-  //       )
-  //     )?.id ?? null;
-
-  //   while (currentSheetId !== null) {
-  //     await this.cascadeOpeningBalance(currentSheetId, tx);
-
-  //     const sheet = await this.clientTraysRepository.findSheetById(
-  //       currentSheetId,
-  //       tx,
-  //     );
-
-  //     currentSheetId =
-  //       (
-  //         await this.clientTraysRepository.getNextSheet(
-  //           sheet!.group_id,
-  //           sheet!.order_paper.sale_date,
-  //           tx,
-  //         )
-  //       )?.id ?? null;
-  //   }
-  // }
-
   async cascadeForwardChunk(
     startSheetId: number,
     resumeFromSheetId: number | null,
@@ -397,7 +334,9 @@ export class ClientTraysPropagationService {
     }
   }
 
-  private async assertNoReturnConflicts(
+  // Public since CT-5.13: the tray save uses the same check (and the same
+  // CT-6.6 message list) as the background jobs.
+  async assertNoReturnConflicts(
     opening: Map<string, number>,
     taken: Map<string, number>,
     returned: Map<string, number | null>,

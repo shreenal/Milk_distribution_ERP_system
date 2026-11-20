@@ -62,10 +62,31 @@ export class PropagationOutboxRepository {
     `);
   }
 
+  /**
+   * PA-10.7: a newer job for the same paper, type and resume point that
+   * completed supersedes older FAILED rows of that key. They become DISMISSED
+   * (kept for the record) so a failure that a later run already fixed stops
+   * blocking the next finalize (PA-8.4).
+   */
   async markDone(id: number) {
-    return this.prisma.propagation_outbox.update({
-      where: { id },
-      data: { status: PROPAGATION_OUTBOX_STATUS.DONE },
+    return this.prisma.$transaction(async (tx) => {
+      const done = await tx.propagation_outbox.update({
+        where: { id },
+        data: { status: PROPAGATION_OUTBOX_STATUS.DONE },
+      });
+
+      await tx.propagation_outbox.updateMany({
+        where: {
+          paper_id: done.paper_id,
+          type: done.type,
+          resume_from_id: done.resume_from_id,
+          status: PROPAGATION_OUTBOX_STATUS.FAILED,
+          id: { lt: done.id },
+        },
+        data: { status: PROPAGATION_OUTBOX_STATUS.DISMISSED },
+      });
+
+      return done;
     });
   }
 
@@ -128,6 +149,7 @@ export class PropagationOutboxRepository {
     const processing = count(PROPAGATION_OUTBOX_STATUS.PROCESSING);
     const failed = count(PROPAGATION_OUTBOX_STATUS.FAILED);
     const done = count(PROPAGATION_OUTBOX_STATUS.DONE);
+    const dismissed = count(PROPAGATION_OUTBOX_STATUS.DISMISSED);
 
     const status: 'COMPLETE' | 'IN_PROGRESS' | 'FAILED' =
       failed > 0
@@ -136,7 +158,7 @@ export class PropagationOutboxRepository {
           ? 'IN_PROGRESS'
           : 'COMPLETE';
 
-    return { status, pending, processing, failed, done, failures };
+    return { status, pending, processing, failed, done, dismissed, failures };
   }
 
   /** FAILED rows plus rows stuck PENDING/PROCESSING, across all papers. */
@@ -163,13 +185,49 @@ export class PropagationOutboxRepository {
     });
   }
 
-  async requeueFailedForPaper(paperId: number): Promise<number> {
-    const result = await this.prisma.propagation_outbox.updateMany({
+  // PA-10.4: the row starts over, so the error of the failed run is cleared.
+  async requeueFailedForPaper(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ): Promise<number> {
+    const result = await db.propagation_outbox.updateMany({
       where: { paper_id: paperId, status: PROPAGATION_OUTBOX_STATUS.FAILED },
-      data: { status: PROPAGATION_OUTBOX_STATUS.PENDING, attempts: 0 },
+      data: {
+        status: PROPAGATION_OUTBOX_STATUS.PENDING,
+        attempts: 0,
+        last_error: null,
+      },
     });
 
     return result.count;
+  }
+
+  /**
+   * PA-10.6: an admin gives up on FAILED rows. They stay in the table with
+   * status DISMISSED (evidence), so they stop blocking the next finalize.
+   * Returns the rows that were dismissed.
+   */
+  async dismissFailedForPaper(
+    paperId: number,
+    db: PrismaOrTransaction = this.prisma,
+  ) {
+    const rows = await db.propagation_outbox.findMany({
+      where: { paper_id: paperId, status: PROPAGATION_OUTBOX_STATUS.FAILED },
+      select: { id: true, type: true, last_error: true },
+      orderBy: { id: 'asc' },
+    });
+
+    if (rows.length === 0) return rows;
+
+    await db.propagation_outbox.updateMany({
+      where: {
+        id: { in: rows.map((r) => r.id) },
+        status: PROPAGATION_OUTBOX_STATUS.FAILED,
+      },
+      data: { status: PROPAGATION_OUTBOX_STATUS.DISMISSED },
+    });
+
+    return rows;
   }
 
   async requeueStuckProcessing(stuckSinceMs: number): Promise<number> {

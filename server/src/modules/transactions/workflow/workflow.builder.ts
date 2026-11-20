@@ -28,6 +28,11 @@ export class WorkflowBuilder {
         status === OrderPaperStatus.REOPENED,
 
       canReopen: status === OrderPaperStatus.FINALIZED,
+
+      // PA-18 / PA-17: advisory flags, like the others (PA-13.2).
+      canRevertMorning: status === OrderPaperStatus.MORNING_SUBMITTED,
+
+      canMarkNoOperation: status === OrderPaperStatus.DRAFT,
     };
   }
 

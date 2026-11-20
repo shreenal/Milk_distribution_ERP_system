@@ -11,10 +11,13 @@ import { DistributorTransferValidationService } from './services/distributor-tra
 import { PrismaOrTransaction } from '../../../types/transaction.types.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
-import { DISTRIBUTOR_TRANSFER_ERRORS } from './distributor-transfer.constants.js';
-
-const STALE_DATA_MESSAGE =
-  'distributor transfer data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+import {
+  DISTRIBUTOR_TRANSFER_ERRORS,
+  STALE_DATA_MESSAGE,
+} from './distributor-transfer.constants.js';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
+import { runSerializableTransaction } from '../../../common/transactions/transaction-runner.js';
+import { runReadSnapshot } from '../../../common/transactions/read-snapshot.js';
 
 export interface GenerateTransferOptions {
   tx?: PrismaOrTransaction;
@@ -34,25 +37,24 @@ export class DistributorTransferService {
   ) {}
 
   async getTransferSummary(paperId: number) {
-    const paper = await this.repository.findOrderPaperById(paperId);
+    return runReadSnapshot(this.prisma, async (tx) => {
+      const paper = await this.repository.findOrderPaperById(paperId, tx);
+      if (!paper) {
+        throw new NotFoundException(
+          DISTRIBUTOR_TRANSFER_ERRORS.ORDER_PAPER_NOT_FOUND,
+        );
+      }
 
-    if (!paper) {
-      throw new NotFoundException(
-        DISTRIBUTOR_TRANSFER_ERRORS.ORDER_PAPER_NOT_FOUND,
-      );
-    }
+      const items = await this.repository.getTransferSourceItems(paperId, tx);
+      const summaries = this.builder.buildTransferSummary(items);
+      const transfers = this.builder.buildTransferGrids(summaries);
 
-    const items = await this.repository.getTransferSourceItems(paperId);
-
-    const summaries = this.builder.buildTransferSummary(items);
-
-    const transfers = this.builder.buildTransferGrids(summaries);
-
-    return {
-      paper,
-      distributorTransferUpdatedAt: paper.updated_at.toISOString(),
-      ...transfers,
-    };
+      return {
+        paper,
+        distributorTransferUpdatedAt: paper.updated_at.toISOString(),
+        ...transfers,
+      };
+    });
   }
 
   async generateTransfer(
@@ -90,13 +92,11 @@ export class DistributorTransferService {
         if (expectedUpdatedAt === null) {
           throw new ConflictException(STALE_DATA_MESSAGE);
         }
-        const expected = new Date(expectedUpdatedAt);
-        if (Number.isNaN(expected.getTime())) {
-          throw new BadRequestException('Invalid expectedUpdatedAt');
-        }
+        const expected =
+          optimisticConcurrency.parseExpectedUpdatedAt(expectedUpdatedAt);
         const touch = await this.repository.touchOrderPaperIfTokenMatches(
           paperId,
-          expected,
+          expected!,
           t,
         );
         if (touch.count !== 1) {
@@ -133,6 +133,6 @@ export class DistributorTransferService {
     };
 
     if (tx) return run(tx);
-    return this.prisma.$transaction((t) => run(t));
+    return runSerializableTransaction(this.prisma, (t) => run(t));
   }
 }

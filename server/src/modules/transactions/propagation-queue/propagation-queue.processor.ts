@@ -10,7 +10,7 @@ import { PropagationOutboxRepository } from './propagation-outbox.repository.js'
 import { ClientTraysPropagationService } from '../client-trays/services/client-trays-propagation.service.js';
 import { DairyTraysPropagationService } from '../dairy-trays/services/dairy-trays-propagation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { TRANSACTION_CONFIG } from '../../../common/transactions/transaction.constants.js';
 
 const CHUNK_SIZE = 20;
 const MAX_REPORTED_DETAILS = 25;

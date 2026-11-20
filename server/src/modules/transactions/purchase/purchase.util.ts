@@ -1,6 +1,12 @@
 import { istDayBoundsUtc, formatIsoDate } from '../paper/paper-date.util.js';
 import { toDecimal } from '../../../common/utils/money.util.js';
 import { PURCHASE_LIMITS } from './purchase.constants.js';
+import { ConflictException } from '@nestjs/common';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
+import {
+  PURCHASE_ERROR_MESSAGES,
+  STALE_DATA_MESSAGE,
+} from './purchase.constants.js';
 
 /** PD-27: at most 2 decimal places (exact decimal check, safe for 1e-7). */
 export function hasAllowedPrecision(qty: number): boolean {
@@ -8,11 +14,13 @@ export function hasAllowedPrecision(qty: number): boolean {
 }
 
 /**
- * PD-37: a saved entry is stale only when its allocation snapshot explicitly
- * differs from the current allocation. A legacy row with no snapshot at all
- * (both fields empty) is never stale. If the allocation row was deleted the
- * id snapshot is nulled by the database but the quantity snapshot stays, so
- * that case still counts as stale.
+ * PD-37 (amended, Q15): a saved entry is stale when its allocation no longer
+ * exists, or when the allocated QUANTITY it was saved against differs from the
+ * current allocation. The allocation row's id is not compared: a row removed
+ * and re-added with the same quantity is the same decision for the same amount.
+ * A legacy row with no snapshot at all (both fields empty) is never stale. If
+ * the allocation row was deleted the id snapshot is nulled by the database but
+ * the quantity snapshot stays, so that case is judged on the quantity.
  */
 export function isStaleEntry(
   entry: { source_allocation_id: number | null; source_allocated_qty: unknown },
@@ -26,9 +34,8 @@ export function isStaleEntry(
   }
   if (!allocation) return true;
   return (
-    entry.source_allocation_id !== allocation.id ||
     Number(entry.source_allocated_qty ?? NaN) !==
-      Number(allocation.allocated_qty)
+    Number(allocation.allocated_qty)
   );
 }
 
@@ -66,4 +73,20 @@ export function resolveRateForDate<T extends DatedRate>(
 
 export function rateKey(productLinkId: number, gatepassDate: Date): string {
   return `${productLinkId}_${formatIsoDate(gatepassDate)}`;
+}
+
+export function assertPurchaseToken(
+  existing: { updated_at: Date } | null,
+  expected: string | null,
+): Date | null {
+  const parsed = optimisticConcurrency.parseExpectedUpdatedAt(
+    expected,
+    PURCHASE_ERROR_MESSAGES.INVALID_EXPECTED_UPDATED_AT,
+  );
+  if (
+    !optimisticConcurrency.tokenMatches(existing?.updated_at ?? null, parsed)
+  ) {
+    throw new ConflictException(STALE_DATA_MESSAGE);
+  }
+  return parsed;
 }

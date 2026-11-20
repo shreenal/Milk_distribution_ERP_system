@@ -161,18 +161,18 @@ export interface VehicleAllocationResponse {
 // Added for the stale / anomaly lifecycle (VA-6, VA-7, VA-8)
 // ---------------------------------------------------------------------------
 
-const labelledProductInclude = {
-  master_brand: true,
-  master_product_group: true,
-  master_product_type: true,
-  master_packaging_type: true,
-} as const;
+type LabelledProductInclude = {
+  master_brand: true;
+  master_product_group: true;
+  master_product_type: true;
+  master_packaging_type: true;
+};
 
 export type StoredAllocation = Prisma.vehicle_allocationGetPayload<{
   include: {
     master_vehicle: true;
     distributor: true;
-    master_product: { include: typeof labelledProductInclude };
+    master_product: { include: LabelledProductInclude };
   };
 }>;
 
@@ -180,7 +180,7 @@ export type StoredAnomaly = Prisma.vehicle_allocation_anomalyGetPayload<{
   include: {
     master_vehicle: true;
     distributor: true;
-    master_product: { include: typeof labelledProductInclude };
+    master_product: { include: LabelledProductInclude };
   };
 }>;
 

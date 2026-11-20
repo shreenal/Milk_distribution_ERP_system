@@ -457,6 +457,7 @@ model order_paper {
   order_sheet                order_sheet[]
   purchase_paper             purchase_paper?
   vehicle_allocation_paper   vehicle_allocation_paper[]
+  audit_logs                 paper_audit_log[]
 }
 
 model order_sheet {
@@ -464,6 +465,7 @@ model order_sheet {
   order_paper_id               Int
   group_id                     Int
   delivery_session             DeliverySession
+  no_operation                 Boolean                   @default(false)
   created_at                   DateTime                  @default(now())
   updated_at                   DateTime                  @default(now()) @updatedAt
   order_morning_entry_saved_at DateTime?
@@ -479,6 +481,7 @@ model order_sheet {
   order_sheet_product          order_sheet_product[]
 
   @@unique([order_paper_id, group_id])
+  @@index([group_id])
 }
 
 model order_sheet_product {
@@ -554,6 +557,7 @@ model users {
   role           roles           @relation(fields: [role_id], references: [id])
   refresh_tokens refresh_token[]
   purchase_papers_signed_off purchase_paper[] @relation("PurchasePaperSignOff")
+  paper_audit_logs           paper_audit_log[]   @relation("PaperAuditUser")
 }
 
 model refresh_token {
@@ -834,4 +838,33 @@ enum VehicleAllocationAnomalyReason {
 enum VehicleAllocationAnomalyStatus {
   FLAGGED
   RECONCILED
+}
+enum PaperAuditAction {
+  GENERATED
+  GENERATED_BACKFILL
+  NIGHT_SUBMITTED
+  MORNING_SUBMITTED
+  MORNING_REVERTED
+  FINALIZED
+  REOPENED
+  SHEET_OPERATION_CHANGED
+  PROPAGATION_RETRIED
+  PROPAGATION_DISMISSED
+}
+
+model paper_audit_log {
+  id             Int               @id @default(autoincrement())
+  order_paper_id Int
+  action         PaperAuditAction
+  from_status    OrderPaperStatus?
+  to_status      OrderPaperStatus?
+  user_id        Int?
+  reason         String?
+  details        Json?
+  created_at     DateTime          @default(now())
+  order_paper    order_paper       @relation(fields: [order_paper_id], references: [id], onDelete: Cascade)
+  user           users?            @relation("PaperAuditUser", fields: [user_id], references: [id], onDelete: SetNull)
+
+  @@index([order_paper_id, created_at])
+  @@index([user_id])
 }

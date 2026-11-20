@@ -8,7 +8,7 @@ import * as crypto from 'crypto';
 
 import { UsersRepository } from '../../masters/administration/users/users.repository.js';
 import { RefreshTokenRepository } from './refresh-token.repository.js';
-
+import type { SignOptions } from 'jsonwebtoken';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
@@ -137,7 +137,10 @@ export class AuthService {
     const payload = { sub: userId, username, role };
 
     const accessToken = this.jwtService.sign(payload, {
-      expiresIn: this.config.get<string>('ACCESS_TOKEN_TTL', '15m') as any,
+      expiresIn: this.config.get<string>(
+        'ACCESS_TOKEN_TTL',
+        '15m',
+      ) as SignOptions['expiresIn'],
     });
 
     const refreshToken = crypto

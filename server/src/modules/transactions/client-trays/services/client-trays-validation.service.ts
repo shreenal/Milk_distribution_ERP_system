@@ -6,6 +6,7 @@ import {
 import { ClientTraysRepository } from '../client-trays.repository.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { buildClientTrayKey } from '../../../../common/utils/client-tray-key.util.js';
+import { duplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
 import { SaveTrayReturnDto } from '../dto/save-trays-entries.dto.js';
 import { SupplyCategory } from '../../../../generated/prisma/client.js';
 import { ClientTrayLedgerLine } from '../../../../common/calculators/tray-calculation.service.js';
@@ -20,22 +21,18 @@ export class ClientTraysValidationService {
 
   // Decision 18: the same ledger key twice in one request is rejected.
   validateNoDuplicateEntries(entries: SaveTrayReturnDto[]): void {
-    const seen = new Set<string>();
-
-    for (const entry of entries) {
-      const key = buildClientTrayKey(entry);
-
-      if (seen.has(key)) {
-        throw new BadRequestException(
-          CLIENT_TRAY_ERROR_MESSAGES.DUPLICATE_ENTRY(
-            entry.clientId,
-            entry.trayTypeId,
-            entry.category,
-          ),
-        );
-      }
-
-      seen.add(key);
+    const duplicates = duplicateKeys(entries, buildClientTrayKey);
+    if (duplicates.length > 0) {
+      const entry = entries.find(
+        (candidate) => buildClientTrayKey(candidate) === duplicates[0],
+      )!;
+      throw new BadRequestException(
+        CLIENT_TRAY_ERROR_MESSAGES.DUPLICATE_ENTRY(
+          entry.clientId,
+          entry.trayTypeId,
+          entry.category,
+        ),
+      );
     }
   }
 
@@ -157,44 +154,6 @@ export class ClientTraysValidationService {
       });
     }
   }
-
-  // Decision 29: report every client with incomplete returns, not just the
-  // first one found.
-  // async validateTrayCompleteness(
-  //   sheetId: number,
-  //   db: PrismaOrTransaction,
-  // ): Promise<void> {
-  //   const transactions = await this.clientTraysRepository.getTrayTransactions(
-  //     sheetId,
-  //     db,
-  //   );
-
-  //   if (transactions.length === 0) {
-  //     return;
-  //   }
-
-  //   const incompleteClientNames = new Set<string>();
-
-  //   for (const transaction of transactions) {
-  //     const traysTaken = Number(transaction.trays_taken ?? 0);
-  //     const openingBalance = Number(transaction.opening_balance ?? 0);
-  //     const traysReturned = transaction.trays_returned;
-
-  //     if (traysTaken > 0 || openingBalance > 0) {
-  //       if (traysReturned === null || traysReturned === undefined) {
-  //         incompleteClientNames.add(String(transaction.master_client.name));
-  //       }
-  //     }
-  //   }
-
-  //   if (incompleteClientNames.size > 0) {
-  //     throw new BadRequestException(
-  //       CLIENT_TRAY_ERROR_MESSAGES.INCOMPLETE_TRAY_RETURNS([
-  //         ...incompleteClientNames,
-  //       ]),
-  //     );
-  //   }
-  // }
 
   async validateTrayCalculationExists(
     sheetId: number,

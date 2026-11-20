@@ -12,16 +12,20 @@ import {
   CLIENT_TRAY_ERROR_MESSAGES,
   CLIENT_TRAY_SUCCESS_MESSAGES,
   MAX_RECALCULATION_RANGE_DAYS,
+  STALE_DATA_MESSAGE,
 } from './client-trays.constants.js';
 import { TransactionClient } from '../../../types/transaction.types.js';
 import { OrderPaperStatus } from '../../../generated/prisma/client.js';
 import { WorkflowStateService } from '../workflow/workflow-state.service.js';
 import { WorkflowBuilder } from '../workflow/workflow.builder.js';
-import { TrayCalculationService } from '../../../common/calculators/tray-calculation.service.js';
+import {
+  TrayCalculationService,
+  type ClientTrayLedgerLine,
+} from '../../../common/calculators/tray-calculation.service.js';
 import { ClientTraysValidationService } from './services/client-trays-validation.service.js';
 import { PrismaService } from '../../../prisma/prisma.service.js';
-import { withSerializableRetry } from '../../../common/prisma/with-serializable-retry.js';
-import { TRANSACTION_CONFIG } from '../../../common/prisma/transaction.constants.js';
+import { runSerializableTransaction } from '../../../common/transactions/transaction-runner.js';
+import { optimisticConcurrency } from '../../../common/transactions/optimistic-concurrency.service.js';
 import {
   buildClientTrayKey,
   parseClientTrayKey,
@@ -30,9 +34,7 @@ import { PropagationOutboxRepository } from '../propagation-queue/propagation-ou
 import { PROPAGATION_OUTBOX_TYPES } from '../propagation-queue/propagation-queue.constants.js';
 import { parseStrictDate } from '../paper/paper-date.util.js';
 import { ClientTraysPropagationService } from './services/client-trays-propagation.service.js';
-
-const STALE_DATA_MESSAGE =
-  'Client Trays data has changed since you last loaded it. Please refresh and re-apply your changes before saving again.';
+import { runReadSnapshot } from '../../../common/transactions/read-snapshot.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -145,6 +147,7 @@ export class ClientTraysService {
       sheet,
       trayTypes,
       clients,
+      trayTransactions,
       openingBalances,
       takenByKey,
       returnedByKey,
@@ -172,21 +175,49 @@ export class ClientTraysService {
         ...trayBilling,
       };
     };
-    return tx ? run(tx) : this.prisma.$transaction(run);
+    return tx ? run(tx) : runReadSnapshot(this.prisma, run);
+  }
+
+  // CT-5.14: the save is a no-op when the ledger it would write is exactly the
+  // one already stored (same rows, same opening, taken, returned and closing).
+  // A stored return of null counts as different from 0 (CT-4.6 stores 0).
+  private isLedgerUnchanged(
+    stored: Awaited<ReturnType<ClientTraysRepository['getTrayTransactions']>>,
+    lines: ClientTrayLedgerLine[],
+  ): boolean {
+    if (stored.length !== lines.length) {
+      return false;
+    }
+
+    const storedByKey = new Map(
+      stored.map((row) => [
+        buildClientTrayKey({
+          clientId: row.client_id,
+          trayTypeId: row.tray_type_id,
+          category: row.category,
+        }),
+        row,
+      ]),
+    );
+
+    return lines.every((line) => {
+      const row = storedByKey.get(buildClientTrayKey(line));
+
+      return (
+        row !== undefined &&
+        row.opening_balance === line.opening &&
+        row.trays_taken === line.taken &&
+        row.trays_returned === line.returned &&
+        row.closing_balance === line.closing
+      );
+    });
   }
 
   private parseExpected(expected: string | null): Date | null {
-    if (expected === null) return null;
-
-    const date = new Date(expected);
-
-    if (Number.isNaN(date.getTime())) {
-      throw new BadRequestException(
-        CLIENT_TRAY_ERROR_MESSAGES.INVALID_EXPECTED_UPDATED_AT,
-      );
-    }
-
-    return date;
+    return optimisticConcurrency.parseExpectedUpdatedAt(
+      expected,
+      CLIENT_TRAY_ERROR_MESSAGES.INVALID_EXPECTED_UPDATED_AT,
+    );
   }
 
   async saveTrayEntriesService(
@@ -201,112 +232,134 @@ export class ClientTraysService {
     this.clienttraysValidationService.validateNoDuplicateEntries(entries);
     const expected = this.parseExpected(expectedUpdatedAt);
 
-    const clientTraysUpdatedAt = await withSerializableRetry(() =>
-      this.prisma.$transaction(
-        async (tx) => {
-          const sheet = await this.clienttraysRepository.findSheetById(
+    const clientTraysUpdatedAt = await runSerializableTransaction(
+      this.prisma,
+      async (tx) => {
+        const sheet = await this.clienttraysRepository.findSheetById(
+          sheetId,
+          tx,
+        );
+
+        if (!sheet) {
+          throw new NotFoundException(
+            CLIENT_TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND,
+          );
+        }
+
+        const status = sheet.order_paper.status;
+
+        if (!this.workflowStateService.canEditClientTrays(status)) {
+          throw new BadRequestException(
+            CLIENT_TRAY_ERROR_MESSAGES.TRAY_EDIT_NOT_ALLOWED,
+          );
+        }
+
+        // Decisions 15-17: sheet-level token, always checked. A missing
+        // token never reaches here (DTO) and a stale one is a 409. CT-5.14:
+        // this is a read-only comparison, so a save that turns out to change
+        // nothing never advances the token. It is advanced (compare and
+        // advance in one statement) only once there is something to write.
+        if (
+          !optimisticConcurrency.tokenMatches(
+            sheet.client_trays_updated_at,
+            expected,
+          )
+        ) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
+
+        // Everything is validated against the server's own numbers. Display
+        // mode (keepPositiveReturns) is always on here so a stranded legacy
+        // return reaches the explicit 409 of CT-5.13 below instead of a
+        // plain Error (a 500) from the ledger builder.
+        const ledger = await this.loadSheetLedger(sheetId, tx, true);
+
+        this.clienttraysValidationService.validateReturnEntries(
+          entries,
+          ledger.ledgerLines,
+          ledger.trayTypes,
+          ledger.clients,
+          options.reconcileInactive === true,
+        );
+
+        // Decision 3: a return that was not entered is zero. Rows already
+        // in the ledger get their stored value (or 0); submitted entries
+        // override.
+        const returnedByKey = new Map<string, number | null>();
+
+        for (const line of ledger.ledgerLines) {
+          returnedByKey.set(buildClientTrayKey(line), line.returned ?? 0);
+        }
+
+        for (const entry of entries) {
+          returnedByKey.set(buildClientTrayKey(entry), entry.returned);
+        }
+
+        // CT-5.13: no stored return, in the request or not, may stay above
+        // its balance. Refused with the CT-6.6 list; nothing is capped.
+        await this.clientTraysPropagationService.assertNoReturnConflicts(
+          ledger.openingBalances,
+          ledger.takenByKey,
+          returnedByKey,
+          sheet.order_paper.sale_date,
+          tx,
+        );
+
+        const lines = this.trayCalculationService.buildClientTrayLedger(
+          ledger.openingBalances,
+          ledger.takenByKey,
+          returnedByKey,
+        );
+
+        // CT-5.14: nothing would change, so nothing is written, the token is
+        // not advanced and, on a REOPENED paper, no dry run or cascade runs.
+        if (this.isLedgerUnchanged(ledger.trayTransactions, lines)) {
+          return sheet.client_trays_updated_at?.toISOString() ?? null;
+        }
+
+        const touch =
+          await this.clienttraysRepository.touchClientTraysIfTokenMatches(
+            sheetId,
+            expected,
+            tx,
+          );
+
+        if (touch.count !== 1) {
+          throw new ConflictException(STALE_DATA_MESSAGE);
+        }
+
+        await this.clienttraysRepository.replaceTrayTransactions(
+          sheetId,
+          lines.map((line) =>
+            this.trayCalculationService.toTransactionEntry(sheetId, line),
+          ),
+          tx,
+        );
+
+        // Decision 25: on a reopened paper, a changed closing balance must
+        // reach later sheets. Orders already does this for delivered-
+        // quantity corrections (DEP-002); this does the same for returns,
+        // through the same outbox and queue.
+        if (status === OrderPaperStatus.REOPENED) {
+          // CT-15.1: a higher return lowers every later opening balance.
+          // If a later sheet could no longer cover its own returns, this
+          // save is refused instead of failing later in the background.
+          await this.clientTraysPropagationService.assertNoForwardReturnConflicts(
             sheetId,
             tx,
           );
 
-          if (!sheet) {
-            throw new NotFoundException(
-              CLIENT_TRAY_ERROR_MESSAGES.SHEET_NOT_FOUND,
-            );
-          }
-
-          const status = sheet.order_paper.status;
-
-          if (!this.workflowStateService.canEditClientTrays(status)) {
-            throw new BadRequestException(
-              CLIENT_TRAY_ERROR_MESSAGES.TRAY_EDIT_NOT_ALLOWED,
-            );
-          }
-
-          // Decisions 15-17: sheet-level token, always checked. A missing
-          // token never reaches here (DTO) and a stale one is a 409.
-          const touch =
-            await this.clienttraysRepository.touchClientTraysIfTokenMatches(
-              sheetId,
-              expected,
-              tx,
-            );
-
-          if (touch.count !== 1) {
-            throw new ConflictException(STALE_DATA_MESSAGE);
-          }
-
-          // Everything is validated against the server's own numbers.
-          const ledger = await this.loadSheetLedger(
+          await this.propagationOutboxRepository.enqueue(
+            PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET,
+            sheet.order_paper_id,
             sheetId,
             tx,
-            options.reconcileInactive === true,
           );
+        }
 
-          this.clienttraysValidationService.validateReturnEntries(
-            entries,
-            ledger.ledgerLines,
-            ledger.trayTypes,
-            ledger.clients,
-            options.reconcileInactive === true,
-          );
-
-          // Decision 3: a return that was not entered is zero. Rows already
-          // in the ledger get their stored value (or 0); submitted entries
-          // override.
-          const returnedByKey = new Map<string, number | null>();
-
-          for (const line of ledger.ledgerLines) {
-            returnedByKey.set(buildClientTrayKey(line), line.returned ?? 0);
-          }
-
-          for (const entry of entries) {
-            returnedByKey.set(buildClientTrayKey(entry), entry.returned);
-          }
-
-          const lines = this.trayCalculationService.buildClientTrayLedger(
-            ledger.openingBalances,
-            ledger.takenByKey,
-            returnedByKey,
-          );
-
-          await this.clienttraysRepository.replaceTrayTransactions(
-            sheetId,
-            lines.map((line) =>
-              this.trayCalculationService.toTransactionEntry(sheetId, line),
-            ),
-            tx,
-          );
-
-          // Decision 25: on a reopened paper, a changed closing balance must
-          // reach later sheets. Orders already does this for delivered-
-          // quantity corrections (DEP-002); this does the same for returns,
-          // through the same outbox and queue.
-          if (status === OrderPaperStatus.REOPENED) {
-            // CT-15.1: a higher return lowers every later opening balance.
-            // If a later sheet could no longer cover its own returns, this
-            // save is refused instead of failing later in the background.
-            await this.clientTraysPropagationService.assertNoForwardReturnConflicts(
-              sheetId,
-              tx,
-            );
-
-            await this.propagationOutboxRepository.enqueue(
-              PROPAGATION_OUTBOX_TYPES.CLIENT_TRAYS_CASCADE_FROM_SHEET,
-              sheet.order_paper_id,
-              sheetId,
-              tx,
-            );
-          }
-
-          // Decision 16: the caller needs the new token to save again.
-          return touch.touchedAt.toISOString();
-        },
-        {
-          timeout: TRANSACTION_CONFIG.TIMEOUT_MS,
-          isolationLevel: TRANSACTION_CONFIG.ISOLATION_LEVEL,
-        },
-      ),
+        // Decision 16: the caller needs the new token to save again.
+        return touch.touchedAt.toISOString();
+      },
     );
 
     return {

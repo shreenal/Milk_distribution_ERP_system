@@ -5,7 +5,13 @@ export const DATE_CONFIG = {
   TIMEZONE: 'Asia/Kolkata',
 
   GENERATION_SALE_DATE_OFFSET_DAYS: 1,
+
+  // PA-4.9: how far back an admin may generate a missed paper. PLACEHOLDER
+  // (PA-14.10); the same size as the tray recalculation window (CT-11.2).
+  MAX_BACKDATE_DAYS: 31,
 } as const;
+
+export const PAPER_AUDIT_LIST_LIMIT = 500;
 
 // PA-11.3: submit-night, submit-morning and finalize run every other module's
 // readiness checks (and finalize also rebuilds distributor transfers) inside one
@@ -36,19 +42,27 @@ export const ERROR_MESSAGES = {
     `Cannot finalize: the previous paper (${saleDate}) is ${status}. Finalize it first.`,
   // PA-8.4
   PREVIOUS_PAPER_PROPAGATION_FAILED: (saleDate: string) =>
-    `Cannot finalize: background tray propagation for the previous paper (${saleDate}) has failed. Fix the cause and retry the propagation first.`,
-  ONLY_CURRENT_BUSINESS_DAY: (expectedSaleDate: string) =>
-    `Papers can only be generated for the current business day (sale date ${expectedSaleDate})`,
+    `Cannot finalize: background tray propagation for the previous paper (${saleDate}) has failed. An administrator must retry it (or dismiss it with a reason) first.`,
+  FUTURE_DATE_NOT_ALLOWED: (latestSaleDate: string) =>
+    `Papers cannot be generated for a future date. The latest date that can be generated is ${latestSaleDate}`,
+  BACKFILL_ADMIN_ONLY:
+    'Only an administrator can generate a paper for a past date',
+  BACKFILL_REASON_REQUIRED:
+    'A reason is required to generate a paper for a past date',
+  BACKFILL_TOO_OLD: (maxDays: number) =>
+    `A paper can only be generated up to ${maxDays} days back`,
+  REVERT_ONLY_MORNING_SUBMITTED: (status: OrderPaperStatus) =>
+    `Only a MORNING_SUBMITTED paper can be reverted to NIGHT_SUBMITTED (paper is ${status})`,
+  NO_OPERATION_ONLY_DRAFT: (status: OrderPaperStatus) =>
+    `Routes can only be marked or unmarked as no-operation while the paper is DRAFT (paper is ${status})`,
+  SHEETS_NOT_IN_PAPER: (ids: number[], paperId: number) =>
+    `Sheet(s) ${ids.join(', ')} do not belong to paper ${paperId}`,
 
   // PA-6.4 / PA-7.4 / PA-8.6: every independent readiness failure is reported
   // together as { message, details[] }.
   NIGHT_NOT_READY: 'Night submission is not ready',
   MORNING_NOT_READY: 'Morning submission is not ready',
   FINALIZE_NOT_READY: 'Finalization is not ready',
-
-  // PA-11.3: a transaction that hit the time limit saved nothing.
-  TRANSACTION_TIMED_OUT:
-    'The request took too long and nothing was saved. Please retry.',
 } as const;
 
 export const SUCCESS_MESSAGES = {

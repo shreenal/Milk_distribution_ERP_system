@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 
 import { CashSettlementService } from './cash-settlement.service.js';
 
@@ -33,6 +41,7 @@ export class CashSettlementController {
   @Post(':paperId/route-expenses')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CS-11.2: saves answer 200, as Orders and Collections
   async saveRouteExpenses(
     @Param('paperId', ParseIdPipe)
     paperId: number,
@@ -46,6 +55,7 @@ export class CashSettlementController {
   @Post(':paperId/route-denominations')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CS-11.2: saves answer 200, as Orders and Collections
   async saveRouteDenominations(
     @Param('paperId', ParseIdPipe)
     paperId: number,
@@ -62,6 +72,7 @@ export class CashSettlementController {
   @Post(':paperId/direct-collections')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CS-11.2: saves answer 200, as Orders and Collections
   async saveDirectCollections(
     @Param('paperId', ParseIdPipe)
     paperId: number,
@@ -78,6 +89,7 @@ export class CashSettlementController {
   @Post(':paperId/bank-deposits')
   @Roles('EMPLOYEE')
   @Throttle({ default: { limit: 10, ttl: 60000 } })
+  @HttpCode(200) // CS-11.2: saves answer 200, as Orders and Collections
   async saveBankDeposits(
     @Param('paperId', ParseIdPipe)
     paperId: number,

@@ -3,6 +3,7 @@ import { OrdersRepository } from '.././orders.repository.js';
 import { ERROR_MESSAGES, QUANTITY_PRECISION } from './../orders.constants.js';
 import { PrismaOrTransaction } from '../../../../types/transaction.types.js';
 import { toDecimal } from '../../../../common/utils/money.util.js';
+import { assertNoDuplicateKeys } from '../../../../common/transactions/validation/duplicate-entry.js';
 
 @Injectable()
 export class OrdersValidationService {
@@ -46,22 +47,11 @@ export class OrdersValidationService {
       productId: number;
     }[],
   ) {
-    const seen = new Set<string>();
-    const duplicates: string[] = [];
-
-    for (const entry of entries) {
-      const key = `${entry.clientId}-${entry.productId}`;
-      if (seen.has(key)) {
-        duplicates.push(key);
-      }
-      seen.add(key);
-    }
-
-    if (duplicates.length > 0) {
-      throw new BadRequestException(
-        ERROR_MESSAGES.DUPLICATE_ENTRIES(duplicates),
-      );
-    }
+    assertNoDuplicateKeys(
+      entries,
+      (entry) => `${entry.clientId}-${entry.productId}`,
+      ERROR_MESSAGES.DUPLICATE_ENTRIES,
+    );
   }
 
   validateOrderedQuantity(qty: number) {
@@ -153,7 +143,6 @@ export class OrdersValidationService {
       (i) => i.delivered_qty === null || i.delivered_qty === undefined,
     );
     if (incomplete.length > 0) {
-      const codes = incomplete.map((i) => i.master_product.code).join(', ');
       throw new BadRequestException(
         `Delivered quantity missing for: ${this.productLabels(incomplete)}`,
       );

@@ -1,26 +1,10 @@
-export async function touchIfUnchanged<
-  TDb extends {
-    updateMany: (args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }) => Promise<{ count: number }>;
-  },
->(
-  db: TDb,
-  idWhere: Record<string, unknown>,
-  timestampField: string,
-  expectedUpdatedAt: Date | null,
-): Promise<{ count: number }> {
-  return db.updateMany({
-    where: {
-      ...idWhere,
-      ...(expectedUpdatedAt !== null
-        ? { [timestampField]: expectedUpdatedAt }
-        : {}),
-    },
-    data: { [timestampField]: new Date() },
-  });
-}
+// Columns that act as optimistic-concurrency tokens. A typo here would make the
+// conditional update silently match nothing, so the set is closed.
+export type TokenField =
+  | 'updated_at'
+  | 'order_items_updated_at'
+  | 'collections_updated_at'
+  | 'client_trays_updated_at';
 
 export async function touchIfTokenMatches<
   TDb extends {
@@ -32,7 +16,7 @@ export async function touchIfTokenMatches<
 >(
   db: TDb,
   idWhere: Record<string, unknown>,
-  field: string,
+  field: TokenField,
   expected: Date | null,
 ): Promise<{ count: number; touchedAt: Date }> {
   const now = new Date();

@@ -9,6 +9,7 @@ import { SupplyCategory } from '../../../generated/prisma/client.js';
 import { Prisma } from '../../../generated/prisma/client.js';
 import { touchIfTokenMatches } from '../../../common/prisma/touch-if-unchanged.util.js';
 import { buildClientTrayKey } from '../../../common/utils/client-tray-key.util.js';
+import { obsoleteDerivedRows } from '../../../common/transactions/strategies/derived-ledger.strategy.js';
 
 @Injectable()
 export class ClientTraysRepository {
@@ -42,23 +43,6 @@ export class ClientTraysRepository {
       include: {
         master_group: true,
         order_paper: true,
-      },
-    });
-  }
-
-  async getClientsByGroupId(
-    groupId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.master_client.findMany({
-      where: {
-        delivery_group_id: groupId,
-
-        is_active: true,
-      },
-
-      orderBy: {
-        name: 'asc',
       },
     });
   }
@@ -149,29 +133,29 @@ export class ClientTraysRepository {
     });
   }
 
-  async getTrayTypes(db: PrismaOrTransaction = this.prisma) {
-    return db.master_tray_type.findMany({
-      where: {
-        is_active: true,
-      },
+  // async getTrayTypes(db: PrismaOrTransaction = this.prisma) {
+  //   return db.master_tray_type.findMany({
+  //     where: {
+  //       is_active: true,
+  //     },
 
-      include: {
-        master_brand: true,
-      },
+  //     include: {
+  //       master_brand: true,
+  //     },
 
-      orderBy: [
-        {
-          master_brand: {
-            name: 'asc',
-          },
-        },
+  //     orderBy: [
+  //       {
+  //         master_brand: {
+  //           name: 'asc',
+  //         },
+  //       },
 
-        {
-          color: 'asc',
-        },
-      ],
-    });
-  }
+  //       {
+  //         color: 'asc',
+  //       },
+  //     ],
+  //   });
+  // }
 
   // Decision 10: inactive tray types with open balances stay visible, so the
   // grid needs every tray type, not only the active ones. The builder marks
@@ -213,39 +197,6 @@ export class ClientTraysRepository {
             master_brand: true,
           },
         },
-      },
-    });
-  }
-
-  async getPreviousSheet(
-    groupId: number,
-    saleDate: Date,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.order_sheet.findFirst({
-      where: {
-        group_id: groupId,
-        order_paper: {
-          sale_date: {
-            lt: saleDate,
-          },
-        },
-      },
-      orderBy: {
-        order_paper: {
-          sale_date: 'desc',
-        },
-      },
-    });
-  }
-
-  async getPreviousTrayBalances(
-    orderSheetId: number,
-    db: PrismaOrTransaction = this.prisma,
-  ) {
-    return db.client_tray_transaction.findMany({
-      where: {
-        order_sheet_id: orderSheetId,
       },
     });
   }
@@ -335,11 +286,12 @@ export class ClientTraysRepository {
         category: r.category,
       });
 
-    const incomingKeys = new Set(entries.map(keyOf));
-
-    const toDeleteIds = existing
-      .filter((r) => !incomingKeys.has(keyOf(r)))
-      .map((r) => r.id);
+    const toDeleteIds = obsoleteDerivedRows(
+      existing,
+      entries,
+      keyOf,
+      keyOf,
+    ).map((r) => r.id);
 
     if (toDeleteIds.length > 0) {
       await db.client_tray_transaction.deleteMany({
@@ -406,9 +358,6 @@ export class ClientTraysRepository {
     });
   }
 
-  // Decisions 15 and 16: compare-and-advance the sheet-level token. Unlike
-  // touchIfUnchanged, an explicit null token only matches a sheet whose token
-  // is still empty, so the check can never be skipped.
   async touchClientTraysIfTokenMatches(
     sheetId: number,
     expectedUpdatedAt: Date | null,
